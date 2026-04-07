@@ -23,11 +23,8 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
     },
   });
   if (res.status === 401) {
-    if (typeof window !== 'undefined' && !path.includes('/auth/login')) {
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
-      window.location.href = '/login';
-    }
+    // 401はthrowするだけ。トークン消去やリダイレクトはAuthGuardに任せる
+    // window.location.hrefでハードリロードするとReact stateが全消しされる
     throw new Error('Unauthorized');
   }
   if (!res.ok) {
