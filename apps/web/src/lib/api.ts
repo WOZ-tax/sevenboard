@@ -127,6 +127,18 @@ export const api = {
   getCashflowCategories: (orgId: string) =>
     apiFetch<any>(`/organizations/${orgId}/cashflow/categories`),
 
+  // === Calendar ===
+  calendar: {
+    getEvents: (orgId: string, year: number, month: number) =>
+      apiFetch<any[]>(`/organizations/${orgId}/calendar?year=${year}&month=${month}`),
+    createEvent: (orgId: string, data: { title: string; date: string; type?: string; description?: string }) =>
+      apiFetch<any>(`/organizations/${orgId}/calendar`, { method: 'POST', body: JSON.stringify(data) }),
+    updateEvent: (orgId: string, eventId: string, data: any) =>
+      apiFetch<any>(`/organizations/${orgId}/calendar/${eventId}`, { method: 'PUT', body: JSON.stringify(data) }),
+    deleteEvent: (orgId: string, eventId: string) =>
+      apiFetch<any>(`/organizations/${orgId}/calendar/${eventId}`, { method: 'DELETE' }),
+  },
+
   // === Comments ===
   comments: {
     getAll: (orgId: string, month?: string) =>

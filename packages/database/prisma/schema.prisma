@@ -42,6 +42,7 @@ model Organization {
   collectionProfiles CollectionProfile[]
   runwaySnapshots    RunwaySnapshot[]
   loanSimulations    LoanSimulation[]
+  calendarEvents     CalendarEvent[]
 
   @@map("organizations")
 }
@@ -587,4 +588,27 @@ model AuditLog {
   @@index([orgId, createdAt])
   @@index([userId, createdAt])
   @@map("audit_logs")
+}
+
+// ============================================================
+// カレンダーイベント
+// ============================================================
+
+model CalendarEvent {
+  id          String   @id @default(uuid()) @db.Uuid
+  orgId       String   @map("org_id") @db.Uuid
+  title       String
+  date        DateTime @db.Date
+  type        String   @default("task") // "deadline", "meeting", "task"
+  status      String   @default("upcoming") // "upcoming", "completed", "cancelled"
+  description String?
+  assigneeId  String?  @map("assignee_id") @db.Uuid
+  createdBy   String   @map("created_by") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [orgId], references: [id])
+
+  @@index([orgId, date])
+  @@map("calendar_events")
 }
