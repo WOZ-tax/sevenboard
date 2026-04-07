@@ -16,6 +16,8 @@ RUN npm install --ignore-scripts
 COPY packages/ packages/
 COPY apps/api/ apps/api/
 COPY tsconfig*.json ./
+COPY scripts/start.sh scripts/
+RUN chmod +x scripts/start.sh
 
 # Generate Prisma + build
 RUN npx prisma generate --schema=packages/database/prisma/schema.prisma
@@ -23,4 +25,4 @@ RUN npm run build -w apps/api
 
 ENV NODE_ENV=production
 EXPOSE 3001
-CMD ["node", "apps/api/dist/main"]
+CMD ["sh", "scripts/start.sh"]
