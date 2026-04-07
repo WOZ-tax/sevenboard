@@ -14,8 +14,8 @@ import {
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { varianceData as fallbackVarianceData } from "@/lib/mock-data";
 import { formatManYen, formatPercent, getValueColor } from "@/lib/format";
+import { MfEmptyState } from "@/components/ui/mf-empty-state";
 import {
   useBudgetContext,
   useNormalizedVarianceRows,
@@ -45,10 +45,7 @@ export default function VariancePage() {
   const [selectedDept, setSelectedDept] = useState("全社");
   const [viewMode, setViewMode] = useState<"monthly" | "cumulative">("monthly");
 
-  const rows = useMemo(
-    () => (apiRows.length > 0 ? apiRows : fallbackVarianceData),
-    [apiRows]
-  );
+  const rows = apiRows;
 
   return (
     <DashboardShell>
@@ -120,6 +117,9 @@ export default function VariancePage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
+            {rows.length === 0 ? (
+              <MfEmptyState title="予実データがありません" description="予算を設定しMFクラウド会計を接続すると、予実差異が表示されます。" />
+            ) : (
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
@@ -244,6 +244,7 @@ export default function VariancePage() {
                 </TableBody>
               </Table>
             </div>
+            )}
           </CardContent>
         </Card>
       </div>

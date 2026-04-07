@@ -67,17 +67,7 @@ function getProgressColor(def: IndicatorDef, value: number): string {
   return "bg-[var(--color-error)]";
 }
 
-const mockIndicators = {
-  currentRatio: 185.3,
-  equityRatio: 42.1,
-  debtEquityRatio: 137.5,
-  grossProfitMargin: 55.2,
-  operatingProfitMargin: 12.8,
-  roe: 14.2,
-  roa: 6.0,
-  totalAssetTurnover: 1.2,
-  receivablesTurnover: 5.8,
-};
+import { MfEmptyState } from "@/components/ui/mf-empty-state";
 
 function IndicatorCard({
   def,
@@ -123,10 +113,7 @@ function IndicatorCard({
 export default function IndicatorsPage() {
   const indicators = useMfFinancialIndicators();
 
-  const data = useMemo(() => {
-    if (indicators.data) return indicators.data;
-    return mockIndicators;
-  }, [indicators.data]);
+  const data = indicators.data;
 
   return (
     <DashboardShell>
@@ -144,6 +131,16 @@ export default function IndicatorsPage() {
           </div>
         </div>
 
+        {indicators.isLoading ? (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {Array.from({ length: 9 }).map((_, i) => (
+              <div key={i} className="h-32 animate-pulse rounded-lg bg-muted" />
+            ))}
+          </div>
+        ) : !data ? (
+          <MfEmptyState />
+        ) : (
+        <>
         {/* 安全性 */}
         <section>
           <div className="flex items-center gap-2 mb-4">
@@ -200,6 +197,8 @@ export default function IndicatorsPage() {
             ))}
           </div>
         </section>
+        </>
+        )}
       </div>
     </DashboardShell>
   );

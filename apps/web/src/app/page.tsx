@@ -17,14 +17,17 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Bot, AlertTriangle, AlertCircle, Info } from "lucide-react";
-import { kpiData, aiSummary, alerts } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
+import { formatManYen } from "@/lib/format";
 import {
   useMfDashboard,
   useMfPLTransition,
   useMfOffice,
   useAiSummary,
+  useAlerts,
 } from "@/hooks/use-mf-data";
+import { MfEmptyState } from "@/components/ui/mf-empty-state";
+import { QueryErrorState } from "@/components/ui/query-error-state";
 
 const alertLevelConfig = {
   critical: {
@@ -50,21 +53,12 @@ const alertLevelConfig = {
   },
 };
 
-// 前年比モックデータ
-const kpiYoY = {
-  revenue: 12.3,
-  operatingProfit: -5.4,
-  cashflow: 8.1,
-  runway: 2.0,
-};
-
-// スパークライン用トレンドデータ（直近6ヶ月）
-const kpiTrends = {
-  revenue: [10200, 10800, 11200, 11500, 12100, 12500],
-  operatingProfit: [2400, 2500, 2600, 2700, 2650, 2800],
-  cashflow: [1100, 1200, 1300, 1250, 1400, 1500],
-  runway: [17.0, 17.5, 17.8, 18.0, 18.2, 18.5],
-};
+const kpiMeta = {
+  revenue: { title: "売上高", unit: "円" },
+  operatingProfit: { title: "営業利益", unit: "円" },
+  cashBalance: { title: "現預金残高", unit: "円" },
+  runway: { title: "ランウェイ", unit: "か月" },
+} as const;
 
 export default function DashboardPage() {
   const [comparisonMode, setComparisonMode] = useState<"mom" | "yoy">("mom");
@@ -72,35 +66,32 @@ export default function DashboardPage() {
   const plTransition = useMfPLTransition();
   const office = useMfOffice();
   const aiSummaryQuery = useAiSummary();
+  const alertsQuery = useAlerts();
 
   const comparisonLabel = comparisonMode === "mom" ? "前月比" : "前年比";
 
-  const kpiKeys = ["revenue", "operatingProfit", "cashflow", "runway"] as const;
+  const kpiKeys = ["revenue", "operatingProfit", "cashBalance", "runway"] as const;
 
-  const kpis = kpiKeys.map((key) => {
-    const base = kpiData[key];
-    const value =
-      dashboard.data && key !== "cashflow"
-        ? (key === "revenue"
-            ? dashboard.data.revenue
-            : key === "operatingProfit"
-              ? dashboard.data.operatingProfit
-              : dashboard.data.runway) ?? base.value
-        : base.value;
-    return {
-      ...base,
-      value,
-      trend: kpiTrends[key],
-      comparisonLabel,
-      comparisonValue: comparisonMode === "yoy" ? kpiYoY[key] : undefined,
-    };
-  });
+  const kpis = dashboard.data
+    ? kpiKeys.map((key) => {
+        const meta = kpiMeta[key];
+        const value = dashboard.data[key] ?? 0;
+        return {
+          title: meta.title,
+          value,
+          unit: meta.unit,
+          comparisonLabel,
+        };
+      })
+    : null;
 
   const periodLabel = office.data?.accounting_periods?.[0]
     ? `${office.data.accounting_periods[0].fiscal_year}年${office.data.accounting_periods[0].end_month}月度`
-    : "2026年3月度";
+    : "";
 
   const isLoading = dashboard.isLoading;
+  const isError = dashboard.isError;
+  const hasNoData = !isLoading && !isError && !dashboard.data;
 
   return (
     <DashboardShell>
@@ -120,7 +111,11 @@ export default function DashboardPage() {
               <div key={i} className="h-24 animate-pulse rounded-lg bg-muted" />
             ))}
           </div>
-        ) : (
+        ) : isError ? (
+          <QueryErrorState onRetry={() => dashboard.refetch()} />
+        ) : hasNoData ? (
+          <MfEmptyState />
+        ) : kpis ? (
           <>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
               {kpis.map((kpi) => (
@@ -155,7 +150,7 @@ export default function DashboardPage() {
               </div>
             </div>
           </>
-        )}
+        ) : null}
 
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
           <div className="lg:col-span-2">
@@ -181,7 +176,7 @@ export default function DashboardPage() {
               ) : (
                 <>
                   <p className="text-sm leading-relaxed text-muted-foreground">
-                    {aiSummaryQuery.data?.summary || aiSummary.content}
+                    {aiSummaryQuery.data?.summary || "AIサマリーを生成するにはMFクラウド会計を接続してください。"}
                   </p>
                   {aiSummaryQuery.data?.highlights &&
                     aiSummaryQuery.data.highlights.length > 0 && (
@@ -205,14 +200,12 @@ export default function DashboardPage() {
                         ))}
                       </div>
                     )}
-                  <div className="mt-4 text-xs text-muted-foreground/60">
-                    生成日時:{" "}
-                    {aiSummaryQuery.data?.generatedAt
-                      ? new Date(aiSummaryQuery.data.generatedAt).toLocaleString(
-                          "ja-JP"
-                        )
-                      : aiSummary.generatedAt}
-                  </div>
+                  {aiSummaryQuery.data?.generatedAt && (
+                    <div className="mt-4 text-xs text-muted-foreground/60">
+                      生成日時:{" "}
+                      {new Date(aiSummaryQuery.data.generatedAt).toLocaleString("ja-JP")}
+                    </div>
+                  )}
                 </>
               )}
             </CardContent>
@@ -226,36 +219,49 @@ export default function DashboardPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            {alerts.map((alert) => {
-              const config = alertLevelConfig[alert.level];
-              const Icon = config.icon;
+            {alertsQuery.isLoading ? (
+              <div className="space-y-2">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <div key={i} className="h-16 animate-pulse rounded-lg bg-muted" />
+                ))}
+              </div>
+            ) : alertsQuery.data && alertsQuery.data.length > 0 ? (
+              alertsQuery.data.map((alert: any) => {
+                const level = alert.level || alert.severity || "info";
+                const config = alertLevelConfig[level as keyof typeof alertLevelConfig] || alertLevelConfig.info;
+                const Icon = config.icon;
 
-              return (
-                <div
-                  key={alert.id}
-                  className={cn("flex items-start gap-3 rounded-lg p-3", config.bg)}
-                >
-                  <Icon className={cn("mt-0.5 h-5 w-5 shrink-0", config.color)} />
-                  <div className="min-w-0 flex-1">
-                    <div className="mb-0.5 flex items-center gap-2">
-                      <span className="text-sm font-medium">{alert.title}</span>
-                      <Badge
-                        variant="secondary"
-                        className={cn("px-1.5 py-0 text-[10px]", config.badge)}
-                      >
-                        {config.label}
-                      </Badge>
+                return (
+                  <div
+                    key={alert.id}
+                    className={cn("flex items-start gap-3 rounded-lg p-3", config.bg)}
+                  >
+                    <Icon className={cn("mt-0.5 h-5 w-5 shrink-0", config.color)} />
+                    <div className="min-w-0 flex-1">
+                      <div className="mb-0.5 flex items-center gap-2">
+                        <span className="text-sm font-medium">{alert.title}</span>
+                        <Badge
+                          variant="secondary"
+                          className={cn("px-1.5 py-0 text-[10px]", config.badge)}
+                        >
+                          {config.label}
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {alert.description || alert.message}
+                      </p>
                     </div>
-                    <p className="text-xs text-muted-foreground">
-                      {alert.description}
-                    </p>
+                    <span className="shrink-0 text-xs text-muted-foreground">
+                      {alert.date || alert.createdAt?.slice(0, 10)}
+                    </span>
                   </div>
-                  <span className="shrink-0 text-xs text-muted-foreground">
-                    {alert.date}
-                  </span>
-                </div>
-              );
-            })}
+                );
+              })
+            ) : (
+              <p className="py-4 text-center text-sm text-muted-foreground">
+                アラートはありません
+              </p>
+            )}
           </CardContent>
         </Card>
       </div>

@@ -13,8 +13,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
-import { budgetData as fallbackBudgetData } from "@/lib/mock-data";
 import { formatManYen } from "@/lib/format";
+import { MfEmptyState } from "@/components/ui/mf-empty-state";
 import {
   useBudgetContext,
   useNormalizedBudgetRows,
@@ -88,9 +88,7 @@ export default function BudgetPage() {
   const { activeFiscalYear, activeBudgetVersion, budgetEntriesQuery } =
     useBudgetContext();
   const apiRows = useNormalizedBudgetRows(budgetEntriesQuery.data);
-  const [data, setData] = useState<BudgetUiRow[]>(
-    fallbackBudgetData as BudgetUiRow[]
-  );
+  const [data, setData] = useState<BudgetUiRow[]>([]);
   const [budgetStatus, setBudgetStatus] = useState<BudgetStatus>("DRAFT");
   const isLocked = budgetStatus === "LOCKED";
 
@@ -380,6 +378,9 @@ export default function BudgetPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
+            {data.length === 0 ? (
+              <MfEmptyState title="予算データがありません" description="会計年度と予算バージョンを作成すると、ここで月次予算を入力できます。" />
+            ) : (
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
@@ -468,6 +469,7 @@ export default function BudgetPage() {
                 </TableBody>
               </Table>
             </div>
+            )}
           </CardContent>
         </Card>
       </div>

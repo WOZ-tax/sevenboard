@@ -5,17 +5,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { CashflowTable, type CertaintyLevel } from "@/components/cashflow/cashflow-table";
 import { CashflowChart } from "@/components/cashflow/cashflow-chart";
-import { Shield, Link2, PenLine } from "lucide-react";
+import { Shield, Link2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatManYen } from "@/lib/format";
 import { useMfCashflow } from "@/hooks/use-mf-data";
 
-const mockRunwayData = {
-  months: 18.5,
-  alertLevel: "SAFE" as const,
-  cashBalance: 17800,
-  monthlyBurnRate: 960,
-};
+import { MfEmptyState } from "@/components/ui/mf-empty-state";
 
 const alertLevelConfig = {
   SAFE: {
@@ -43,17 +38,11 @@ const alertLevelConfig = {
 export default function CashflowPage() {
   const mfCashflow = useMfCashflow();
 
-  // MFデータが取れたらランウェイを上書き、エラー時はモックにフォールバック
-  const runwayData = mfCashflow.data?.runway
-    ? {
-        months: mfCashflow.data.runway.months ?? mockRunwayData.months,
-        alertLevel: mfCashflow.data.runway.alertLevel ?? mockRunwayData.alertLevel,
-        cashBalance: mfCashflow.data.runway.cashBalance ?? mockRunwayData.cashBalance,
-        monthlyBurnRate: mfCashflow.data.runway.monthlyBurnRate ?? mockRunwayData.monthlyBurnRate,
-      }
-    : mockRunwayData;
+  const runwayData = mfCashflow.data?.runway ?? null;
 
-  const config = alertLevelConfig[runwayData.alertLevel as keyof typeof alertLevelConfig];
+  const config = runwayData
+    ? alertLevelConfig[runwayData.alertLevel as keyof typeof alertLevelConfig] || alertLevelConfig.SAFE
+    : alertLevelConfig.SAFE;
 
   // MFデータが取れている場合、売上系をconfirmedに上書き
   const certaintyLevels: Record<string, CertaintyLevel> | undefined = mfCashflow.data
@@ -80,12 +69,14 @@ export default function CashflowPage() {
             資金繰り
           </h1>
           <p className="text-sm text-muted-foreground">
-            2026年1月-6月 資金繰り表（編集可）
+            資金繰り表
           </p>
         </div>
 
         {isLoading ? (
           <div className="h-24 animate-pulse rounded-lg bg-muted" />
+        ) : !runwayData ? (
+          <MfEmptyState />
         ) : (
           <Card className="border-l-4 border-l-green-500">
             <CardContent className="p-5">
@@ -118,20 +109,11 @@ export default function CashflowPage() {
                 </div>
               </div>
               <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
-                {mfCashflow.data ? (
-                  <>
-                    <span className="flex items-center gap-1">
-                      <Link2 className="h-3 w-3" />
-                      MFクラウド連携
-                    </span>
-                    <span>最終取得: {new Date().toLocaleString("ja-JP")}</span>
-                  </>
-                ) : (
-                  <span className="flex items-center gap-1">
-                    <PenLine className="h-3 w-3" />
-                    サンプルデータ表示中
-                  </span>
-                )}
+                <span className="flex items-center gap-1">
+                  <Link2 className="h-3 w-3" />
+                  MFクラウド連携
+                </span>
+                <span>最終取得: {new Date().toLocaleString("ja-JP")}</span>
               </div>
             </CardContent>
           </Card>

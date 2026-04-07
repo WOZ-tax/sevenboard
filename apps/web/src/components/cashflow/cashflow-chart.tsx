@@ -15,21 +15,6 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatManYen } from "@/lib/format";
 
-const mockBalanceChartData = [
-  { month: "4月", actual: 15000, forecast: null },
-  { month: "5月", actual: 15500, forecast: null },
-  { month: "6月", actual: 16200, forecast: null },
-  { month: "7月", actual: 16800, forecast: null },
-  { month: "8月", actual: 17300, forecast: null },
-  { month: "9月", actual: 17800, forecast: null },
-  { month: "10月", actual: null, forecast: 18330 },
-  { month: "11月", actual: null, forecast: 18800 },
-  { month: "12月", actual: null, forecast: 19100 },
-  { month: "1月", actual: null, forecast: 18500 },
-  { month: "2月", actual: null, forecast: 18900 },
-  { month: "3月", actual: null, forecast: 19300 },
-];
-
 interface CashflowChartProps {
   months?: string[];
   cashBalances?: number[];
@@ -42,6 +27,10 @@ export function CashflowChart({ months: propMonths, cashBalances }: CashflowChar
     setMounted(true);
   }, []);
 
+  const chartData = propMonths && cashBalances
+    ? propMonths.map((m, i) => ({ month: m, actual: cashBalances[i] ?? null, forecast: null }))
+    : null;
+
   return (
     <Card>
       <CardHeader className="pb-2">
@@ -51,13 +40,13 @@ export function CashflowChart({ months: propMonths, cashBalances }: CashflowChar
       </CardHeader>
       <CardContent>
         <div className="h-[300px]">
-          {mounted ? (
+          {!mounted ? null : !chartData ? (
+            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+              MFクラウド会計を接続すると資金残高推移が表示されます
+            </div>
+          ) : (
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={
-                propMonths && cashBalances
-                  ? propMonths.map((m, i) => ({ month: m, actual: cashBalances[i] ?? null, forecast: null }))
-                  : mockBalanceChartData
-              }>
+              <AreaChart data={chartData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
                 <XAxis
                   dataKey="month"
@@ -114,7 +103,7 @@ export function CashflowChart({ months: propMonths, cashBalances }: CashflowChar
                 />
               </AreaChart>
             </ResponsiveContainer>
-          ) : null}
+          )}
         </div>
       </CardContent>
     </Card>

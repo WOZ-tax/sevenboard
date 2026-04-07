@@ -9,7 +9,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
-import { cashflowData } from "@/lib/mock-data";
 import { formatManYen } from "@/lib/format";
 
 export type CertaintyLevel = "confirmed" | "planned" | "estimated";
@@ -38,9 +37,17 @@ const certaintyLegend: { level: CertaintyLevel; label: string; color: string }[]
   { level: "estimated", label: "概算", color: "bg-gray-400" },
 ];
 
+interface CashflowRow {
+  category: string;
+  values: (number | null)[];
+  isTotal?: boolean;
+  isHeader?: boolean;
+  isDiff?: boolean;
+}
+
 interface CashflowTableProps {
   months?: string[];
-  rows?: typeof cashflowData.rows;
+  rows?: CashflowRow[];
   certaintyLevels?: Record<string, CertaintyLevel>;
 }
 
@@ -49,8 +56,15 @@ export function CashflowTable({
   rows: propRows,
   certaintyLevels,
 }: CashflowTableProps = {}) {
-  const months = propMonths ?? cashflowData.months;
-  const rows = propRows ?? cashflowData.rows;
+  if (!propMonths || !propRows || propRows.length === 0) {
+    return (
+      <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
+        MFクラウド会計を接続すると資金繰り表が表示されます
+      </div>
+    );
+  }
+  const months = propMonths;
+  const rows = propRows;
 
   const getCertainty = (category: string): CertaintyLevel | undefined => {
     const trimmed = category.trim();

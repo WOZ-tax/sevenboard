@@ -56,11 +56,7 @@ interface UserRecord {
   lastLogin: string;
 }
 
-const companyInfo = {
-  name: "株式会社サンプル",
-  fiscalYearStart: "4月",
-  industry: "情報通信業",
-};
+import { useMfOffice } from "@/hooks/use-mf-data";
 
 const initialNotifications: NotificationSetting[] = [
   { id: "budget", label: "予算超過アラート", enabled: true },
@@ -207,6 +203,7 @@ function IntegrationCard({
 export default function SettingsPage() {
   const [notifications, setNotifications] = useState(initialNotifications);
   const orgId = useOrgId();
+  const mfOffice = useMfOffice();
   const queryClient = useQueryClient();
   const searchParams = useSearchParams();
   const [syncingProviders, setSyncingProviders] = useState<Set<string>>(new Set());
@@ -326,11 +323,17 @@ export default function SettingsPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid gap-4 sm:grid-cols-3">
-              <div><div className="text-xs text-muted-foreground">会社名</div><div className="mt-1 text-sm font-medium text-[var(--color-text-primary)]">{companyInfo.name}</div></div>
-              <div><div className="text-xs text-muted-foreground">事業年度開始</div><div className="mt-1 text-sm font-medium text-[var(--color-text-primary)]">{companyInfo.fiscalYearStart}</div></div>
-              <div><div className="text-xs text-muted-foreground">業種</div><div className="mt-1 text-sm font-medium text-[var(--color-text-primary)]">{companyInfo.industry}</div></div>
-            </div>
+            {mfOffice.isLoading ? (
+              <div className="h-12 animate-pulse rounded bg-muted" />
+            ) : mfOffice.data ? (
+              <div className="grid gap-4 sm:grid-cols-3">
+                <div><div className="text-xs text-muted-foreground">会社名</div><div className="mt-1 text-sm font-medium text-[var(--color-text-primary)]">{mfOffice.data.display_name || mfOffice.data.name || "—"}</div></div>
+                <div><div className="text-xs text-muted-foreground">事業年度開始</div><div className="mt-1 text-sm font-medium text-[var(--color-text-primary)]">{mfOffice.data.accounting_periods?.[0]?.start_month ? `${mfOffice.data.accounting_periods[0].start_month}月` : "—"}</div></div>
+                <div><div className="text-xs text-muted-foreground">業種</div><div className="mt-1 text-sm font-medium text-[var(--color-text-primary)]">{mfOffice.data.industry_class || "—"}</div></div>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">MFクラウド会計を接続すると会社情報が表示されます</p>
+            )}
           </CardContent>
         </Card>
 
@@ -432,10 +435,10 @@ function MenuVisibilitySettings() {
   const { isHidden, toggle, hydrate } = useSidebarConfig();
   const [hydrated, setHydrated] = useState(false);
 
-  useState(() => {
+  useEffect(() => {
     hydrate();
     setHydrated(true);
-  });
+  }, []);
 
   if (!hydrated) return null;
 

@@ -12,7 +12,6 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { revenueChartData } from "@/lib/mock-data";
 import { formatManYen } from "@/lib/format";
 
 interface PlTransitionPoint {
@@ -32,6 +31,12 @@ export function RevenueChart({ mfData }: RevenueChartProps = {}) {
     setMounted(true);
   }, []);
 
+  const chartData = mfData?.map((p) => ({
+    month: p.month,
+    revenue: p.revenue,
+    operatingProfit: p.operatingProfit,
+  }));
+
   return (
     <Card>
       <CardHeader className="pb-2">
@@ -41,13 +46,13 @@ export function RevenueChart({ mfData }: RevenueChartProps = {}) {
       </CardHeader>
       <CardContent>
         <div className="h-[300px]">
-          {mounted ? (
+          {!mounted ? null : !chartData || chartData.length === 0 ? (
+            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+              MFクラウド会計を接続すると月次推移が表示されます
+            </div>
+          ) : (
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={
-                mfData
-                  ? mfData.map((p) => ({ month: p.month, actual: p.revenue, budget: 0 }))
-                  : revenueChartData
-              }>
+              <LineChart data={chartData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#d6d3d0" />
                 <XAxis
                   dataKey="month"
@@ -70,27 +75,25 @@ export function RevenueChart({ mfData }: RevenueChartProps = {}) {
                 <Legend wrapperStyle={{ fontSize: "13px" }} />
                 <Line
                   type="monotone"
-                  dataKey="actual"
-                  name="実績"
+                  dataKey="revenue"
+                  name="売上高"
                   stroke="#0077c7"
                   strokeWidth={2.5}
                   dot={{ fill: "#0077c7", r: 4 }}
                   activeDot={{ r: 6 }}
                 />
-                {!mfData && (
-                  <Line
-                    type="monotone"
-                    dataKey="budget"
-                    name="予算"
-                    stroke="#f56121"
-                    strokeWidth={2}
-                    strokeDasharray="6 3"
-                    dot={{ fill: "#f56121", r: 3 }}
-                  />
-                )}
+                <Line
+                  type="monotone"
+                  dataKey="operatingProfit"
+                  name="営業利益"
+                  stroke="#0f7f85"
+                  strokeWidth={2}
+                  strokeDasharray="6 3"
+                  dot={{ fill: "#0f7f85", r: 3 }}
+                />
               </LineChart>
             </ResponsiveContainer>
-          ) : null}
+          )}
         </div>
       </CardContent>
     </Card>

@@ -17,7 +17,7 @@ import { cn } from "@/lib/utils";
 import { formatManYen, getValueColor } from "@/lib/format";
 import { FileText, FlaskConical } from "lucide-react";
 import { PrintButton } from "@/components/ui/print-button";
-import { useMfPL, useMfBS, useMfCashflow } from "@/hooks/use-mf-data";
+import { useMfPL, useMfBS, useMfCashflow, useMfOffice } from "@/hooks/use-mf-data";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth";
 
@@ -47,52 +47,8 @@ const tabs: { key: TabKey; label: string }[] = [
   { key: "cf", label: "C/F" },
 ];
 
-const plData = [
-  { category: "売上高", current: 12500, prior: 11800 },
-  { category: "売上原価", current: 7400, prior: 7100 },
-  { category: "売上総利益", current: 5100, prior: 4700, isTotal: true },
-  { category: "販管費", current: 2300, prior: 2100 },
-  { category: "営業利益", current: 2800, prior: 2600, isTotal: true },
-  { category: "営業外収益", current: 60, prior: 45 },
-  { category: "営業外費用", current: 90, prior: 85 },
-  { category: "経常利益", current: 2770, prior: 2560, isTotal: true },
-];
-
-const bsAssets = [
-  { category: "【流動資産】", current: 0, prior: 0, isHeader: true },
-  { category: "  現預金", current: 17800, prior: 16200 },
-  { category: "  売掛金", current: 4200, prior: 3800 },
-  { category: "  棚卸資産", current: 1500, prior: 1400 },
-  { category: "流動資産合計", current: 23500, prior: 21400, isTotal: true },
-  { category: "【固定資産】", current: 0, prior: 0, isHeader: true },
-  { category: "  有形固定資産", current: 5200, prior: 5500 },
-  { category: "  無形固定資産", current: 1800, prior: 2000 },
-  { category: "固定資産合計", current: 7000, prior: 7500, isTotal: true },
-  { category: "資産合計", current: 30500, prior: 28900, isTotal: true },
-];
-
-const bsLiabilitiesEquity = [
-  { category: "【流動負債】", current: 0, prior: 0, isHeader: true },
-  { category: "  買掛金", current: 3200, prior: 2900 },
-  { category: "  短期借入金", current: 2000, prior: 2000 },
-  { category: "流動負債合計", current: 5200, prior: 4900, isTotal: true },
-  { category: "【固定負債】", current: 0, prior: 0, isHeader: true },
-  { category: "  長期借入金", current: 8000, prior: 9000 },
-  { category: "固定負債合計", current: 8000, prior: 9000, isTotal: true },
-  { category: "負債合計", current: 13200, prior: 13900, isTotal: true },
-  { category: "【純資産】", current: 0, prior: 0, isHeader: true },
-  { category: "  資本金", current: 5000, prior: 5000 },
-  { category: "  利益剰余金", current: 12300, prior: 10000 },
-  { category: "純資産合計", current: 17300, prior: 15000, isTotal: true },
-  { category: "負債純資産合計", current: 30500, prior: 28900, isTotal: true },
-];
-
-const cfData = [
-  { category: "営業活動によるキャッシュフロー", current: 3200, prior: 2800, isTotal: true },
-  { category: "投資活動によるキャッシュフロー", current: -800, prior: -1200, isTotal: true },
-  { category: "財務活動によるキャッシュフロー", current: -800, prior: -500, isTotal: true },
-  { category: "現預金増減額", current: 1600, prior: 1100, isTotal: true },
-];
+import { MfEmptyState } from "@/components/ui/mf-empty-state";
+import { QueryErrorState } from "@/components/ui/query-error-state";
 
 function FinancialTable({
   rows,
@@ -175,11 +131,17 @@ export default function FinancialStatementsPage() {
   const mfPL = useMfPL();
   const mfBS = useMfBS();
   const mfCF = useMfCashflow();
+  const mfOffice = useMfOffice();
+  const periodLabel = mfOffice.data?.accounting_periods?.[0]
+    ? `${mfOffice.data.accounting_periods[0].fiscal_year}年${mfOffice.data.accounting_periods[0].end_month}月度`
+    : "";
 
-  const effectivePlData = mfPL.data ?? plData;
-  const effectiveBsAssets = mfBS.data?.assets ?? bsAssets;
-  const effectiveBsLiabilitiesEquity = mfBS.data?.liabilitiesEquity ?? bsLiabilitiesEquity;
-  const effectiveCfData = mfCF.data?.rows ?? cfData;
+  const effectivePlData = mfPL.data;
+  const effectiveBsAssets = mfBS.data?.assets;
+  const effectiveBsLiabilitiesEquity = mfBS.data?.liabilitiesEquity;
+  const effectiveCfData = mfCF.data?.rows;
+  const hasError = mfPL.isError || mfBS.isError;
+  const hasNoMfData = !mfPL.isLoading && !mfBS.isLoading && !hasError && !effectivePlData && !effectiveBsAssets;
 
   // シミュレーション実行
   const runSimulation = async () => {
@@ -205,6 +167,39 @@ export default function FinancialStatementsPage() {
   const displayBsLE = simMode && simResult ? simResult.bs.liabilitiesEquity : effectiveBsLiabilitiesEquity;
   const displayCfData = simMode && simResult ? simResult.cf : effectiveCfData;
 
+  if (hasError && !simMode) {
+    return (
+      <DashboardShell>
+        <div className="space-y-6">
+          <div className="flex items-center gap-3">
+            <FileText className="h-6 w-6 text-[var(--color-tertiary)]" />
+            <div>
+              <h1 className="text-xl font-bold text-[var(--color-text-primary)]">財務諸表</h1>
+            </div>
+          </div>
+          <QueryErrorState onRetry={() => { mfPL.refetch(); mfBS.refetch(); }} />
+        </div>
+      </DashboardShell>
+    );
+  }
+
+  if (hasNoMfData && !simMode) {
+    return (
+      <DashboardShell>
+        <div className="space-y-6">
+          <div className="flex items-center gap-3">
+            <FileText className="h-6 w-6 text-[var(--color-tertiary)]" />
+            <div>
+              <h1 className="text-xl font-bold text-[var(--color-text-primary)]">財務諸表</h1>
+              <p className="text-sm text-muted-foreground">MFクラウド会計連携で表示されます</p>
+            </div>
+          </div>
+          <MfEmptyState />
+        </div>
+      </DashboardShell>
+    );
+  }
+
   return (
     <DashboardShell>
       <div className="space-y-6">
@@ -216,7 +211,7 @@ export default function FinancialStatementsPage() {
                 財務諸表
               </h1>
               <p className="text-sm text-muted-foreground">
-                2026年3月度 比較表示
+                {periodLabel ? `${periodLabel} 比較表示` : "比較表示"}
               </p>
             </div>
           </div>
@@ -346,7 +341,7 @@ export default function FinancialStatementsPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              {mfPL.isLoading ? <TableSkeleton /> : <FinancialTable rows={displayPlData} periodLabels={simMode && simResult ? ["シミュレーション", "実績"] : ["当期", "前期"]} unit={unit} />}
+              {mfPL.isLoading ? <TableSkeleton /> : displayPlData ? <FinancialTable rows={displayPlData} periodLabels={simMode && simResult ? ["シミュレーション", "実績"] : ["当期", "前期"]} unit={unit} /> : <MfEmptyState title="PL データなし" />}
             </CardContent>
           </Card>
         )}
@@ -360,7 +355,7 @@ export default function FinancialStatementsPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                {mfBS.isLoading ? <TableSkeleton /> : <FinancialTable rows={displayBsAssets} periodLabels={simMode && simResult ? ["シミュレーション", "実績"] : ["当期", "前期"]} unit={unit} />}
+                {mfBS.isLoading ? <TableSkeleton /> : displayBsAssets ? <FinancialTable rows={displayBsAssets} periodLabels={simMode && simResult ? ["シミュレーション", "実績"] : ["当期", "前期"]} unit={unit} /> : <MfEmptyState title="BS データなし" />}
               </CardContent>
             </Card>
             <Card>
@@ -370,7 +365,7 @@ export default function FinancialStatementsPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                {mfBS.isLoading ? <TableSkeleton /> : <FinancialTable rows={displayBsLE} periodLabels={simMode && simResult ? ["シミュレーション", "実績"] : ["当期", "前期"]} unit={unit} />}
+                {mfBS.isLoading ? <TableSkeleton /> : displayBsLE ? <FinancialTable rows={displayBsLE} periodLabels={simMode && simResult ? ["シミュレーション", "実績"] : ["当期", "前期"]} unit={unit} /> : <MfEmptyState title="BS データなし" />}
               </CardContent>
             </Card>
           </div>
@@ -384,7 +379,7 @@ export default function FinancialStatementsPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              {mfCF.isLoading ? <TableSkeleton /> : <FinancialTable rows={displayCfData} periodLabels={simMode && simResult ? ["シミュレーション", "実績"] : ["当期", "前期"]} unit={unit} />}
+              {mfCF.isLoading ? <TableSkeleton /> : displayCfData ? <FinancialTable rows={displayCfData} periodLabels={simMode && simResult ? ["シミュレーション", "実績"] : ["当期", "前期"]} unit={unit} /> : <MfEmptyState title="CF データなし" />}
             </CardContent>
           </Card>
         )}
