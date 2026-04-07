@@ -1,0 +1,214 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: 'Noto Sans JP', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'Noto Sans Mono', 'Consolas', monospace;
+  --font-heading: 'Noto Sans JP', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-2xl: 16px;
+  --radius-3xl: 20px;
+  --radius-4xl: 24px;
+  /* 後方互換: navy/gold → DESIGN.md マッピング */
+  --color-navy: #0077c7;
+  --color-navy-light: #005fa3;
+  --color-navy-dark: #004d80;
+  --color-gold: #f56121;
+  --color-gold-light: #ff8a57;
+  --color-positive: #2e7d32;
+  --color-negative: #e01e5a;
+}
+
+:root {
+  /* SEVENRICH Design System トークン */
+  /* ブランドカラー */
+  --color-primary: #0077c7;
+  --color-primary-hover: #005fa3;
+  --color-secondary: #0f7f85;
+  --color-tertiary: #f56121;
+
+  /* 機能カラー */
+  --color-success: #2e7d32;
+  --color-error: #e01e5a;
+  --color-warning: #f9a825;
+  --color-info: #0288d1;
+
+  /* ニュートラル */
+  --color-background: #f8f7f6;
+  --color-surface: #ffffff;
+  --color-text-primary: #23221e;
+  --color-text-secondary: #706d65;
+  --color-text-disabled: #c1bdb7;
+  --color-text-link: #0071c1;
+  --color-border: #d6d3d0;
+  --color-overlay: rgba(3,3,2,0.15);
+  --color-scrim: rgba(3,3,2,0.5);
+
+  /* スペーシング */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+
+  /* エレベーション */
+  --shadow-1: 0 1px 3px rgba(0,0,0,0.08);
+  --shadow-2: 0 4px 12px rgba(0,0,0,0.12);
+  --shadow-3: 0 8px 32px rgba(0,0,0,0.16);
+  --shadow-4: 0 16px 48px rgba(0,0,0,0.20);
+
+  /* shadcn/ui 変数 → DESIGN.md マッピング */
+  --background: #f8f7f6;
+  --foreground: #23221e;
+  --card: #ffffff;
+  --card-foreground: #23221e;
+  --popover: #ffffff;
+  --popover-foreground: #23221e;
+  --primary: #0077c7;
+  --primary-foreground: #ffffff;
+  --secondary: #f8f7f6;
+  --secondary-foreground: #23221e;
+  --muted: #f8f7f6;
+  --muted-foreground: #706d65;
+  --accent: #f56121;
+  --accent-foreground: #ffffff;
+  --destructive: #e01e5a;
+  --border: #d6d3d0;
+  --input: #d6d3d0;
+  --ring: #0077c7;
+  --chart-1: #0077c7;
+  --chart-2: #0f7f85;
+  --chart-3: #2e7d32;
+  --chart-4: #706d65;
+  --chart-5: #e01e5a;
+  --radius: 8px;
+
+  /* サイドバー */
+  --sidebar: #0077c7;
+  --sidebar-foreground: rgba(255,255,255,0.9);
+  --sidebar-primary: #f56121;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: rgba(255,255,255,0.1);
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: rgba(255,255,255,0.15);
+  --sidebar-ring: #f56121;
+}
+
+/* ダークモード */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-primary: #4da6e8;
+    --color-primary-hover: #3a8fd4;
+    --color-secondary: #4db8bd;
+    --color-tertiary: #ff8a57;
+
+    --color-success: #66bb6a;
+    --color-error: #ff6b8a;
+    --color-warning: #ffcc17;
+    --color-info: #4fc3f7;
+
+    --color-background: #1a1a1a;
+    --color-surface: #2d2d2d;
+    --color-text-primary: #f0f0f0;
+    --color-text-secondary: #a8a8a8;
+    --color-text-disabled: #5c5c5c;
+    --color-text-link: #4da6e8;
+    --color-border: #404040;
+    --color-overlay: rgba(255,255,255,0.1);
+    --color-scrim: rgba(0,0,0,0.6);
+
+    --background: #1a1a1a;
+    --foreground: #f0f0f0;
+    --card: #2d2d2d;
+    --card-foreground: #f0f0f0;
+    --popover: #2d2d2d;
+    --popover-foreground: #f0f0f0;
+    --primary: #4da6e8;
+    --primary-foreground: #1a1a1a;
+    --secondary: #2d2d2d;
+    --secondary-foreground: #f0f0f0;
+    --muted: #2d2d2d;
+    --muted-foreground: #a8a8a8;
+    --accent: #ff8a57;
+    --accent-foreground: #1a1a1a;
+    --destructive: #ff6b8a;
+    --border: #404040;
+    --input: #404040;
+    --ring: #4da6e8;
+    --chart-1: #4da6e8;
+    --chart-2: #4db8bd;
+    --chart-3: #66bb6a;
+    --chart-4: #a8a8a8;
+    --chart-5: #ff6b8a;
+
+    --sidebar: #1a1a1a;
+    --sidebar-foreground: rgba(255,255,255,0.9);
+    --sidebar-primary: #ff8a57;
+    --sidebar-primary-foreground: #1a1a1a;
+    --sidebar-accent: rgba(255,255,255,0.08);
+    --sidebar-accent-foreground: #f0f0f0;
+    --sidebar-border: #404040;
+    --sidebar-ring: #ff8a57;
+  }
+}
+
+@media print {
+  /* サイドバーとヘッダーを非表示 */
+  nav, header, .print\:hidden { display: none !important; }
+  main { margin: 0 !important; padding: 16px !important; }
+  body { background: white !important; }
+  /* カードの影を消す */
+  .card { box-shadow: none !important; border: 1px solid #d6d3d0 !important; }
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Noto Sans JP', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }
+  html {
+    @apply font-sans;
+  }
+}

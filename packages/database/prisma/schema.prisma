@@ -1,0 +1,589 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// Core: 組織・ユーザー・認証
+// ============================================================
+
+model Organization {
+  id             String   @id @default(uuid()) @db.Uuid
+  name           String
+  code           String?  @unique // 事業者コード（MF連携用）
+  fiscalMonthEnd Int      @default(3) @map("fiscal_month_end") // 決算月（1-12）
+  industry       String?
+  employeeCount  Int?     @map("employee_count")
+  planType       PlanType @default(STARTER) @map("plan_type")
+  aiOptOut       Boolean  @default(false) @map("ai_opt_out") // AI機能オプトアウト
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  departments        Department[]
+  accounts           AccountMaster[]
+  fiscalYears        FiscalYear[]
+  actualEntries      ActualEntry[]
+  journalEntries     JournalEntry[]
+  kpiDefinitions     KpiDefinition[]
+  users              User[]
+  advisorAssignments AdvisorAssignment[]
+  notifications      Notification[]
+  reports            Report[]
+  auditLogs          AuditLog[]
+  integrations       Integration[]
+  cashFlowCategories CashFlowCategory[]
+  cashFlowEntries    CashFlowEntry[]
+  cashFlowForecasts  CashFlowForecast[]
+  collectionProfiles CollectionProfile[]
+  runwaySnapshots    RunwaySnapshot[]
+  loanSimulations    LoanSimulation[]
+
+  @@map("organizations")
+}
+
+enum PlanType {
+  STARTER
+  GROWTH
+  PRO
+}
+
+model User {
+  id        String   @id @default(uuid()) @db.Uuid
+  email     String   @unique
+  name      String
+  password  String // bcrypt hashed
+  role      UserRole @default(VIEWER)
+  orgId     String?  @map("org_id") @db.Uuid // null = SEVENRICH顧問スタッフ
+  avatarUrl String?  @map("avatar_url")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  organization       Organization?       @relation(fields: [orgId], references: [id])
+  advisorAssignments AdvisorAssignment[]
+  budgetVersions     BudgetVersion[]
+  aiComments         AiComment[]         @relation("ReviewedBy")
+  notifications      Notification[]
+  auditLogs          AuditLog[]
+
+  @@map("users")
+}
+
+enum UserRole {
+  ADMIN
+  CFO
+  VIEWER
+  ADVISOR // SEVENRICH顧問スタッフ
+}
+
+model AdvisorAssignment {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  orgId     String   @map("org_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user         User         @relation(fields: [userId], references: [id])
+  organization Organization @relation(fields: [orgId], references: [id])
+
+  @@unique([userId, orgId])
+  @@map("advisor_assignments")
+}
+
+// ============================================================
+// 勘定科目・部門
+// ============================================================
+
+model Department {
+  id           String   @id @default(uuid()) @db.Uuid
+  orgId        String   @map("org_id") @db.Uuid
+  name         String
+  parentId     String?  @map("parent_id") @db.Uuid
+  type         String?  // "division", "section", "team" 等
+  displayOrder Int      @default(0) @map("display_order")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  organization  Organization  @relation(fields: [orgId], references: [id])
+  parent        Department?   @relation("DepartmentHierarchy", fields: [parentId], references: [id])
+  children      Department[]  @relation("DepartmentHierarchy")
+  budgetEntries BudgetEntry[]
+  actualEntries ActualEntry[]
+
+  @@map("departments")
+}
+
+model AccountMaster {
+  id             String          @id @default(uuid()) @db.Uuid
+  orgId          String          @map("org_id") @db.Uuid
+  code           String          // 勘定科目コード
+  name           String
+  category       AccountCategory
+  isVariableCost Boolean         @default(false) @map("is_variable_cost")
+  displayOrder   Int             @default(0) @map("display_order")
+  externalId     String?         @map("external_id") // MF/freeeの科目ID
+  createdAt      DateTime        @default(now()) @map("created_at")
+
+  organization   Organization   @relation(fields: [orgId], references: [id])
+  budgetEntries  BudgetEntry[]
+  actualEntries  ActualEntry[]
+  debitJournals  JournalEntry[] @relation("DebitAccount")
+  creditJournals JournalEntry[] @relation("CreditAccount")
+
+  @@unique([orgId, code])
+  @@map("account_masters")
+}
+
+enum AccountCategory {
+  REVENUE           // 売上高
+  COST_OF_SALES     // 売上原価
+  SELLING_EXPENSE   // 販売費
+  ADMIN_EXPENSE     // 一般管理費
+  NON_OPERATING_INCOME   // 営業外収益
+  NON_OPERATING_EXPENSE  // 営業外費用
+  EXTRAORDINARY_INCOME   // 特別利益
+  EXTRAORDINARY_EXPENSE  // 特別損失
+  ASSET             // 資産
+  LIABILITY         // 負債
+  EQUITY            // 純資産
+}
+
+// ============================================================
+// 予算管理
+// ============================================================
+
+model FiscalYear {
+  id        String          @id @default(uuid()) @db.Uuid
+  orgId     String          @map("org_id") @db.Uuid
+  year      Int             // 2025, 2026, ...
+  startDate DateTime        @map("start_date") @db.Date
+  endDate   DateTime        @map("end_date") @db.Date
+  status    FiscalYearStatus @default(OPEN)
+  createdAt DateTime        @default(now()) @map("created_at")
+
+  organization   Organization    @relation(fields: [orgId], references: [id])
+  budgetVersions BudgetVersion[]
+
+  @@unique([orgId, year])
+  @@map("fiscal_years")
+}
+
+enum FiscalYearStatus {
+  OPEN
+  CLOSED
+  LOCKED
+}
+
+model BudgetVersion {
+  id           String       @id @default(uuid()) @db.Uuid
+  fiscalYearId String       @map("fiscal_year_id") @db.Uuid
+  name         String       // "Base", "Upside", "Downside"
+  scenarioType ScenarioType @default(BASE)
+  createdBy    String       @map("created_by") @db.Uuid
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
+
+  fiscalYear FiscalYear    @relation(fields: [fiscalYearId], references: [id])
+  creator    User          @relation(fields: [createdBy], references: [id])
+  entries    BudgetEntry[]
+
+  @@map("budget_versions")
+}
+
+enum ScenarioType {
+  BASE
+  UPSIDE
+  DOWNSIDE
+}
+
+model BudgetEntry {
+  id              String   @id @default(uuid()) @db.Uuid
+  budgetVersionId String   @map("budget_version_id") @db.Uuid
+  accountId       String   @map("account_id") @db.Uuid
+  departmentId    String?  @map("department_id") @db.Uuid
+  month           DateTime @db.Date // 月初日 (e.g., 2026-04-01)
+  amount          Decimal  @db.Decimal(15, 2)
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  budgetVersion BudgetVersion @relation(fields: [budgetVersionId], references: [id])
+  account       AccountMaster @relation(fields: [accountId], references: [id])
+  department    Department?   @relation(fields: [departmentId], references: [id])
+
+  @@unique([budgetVersionId, accountId, departmentId, month], name: "budget_entry_with_dept")
+  @@index([budgetVersionId, month])
+  @@map("budget_entries")
+}
+
+// ============================================================
+// 実績データ
+// ============================================================
+
+model ActualEntry {
+  id           String   @id @default(uuid()) @db.Uuid
+  orgId        String   @map("org_id") @db.Uuid
+  accountId    String   @map("account_id") @db.Uuid
+  departmentId String?  @map("department_id") @db.Uuid
+  month        DateTime @db.Date
+  amount       Decimal  @db.Decimal(15, 2)
+  source       DataSource @default(MANUAL)
+  syncedAt     DateTime?  @map("synced_at")
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+
+  organization Organization  @relation(fields: [orgId], references: [id])
+  account      AccountMaster @relation(fields: [accountId], references: [id])
+  department   Department?   @relation(fields: [departmentId], references: [id])
+
+  @@unique([orgId, accountId, departmentId, month], name: "actual_entry_with_dept")
+  @@index([orgId, month])
+  @@map("actual_entries")
+}
+
+enum DataSource {
+  MANUAL
+  MF_CLOUD
+  FREEE
+  CSV_IMPORT
+  BOOKKEEPING_PLUGIN
+}
+
+model JournalEntry {
+  id              String   @id @default(uuid()) @db.Uuid
+  orgId           String   @map("org_id") @db.Uuid
+  journalDate     DateTime @map("journal_date") @db.Date
+  debitAccountId  String   @map("debit_account_id") @db.Uuid
+  creditAccountId String   @map("credit_account_id") @db.Uuid
+  amount          Decimal  @db.Decimal(15, 2)
+  description     String?
+  externalId      String?  @map("external_id") // MF/freeeの仕訳ID
+  source          DataSource @default(MANUAL)
+  createdAt       DateTime   @default(now()) @map("created_at")
+
+  organization  Organization  @relation(fields: [orgId], references: [id])
+  debitAccount  AccountMaster @relation("DebitAccount", fields: [debitAccountId], references: [id])
+  creditAccount AccountMaster @relation("CreditAccount", fields: [creditAccountId], references: [id])
+
+  @@index([orgId, journalDate])
+  @@map("journal_entries")
+}
+
+// ============================================================
+// KPI管理
+// ============================================================
+
+model KpiDefinition {
+  id       String      @id @default(uuid()) @db.Uuid
+  orgId    String      @map("org_id") @db.Uuid
+  name     String      // "MRR", "ARR", "Churn Rate" 等
+  formula  String?     // 計算式（参照用）
+  unit     String      @default("JPY") // "JPY", "%", "件", "人" 等
+  category KpiCategory @default(CUSTOM)
+
+  organization Organization @relation(fields: [orgId], references: [id])
+  values       KpiValue[]
+
+  @@unique([orgId, name])
+  @@map("kpi_definitions")
+}
+
+enum KpiCategory {
+  SAAS       // MRR, ARR, Churn, LTV, CAC
+  SALES      // 受注件数, 成約率, 客単価
+  HR         // 従業員数, 離職率
+  FINANCIAL  // 粗利率, 営業利益率
+  CUSTOM
+}
+
+model KpiValue {
+  id     String   @id @default(uuid()) @db.Uuid
+  kpiId  String   @map("kpi_id") @db.Uuid
+  orgId  String   @map("org_id") @db.Uuid // RLS用に直接保持
+  month  DateTime @db.Date
+  value  Decimal  @db.Decimal(15, 4)
+  source DataSource @default(MANUAL)
+
+  kpiDefinition KpiDefinition @relation(fields: [kpiId], references: [id])
+
+  @@unique([kpiId, month])
+  @@index([orgId, month])
+  @@map("kpi_values")
+}
+
+// ============================================================
+// レポート・AIコメント
+// ============================================================
+
+model Report {
+  id        String     @id @default(uuid()) @db.Uuid
+  orgId     String     @map("org_id") @db.Uuid
+  name      String
+  type      ReportType
+  config    Json       @default("{}") // レポート設定JSON
+  createdAt DateTime   @default(now()) @map("created_at")
+  updatedAt DateTime   @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [orgId], references: [id])
+  aiComments   AiComment[]
+
+  @@map("reports")
+}
+
+enum ReportType {
+  VARIANCE       // 予実差異
+  PL             // 損益計算書
+  BS             // 貸借対照表
+  CF             // キャッシュフロー計算書
+  VARIABLE_COST  // 変動損益計算書
+  CUSTOM         // カスタムレポート
+  CASHFLOW       // 資金繰り表
+}
+
+model AiComment {
+  id              String          @id @default(uuid()) @db.Uuid
+  reportId        String          @map("report_id") @db.Uuid
+  cellRef         String?         @map("cell_ref") // "revenue.2026-03" 等
+  content         String
+  confidenceScore Float?          @map("confidence_score")
+  reviewedBy      String?         @map("reviewed_by") @db.Uuid
+  status          AiCommentStatus @default(PENDING)
+  rejectReason    String?         @map("reject_reason")
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
+
+  report   Report @relation(fields: [reportId], references: [id])
+  reviewer User?  @relation("ReviewedBy", fields: [reviewedBy], references: [id])
+
+  @@map("ai_comments")
+}
+
+enum AiCommentStatus {
+  PENDING
+  APPROVED
+  MODIFIED
+  REJECTED
+}
+
+// ============================================================
+// 資金繰り
+// ============================================================
+
+model CashFlowCategory {
+  id             String          @id @default(uuid()) @db.Uuid
+  orgId          String          @map("org_id") @db.Uuid
+  name           String          // "売上入金", "人件費", "家賃" 等
+  direction      CashDirection   // IN or OUT
+  cfType         CashFlowType    // OPERATING, INVESTING, FINANCING
+  isFixed        Boolean         @default(false) @map("is_fixed")
+  recurrenceRule String?         @map("recurrence_rule") // "MONTHLY_10", "MONTHLY_END" 等
+  displayOrder   Int             @default(0) @map("display_order")
+  createdAt      DateTime        @default(now()) @map("created_at")
+
+  organization Organization    @relation(fields: [orgId], references: [id])
+  entries      CashFlowEntry[]
+
+  @@map("cash_flow_categories")
+}
+
+enum CashDirection {
+  IN
+  OUT
+}
+
+enum CashFlowType {
+  OPERATING   // 営業活動
+  INVESTING   // 投資活動
+  FINANCING   // 財務活動
+}
+
+model CashFlowEntry {
+  id             String   @id @default(uuid()) @db.Uuid
+  orgId          String   @map("org_id") @db.Uuid
+  categoryId     String   @map("category_id") @db.Uuid
+  entryDate      DateTime @map("entry_date") @db.Date
+  amount         Decimal  @db.Decimal(15, 2)
+  isActual       Boolean  @default(false) @map("is_actual")
+  tradePartner   String?  @map("trade_partner") // 取引先名
+  description    String?
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization Organization     @relation(fields: [orgId], references: [id])
+  category     CashFlowCategory @relation(fields: [categoryId], references: [id])
+
+  @@index([orgId, entryDate])
+  @@map("cash_flow_entries")
+}
+
+model CashFlowForecast {
+  id             String          @id @default(uuid()) @db.Uuid
+  orgId          String          @map("org_id") @db.Uuid
+  forecastDate   DateTime        @map("forecast_date") @db.Date
+  granularity    ForecastGranularity
+  openingBalance Decimal         @map("opening_balance") @db.Decimal(15, 2)
+  inflow         Decimal         @db.Decimal(15, 2)
+  outflow        Decimal         @db.Decimal(15, 2)
+  closingBalance Decimal         @map("closing_balance") @db.Decimal(15, 2)
+  scenarioType   ScenarioType    @default(BASE) @map("scenario_type")
+  createdAt      DateTime        @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [orgId], references: [id])
+
+  @@unique([orgId, forecastDate, granularity, scenarioType])
+  @@map("cash_flow_forecasts")
+}
+
+enum ForecastGranularity {
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
+model CollectionProfile {
+  id               String   @id @default(uuid()) @db.Uuid
+  orgId            String   @map("org_id") @db.Uuid
+  tradePartner     String   @map("trade_partner") // 取引先名
+  avgDaysToCollect Int      @default(60) @map("avg_days_to_collect") // デフォルト60日（末締め翌月末）
+  paymentPattern   String?  @map("payment_pattern") // "MONTHLY_END", "NET30" 等
+  riskScore        Float    @default(0) @map("risk_score") // 0.0-1.0
+  lastUpdated      DateTime @default(now()) @map("last_updated")
+
+  organization Organization @relation(fields: [orgId], references: [id])
+
+  @@unique([orgId, tradePartner])
+  @@map("collection_profiles")
+}
+
+model RunwaySnapshot {
+  id              String     @id @default(uuid()) @db.Uuid
+  orgId           String     @map("org_id") @db.Uuid
+  snapshotDate    DateTime   @map("snapshot_date") @db.Date
+  cashBalance     Decimal    @map("cash_balance") @db.Decimal(15, 2)
+  monthlyBurnRate Decimal    @map("monthly_burn_rate") @db.Decimal(15, 2)
+  runwayMonths    Float      @map("runway_months")
+  alertLevel      AlertLevel @default(SAFE) @map("alert_level")
+  createdAt       DateTime   @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [orgId], references: [id])
+
+  @@map("runway_snapshots")
+}
+
+enum AlertLevel {
+  SAFE       // 6ヶ月以上
+  CAUTION    // 3-6ヶ月
+  WARNING    // 1-3ヶ月
+  CRITICAL   // 1ヶ月未満
+}
+
+model LoanSimulation {
+  id               String        @id @default(uuid()) @db.Uuid
+  orgId            String        @map("org_id") @db.Uuid
+  name             String        // "日本政策金融公庫 2026年" 等
+  principal        Decimal       @db.Decimal(15, 2)
+  interestRate     Float         @map("interest_rate") // 年利（%）
+  termMonths       Int           @map("term_months")
+  graceMonths      Int           @default(0) @map("grace_months")
+  repaymentType    RepaymentType @default(EQUAL_INSTALLMENT) @map("repayment_type")
+  monthlyRepayment Decimal?      @map("monthly_repayment") @db.Decimal(15, 2)
+  startDate        DateTime?     @map("start_date") @db.Date
+  isActive         Boolean       @default(true) @map("is_active")
+  createdAt        DateTime      @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [orgId], references: [id])
+
+  @@map("loan_simulations")
+}
+
+enum RepaymentType {
+  EQUAL_INSTALLMENT // 元利均等
+  EQUAL_PRINCIPAL   // 元金均等
+  BULLET            // 一括返済
+}
+
+// ============================================================
+// 外部連携
+// ============================================================
+
+model Integration {
+  id           String          @id @default(uuid()) @db.Uuid
+  orgId        String          @map("org_id") @db.Uuid
+  provider     IntegrationProvider
+  accessToken  String?         @map("access_token")
+  refreshToken String?         @map("refresh_token")
+  tokenExpiry  DateTime?       @map("token_expiry")
+  config       Json            @default("{}") // 科目マッピング等
+  lastSyncAt   DateTime?       @map("last_sync_at")
+  syncStatus   SyncStatus      @default(NEVER) @map("sync_status")
+  createdAt    DateTime        @default(now()) @map("created_at")
+  updatedAt    DateTime        @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [orgId], references: [id])
+
+  @@unique([orgId, provider])
+  @@map("integrations")
+}
+
+enum IntegrationProvider {
+  MF_CLOUD
+  FREEE
+  BOOKKEEPING_PLUGIN
+}
+
+enum SyncStatus {
+  NEVER
+  SUCCESS
+  FAILED
+  IN_PROGRESS
+}
+
+// ============================================================
+// 通知・監査
+// ============================================================
+
+model Notification {
+  id        String           @id @default(uuid()) @db.Uuid
+  orgId     String           @map("org_id") @db.Uuid
+  userId    String?          @map("user_id") @db.Uuid // null = 全員向け
+  type      NotificationType
+  title     String
+  message   String
+  isRead    Boolean          @default(false) @map("is_read")
+  metadata  Json             @default("{}") // リンク先等
+  createdAt DateTime         @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [orgId], references: [id])
+  user         User?        @relation(fields: [userId], references: [id])
+
+  @@map("notifications")
+}
+
+enum NotificationType {
+  ANOMALY_ALERT     // 異常値アラート
+  CASHFLOW_ALERT    // 資金ショートアラート
+  SYNC_ERROR        // 同期エラー
+  AI_COMMENT        // AIコメント生成完了
+  ADVISOR_COMMENT   // 顧問コメント
+  SYSTEM            // システム通知
+}
+
+model AuditLog {
+  id          String   @id @default(uuid()) @db.Uuid
+  orgId       String   @map("org_id") @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  action      String   // "CREATE", "UPDATE", "DELETE", "IMPERSONATE"
+  resource    String   // "budget_entry", "actual_entry" 等
+  resourceId  String?  @map("resource_id")
+  beforeValue Json?    @map("before_value")
+  afterValue  Json?    @map("after_value")
+  ipAddress   String?  @map("ip_address")
+  isImpersonation Boolean @default(false) @map("is_impersonation") // 顧問スタッフのなりすましアクセス
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [orgId], references: [id])
+  user         User         @relation(fields: [userId], references: [id])
+
+  @@index([orgId, createdAt])
+  @@index([userId, createdAt])
+  @@map("audit_logs")
+}
