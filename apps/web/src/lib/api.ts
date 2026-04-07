@@ -227,6 +227,12 @@ export const api = {
       apiFetch<any>(`/organizations/${orgId}/ai/funding-report${fiscalYear ? `?fiscalYear=${fiscalYear}` : ''}`),
   },
 
+  // === MF OAuth ===
+  mfOAuth: {
+    getAuthUrl: (orgId: string) =>
+      apiFetch<{ authUrl: string }>(`/auth/mf/authorize?orgId=${orgId}`),
+  },
+
   // === Integrations (データ連携) ===
   integrations: {
     getAll: (orgId: string) =>

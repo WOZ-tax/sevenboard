@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -207,6 +208,7 @@ export default function SettingsPage() {
   const [notifications, setNotifications] = useState(initialNotifications);
   const orgId = useOrgId();
   const queryClient = useQueryClient();
+  const searchParams = useSearchParams();
   const [syncingProviders, setSyncingProviders] = useState<Set<string>>(new Set());
   const [connectingProviders, setConnectingProviders] = useState<Set<string>>(new Set());
   const [disconnectingProviders, setDisconnectingProviders] = useState<Set<string>>(new Set());
@@ -218,6 +220,20 @@ export default function SettingsPage() {
     staleTime: 30 * 1000,
   });
 
+  // MF OAuth コールバック後の処理
+  useEffect(() => {
+    const mfStatus = searchParams.get("mf");
+    if (mfStatus === "connected" || mfStatus === "error") {
+      // Integration ステータスをリフレッシュ
+      queryClient.invalidateQueries({ queryKey: ["integrations", orgId] });
+      // URLからクエリパラメータを除去
+      const url = new URL(window.location.href);
+      url.searchParams.delete("mf");
+      url.searchParams.delete("reason");
+      window.history.replaceState({}, "", url.pathname);
+    }
+  }, [searchParams, queryClient, orgId]);
+
   const statusMap = new Map<string, IntegrationStatus>();
   if (integrations) {
     for (const item of integrations) statusMap.set(item.provider, item);
@@ -226,6 +242,25 @@ export default function SettingsPage() {
   const invalidate = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ["integrations", orgId] });
   }, [queryClient, orgId]);
+
+  // MF_CLOUD の場合は OAuth フローを使う
+  const handleConnect = useCallback(async (provider: string) => {
+    if (provider === "MF_CLOUD") {
+      setConnectingProviders((prev) => new Set(prev).add(provider));
+      try {
+        const { authUrl } = await api.mfOAuth.getAuthUrl(orgId);
+        window.location.href = authUrl;
+      } catch {
+        setConnectingProviders((prev) => {
+          const next = new Set(prev);
+          next.delete(provider);
+          return next;
+        });
+      }
+      return;
+    }
+    connectMutation.mutate(provider);
+  }, [orgId]);
 
   const connectMutation = useMutation({
     mutationFn: (provider: string) => api.integrations.connect(orgId, provider),
@@ -343,7 +378,7 @@ export default function SettingsPage() {
                   key={provider}
                   provider={provider}
                   status={statusMap.get(provider)}
-                  onConnect={() => connectMutation.mutate(provider)}
+                  onConnect={() => handleConnect(provider)}
                   onDisconnect={() => disconnectMutation.mutate(provider)}
                   onSync={() => syncMutation.mutate(provider)}
                   isSyncing={syncingProviders.has(provider)}

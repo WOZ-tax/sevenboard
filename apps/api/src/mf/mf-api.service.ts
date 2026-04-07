@@ -9,7 +9,7 @@ import { lastValueFrom } from 'rxjs';
 import { AxiosResponse } from 'axios';
 import { PrismaService } from '../prisma/prisma.service';
 import { CacheService } from '../common/cache.service';
-import { decryptIfAvailable } from '../common/crypto.util';
+import { decryptIfAvailable, encryptIfAvailable } from '../common/crypto.util';
 import {
   MfOffice,
   MfTrialBalance,
@@ -35,32 +35,35 @@ export class MfApiService {
   /**
    * Resolve access token for an organization.
    * Dev: falls back to MF_ACCESS_TOKEN env var.
-   * Prod: reads from Organization record and refreshes if expired.
+   * Prod: reads from Integration table and refreshes if expired.
    */
   private async getAccessToken(orgId: string): Promise<string> {
     // Dev shortcut (production では無効)
     const envToken = process.env.MF_ACCESS_TOKEN;
     if (envToken && process.env.NODE_ENV !== 'production') return envToken;
 
-    const org = await this.prisma.organization.findUnique({
-      where: { id: orgId },
+    // Integration テーブルから MF_CLOUD のトークンを取得
+    const integration = await this.prisma.integration.findUnique({
+      where: { orgId_provider: { orgId, provider: 'MF_CLOUD' } },
     });
-    if (!org) throw new UnauthorizedException('Organization not found');
 
-    const mfTokenRaw = (org as any).mfAccessToken;
-    if (!mfTokenRaw) {
+    if (!integration?.accessToken) {
       throw new UnauthorizedException(
-        'MoneyForward not connected for this organization',
+        'MoneyForward not connected. Please connect from Settings.',
       );
     }
 
-    const expiresAt = (org as any).mfTokenExpiresAt as Date | null;
-    if (expiresAt && expiresAt < new Date()) {
-      const rawRefresh = (org as any).mfRefreshToken;
-      return this.refreshToken(orgId, rawRefresh ? decryptIfAvailable(rawRefresh) : null);
+    // トークン期限チェック → リフレッシュ
+    if (integration.tokenExpiry && integration.tokenExpiry < new Date()) {
+      return this.refreshToken(
+        orgId,
+        integration.refreshToken
+          ? decryptIfAvailable(integration.refreshToken)
+          : null,
+      );
     }
 
-    return decryptIfAvailable(mfTokenRaw);
+    return decryptIfAvailable(integration.accessToken);
   }
 
   private async refreshToken(
@@ -74,27 +77,36 @@ export class MfApiService {
     try {
       const res: AxiosResponse = await lastValueFrom(
         this.httpService.post(
-          `${this.baseUrl}/oauth/token`,
-          {
+          'https://moneyforward.com/oauth/v2/token',
+          new URLSearchParams({
             grant_type: 'refresh_token',
             refresh_token: refreshToken,
+            client_id: process.env.MF_CLIENT_ID || '',
+            client_secret: process.env.MF_CLIENT_SECRET || '',
+          }).toString(),
+          {
+            headers: {
+              'Content-Type': 'application/x-www-form-urlencoded',
+            },
           },
-          { headers: { 'Content-Type': 'application/json' } },
         ) as any,
       );
 
-      await this.prisma.organization.update({
-        where: { id: orgId },
+      const newAccessToken = res.data.access_token;
+      const newRefreshToken = res.data.refresh_token || refreshToken;
+
+      await this.prisma.integration.update({
+        where: { orgId_provider: { orgId, provider: 'MF_CLOUD' } },
         data: {
-          mfAccessToken: res.data.access_token,
-          mfRefreshToken: res.data.refresh_token || refreshToken,
-          mfTokenExpiresAt: new Date(
-            Date.now() + (res.data.expires_in || 3600) * 1000,
+          accessToken: encryptIfAvailable(newAccessToken),
+          refreshToken: encryptIfAvailable(newRefreshToken),
+          tokenExpiry: new Date(
+            Date.now() + (res.data.expires_in || 2592000) * 1000,
           ),
-        } as any,
+        },
       });
 
-      return res.data.access_token;
+      return newAccessToken;
     } catch (err) {
       this.logger.error('MF token refresh failed', err);
       throw new UnauthorizedException('MF token refresh failed');
