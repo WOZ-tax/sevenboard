@@ -18,7 +18,7 @@ RUN npx prisma generate --schema=packages/database/prisma/schema.prisma
 # Build API
 FROM prisma AS build
 COPY apps/api/ apps/api/
-COPY tsconfig.json ./
+COPY tsconfig*.json ./
 RUN npm run build -w apps/api
 
 # Production dependencies only
