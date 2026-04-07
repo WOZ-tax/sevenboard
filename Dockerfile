@@ -2,17 +2,22 @@ FROM node:20-slim
 RUN apt-get update && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 
+# Copy all package.json files (monorepo structure)
 COPY package.json package-lock.json ./
 COPY apps/api/package.json apps/api/
+COPY apps/web/package.json apps/web/
 COPY packages/database/package.json packages/database/
 COPY packages/shared/package.json packages/shared/
 
-RUN npm install -w apps/api -w packages/database -w packages/shared
+# Install all deps (needed for hoisting) but skip optional/heavy postinstall
+RUN npm install --ignore-scripts
 
+# Copy source (API + packages only, skip web source)
 COPY packages/ packages/
 COPY apps/api/ apps/api/
 COPY tsconfig*.json ./
 
+# Generate Prisma + build
 RUN npx prisma generate --schema=packages/database/prisma/schema.prisma
 RUN npm run build -w apps/api
 
