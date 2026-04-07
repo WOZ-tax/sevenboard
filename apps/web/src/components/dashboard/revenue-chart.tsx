@@ -82,10 +82,10 @@ export function RevenueChart({ mfData }: RevenueChartProps = {}) {
                     type="monotone"
                     dataKey="budget"
                     name="予算"
-                    stroke="#0f7f85"
+                    stroke="#f56121"
                     strokeWidth={2}
                     strokeDasharray="6 3"
-                    dot={{ fill: "#0f7f85", r: 3 }}
+                    dot={{ fill: "#f56121", r: 3 }}
                   />
                 )}
               </LineChart>

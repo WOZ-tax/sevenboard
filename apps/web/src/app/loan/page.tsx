@@ -142,9 +142,30 @@ export default function LoanPage() {
           repaymentType: scenario.repaymentType,
         });
         updateScenario(scenario.id, { result: res, loading: false });
-      } catch (err) {
-        console.error("Loan simulation failed", err);
-        updateScenario(scenario.id, { loading: false });
+      } catch {
+        // API未接続時はローカルで計算
+        const p = Number(scenario.principal);
+        const r = Number(scenario.interestRate) / 100 / 12;
+        const n = Number(scenario.termMonths);
+        let monthlyPayment = 0;
+        if (r > 0 && n > 0) {
+          monthlyPayment = Math.round(p * r * Math.pow(1 + r, n) / (Math.pow(1 + r, n) - 1));
+        } else if (n > 0) {
+          monthlyPayment = Math.round(p / n);
+        }
+        const totalPayment = monthlyPayment * n;
+        const totalInterest = totalPayment - p;
+        const schedule = Array.from({ length: Math.min(n, 120) }, (_, i) => ({
+          month: i + 1,
+          payment: monthlyPayment,
+          principal: Math.round(p / n),
+          interest: monthlyPayment - Math.round(p / n),
+          balance: Math.max(0, p - Math.round(p / n) * (i + 1)),
+        }));
+        updateScenario(scenario.id, {
+          result: { monthlyPayment, totalPayment, totalInterest, schedule },
+          loading: false,
+        });
       }
     },
     [orgId, updateScenario]

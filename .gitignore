@@ -7,3 +7,5 @@ dist/
 *.tsbuildinfo
 coverage/
 .turbo/
+
+.vercel
