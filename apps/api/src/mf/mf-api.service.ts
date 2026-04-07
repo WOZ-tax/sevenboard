@@ -289,9 +289,11 @@ export class MfApiService {
     } catch (err: any) {
       const status = err?.response?.status;
       const msg = err?.response?.data || err?.message;
+      const headers = err?.response?.headers || {};
+      this.logger.error(`MF MCP error detail: status=${status} wwwAuth=${headers['www-authenticate']} body=${JSON.stringify(msg).substring(0, 500)}`);
 
-      // 401: try token refresh
-      if (status === 401 || String(msg).includes('invalid_token')) {
+      // 401/403: try token refresh (MCP server returns 401 for expired/invalid tokens)
+      if (status === 401 || status === 403 || String(msg).includes('invalid_token')) {
         this.logger.warn('MF MCP 401, attempting token refresh');
         const integration = await this.prisma.integration.findUnique({
           where: { orgId_provider: { orgId, provider: 'MF_CLOUD' } },
