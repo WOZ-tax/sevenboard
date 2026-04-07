@@ -56,12 +56,12 @@ export class MfOAuthController {
       response_type: 'code',
       client_id: clientId,
       redirect_uri: redirectUri,
-      scope: 'office accounts transactions manage_transactions',
+      scope: 'mfc/accounting/offices.read mfc/accounting/accounts.read mfc/accounting/journal.read mfc/accounting/journal.write mfc/accounting/report.read mfc/accounting/taxes.read mfc/accounting/trade_partners.read mfc/accounting/connected_account.read mfc/accounting/transaction.write',
       state,
     });
 
     return {
-      authUrl: `https://moneyforward.com/oauth/authorize?${params}`,
+      authUrl: `https://api.biz.moneyforward.com/authorize?${params}`,
     };
   }
 
@@ -108,7 +108,7 @@ export class MfOAuthController {
       // Token exchange
       const tokenRes: AxiosResponse = await firstValueFrom(
         this.httpService.post(
-          'https://moneyforward.com/oauth/v2/token',
+          'https://api.biz.moneyforward.com/oauth/v2/token',
           new URLSearchParams({
             grant_type: 'authorization_code',
             code,

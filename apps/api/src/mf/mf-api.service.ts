@@ -77,7 +77,7 @@ export class MfApiService {
     try {
       const res: AxiosResponse = await lastValueFrom(
         this.httpService.post(
-          'https://moneyforward.com/oauth/v2/token',
+          'https://api.biz.moneyforward.com/oauth/v2/token',
           new URLSearchParams({
             grant_type: 'refresh_token',
             refresh_token: refreshToken,
