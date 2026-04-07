@@ -108,7 +108,7 @@ export class MfOAuthController {
       // Token exchange
       const tokenRes: AxiosResponse = await firstValueFrom(
         this.httpService.post(
-          'https://api.biz.moneyforward.com/oauth/v2/token',
+          'https://api.biz.moneyforward.com/token',
           new URLSearchParams({
             grant_type: 'authorization_code',
             code,
