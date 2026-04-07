@@ -26,3 +26,4 @@ RUN npm run build -w apps/api
 ENV NODE_ENV=production
 EXPOSE 3001
 CMD ["sh", "scripts/start.sh"]
+# force rebuild Tue Apr  7 14:49:26     2026
