@@ -17,32 +17,36 @@ import {
   MfAccount,
 } from './types/mf-api.types';
 
+/**
+ * MF Biz Platform API Service
+ *
+ * MF Cloud Accounting API は MCP (Model Context Protocol) HTTP transport 経由でのみ
+ * アクセス可能。OAuth トークンを Bearer ヘッダーに付与し、MCP サーバーに
+ * JSON-RPC リクエストを送信してデータを取得する。
+ */
 @Injectable()
 export class MfApiService {
   private readonly logger = new Logger(MfApiService.name);
-  private readonly baseUrl: string;
+  private readonly mcpUrl: string;
 
   constructor(
     private httpService: HttpService,
     private prisma: PrismaService,
     private cache: CacheService,
   ) {
-    this.baseUrl =
-      process.env.MF_API_BASE_URL ||
-      'https://accounting.moneyforward.com/api/v3';
+    this.mcpUrl =
+      process.env.MF_MCP_URL ||
+      'https://beta.mcp.developers.biz.moneyforward.com/mcp/ca/v3';
   }
 
-  /**
-   * Resolve access token for an organization.
-   * Dev: falls back to MF_ACCESS_TOKEN env var.
-   * Prod: reads from Integration table and refreshes if expired.
-   */
+  // ============================
+  // Token management
+  // ============================
+
   private async getAccessToken(orgId: string): Promise<string> {
-    // Dev shortcut (production では無効)
     const envToken = process.env.MF_ACCESS_TOKEN;
     if (envToken && process.env.NODE_ENV !== 'production') return envToken;
 
-    // Integration テーブルから MF_CLOUD のトークンを取得
     const integration = await this.prisma.integration.findUnique({
       where: { orgId_provider: { orgId, provider: 'MF_CLOUD' } },
     });
@@ -53,7 +57,6 @@ export class MfApiService {
       );
     }
 
-    // トークン期限チェック → リフレッシュ
     if (integration.tokenExpiry && integration.tokenExpiry < new Date()) {
       return this.refreshToken(
         orgId,
@@ -75,18 +78,21 @@ export class MfApiService {
     }
 
     try {
+      const clientId = process.env.MF_CLIENT_ID || '';
+      const clientSecret = process.env.MF_CLIENT_SECRET || '';
+      const basicAuth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+
       const res: AxiosResponse = await lastValueFrom(
         this.httpService.post(
           'https://api.biz.moneyforward.com/token',
           new URLSearchParams({
             grant_type: 'refresh_token',
             refresh_token: refreshToken,
-            client_id: process.env.MF_CLIENT_ID || '',
-            client_secret: process.env.MF_CLIENT_SECRET || '',
           }).toString(),
           {
             headers: {
               'Content-Type': 'application/x-www-form-urlencoded',
+              Authorization: `Basic ${basicAuth}`,
             },
           },
         ) as any,
@@ -113,80 +119,220 @@ export class MfApiService {
     }
   }
 
-  private async request<T>(
+  // ============================
+  // MCP transport
+  // ============================
+
+  /**
+   * MCP セッションを初期化し sessionId を取得
+   */
+  private async initSession(token: string): Promise<string> {
+    const res: AxiosResponse = await lastValueFrom(
+      this.httpService.post(
+        this.mcpUrl,
+        {
+          jsonrpc: '2.0',
+          method: 'initialize',
+          params: {
+            protocolVersion: '2024-11-05',
+            capabilities: {},
+            clientInfo: { name: 'sevenboard-api', version: '1.0.0' },
+          },
+          id: 1,
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json, text/event-stream',
+            Authorization: `Bearer ${token}`,
+          },
+          // MCP HTTP transport may return SSE; we need to handle both
+          transformResponse: [(data: string) => data],
+        },
+      ) as any,
+    );
+
+    // Extract session ID from Mcp-Session header
+    const sessionId = res.headers['mcp-session'] || res.headers['mcp-session-id'] || '';
+
+    // Parse response: may be JSON or SSE
+    const body = this.parseMcpResponse(res.data);
+    if (body?.error) {
+      throw new InternalServerErrorException(`MCP init error: ${body.error.message}`);
+    }
+
+    // Send initialized notification
+    if (sessionId) {
+      try {
+        await lastValueFrom(
+          this.httpService.post(
+            this.mcpUrl,
+            {
+              jsonrpc: '2.0',
+              method: 'notifications/initialized',
+            },
+            {
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${token}`,
+                'Mcp-Session': sessionId,
+              },
+            },
+          ) as any,
+        );
+      } catch {
+        // notification failures are non-fatal
+      }
+    }
+
+    return sessionId;
+  }
+
+  /**
+   * MCP tool を呼び出す
+   */
+  private async callTool(
+    token: string,
+    sessionId: string,
+    toolName: string,
+    args: Record<string, any> = {},
+  ): Promise<any> {
+    const res: AxiosResponse = await lastValueFrom(
+      this.httpService.post(
+        this.mcpUrl,
+        {
+          jsonrpc: '2.0',
+          method: 'tools/call',
+          params: { name: toolName, arguments: args },
+          id: 2,
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json, text/event-stream',
+            Authorization: `Bearer ${token}`,
+            ...(sessionId ? { 'Mcp-Session': sessionId } : {}),
+          },
+          transformResponse: [(data: string) => data],
+        },
+      ) as any,
+    );
+
+    const body = this.parseMcpResponse(res.data);
+    if (body?.error) {
+      throw new InternalServerErrorException(`MCP tool error: ${body.error.message}`);
+    }
+
+    // Extract content from MCP tool result
+    const result = body?.result;
+    if (!result?.content) return result;
+
+    // MCP returns content as array of {type, text} blocks
+    const textBlock = result.content.find((c: any) => c.type === 'text');
+    if (!textBlock?.text) return result;
+
+    try {
+      return JSON.parse(textBlock.text);
+    } catch {
+      return textBlock.text;
+    }
+  }
+
+  /**
+   * SSE or JSON レスポンスをパース
+   */
+  private parseMcpResponse(raw: string): any {
+    if (!raw) return null;
+    const trimmed = raw.trim();
+
+    // Pure JSON
+    if (trimmed.startsWith('{')) {
+      try { return JSON.parse(trimmed); } catch { /* fall through */ }
+    }
+
+    // SSE format: extract data lines
+    const dataLines = trimmed
+      .split('\n')
+      .filter((l) => l.startsWith('data:'))
+      .map((l) => l.slice(5).trim());
+
+    for (const line of dataLines) {
+      try {
+        const parsed = JSON.parse(line);
+        if (parsed.id || parsed.result || parsed.error) return parsed;
+      } catch { /* skip non-JSON data lines */ }
+    }
+
+    return null;
+  }
+
+  // ============================
+  // Cached MCP request
+  // ============================
+
+  private async mcpRequest<T>(
     orgId: string,
-    path: string,
-    params?: Record<string, any>,
+    toolName: string,
+    args: Record<string, any> = {},
   ): Promise<T> {
-    // A-3: インメモリキャッシュ（5分TTL）
-    const cacheKey = `mf:${orgId}:${path}:${JSON.stringify(params || {})}`;
+    const cacheKey = `mf:${orgId}:${toolName}:${JSON.stringify(args)}`;
     const cached = this.cache.get<T>(cacheKey);
     if (cached) return cached;
 
     const token = await this.getAccessToken(orgId);
 
     try {
-      const res: AxiosResponse = await lastValueFrom(
-        this.httpService.get(`${this.baseUrl}${path}`, {
-          headers: { Authorization: `Bearer ${token}` },
-          params,
-        }) as any,
-      );
-      this.cache.set(cacheKey, res.data, 5 * 60 * 1000); // 5分キャッシュ
-      return res.data as T;
+      const sessionId = await this.initSession(token);
+      const data = await this.callTool(token, sessionId, toolName, args);
+      this.cache.set(cacheKey, data, 5 * 60 * 1000);
+      return data as T;
     } catch (err: any) {
       const status = err?.response?.status;
+      const msg = err?.response?.data || err?.message;
 
-      // 401: try refresh once
-      if (status === 401) {
-        this.logger.warn('MF 401, attempting token refresh');
-        const org = await this.prisma.organization.findUnique({
-          where: { id: orgId },
+      // 401: try token refresh
+      if (status === 401 || String(msg).includes('invalid_token')) {
+        this.logger.warn('MF MCP 401, attempting token refresh');
+        const integration = await this.prisma.integration.findUnique({
+          where: { orgId_provider: { orgId, provider: 'MF_CLOUD' } },
         });
-        const rawRefresh = (org as any)?.mfRefreshToken;
         const newToken = await this.refreshToken(
           orgId,
-          rawRefresh ? decryptIfAvailable(rawRefresh) : null,
+          integration?.refreshToken
+            ? decryptIfAvailable(integration.refreshToken)
+            : null,
         );
-
-        const retry: AxiosResponse = await lastValueFrom(
-          this.httpService.get(`${this.baseUrl}${path}`, {
-            headers: { Authorization: `Bearer ${newToken}` },
-            params,
-          }) as any,
-        );
-        return retry.data as T;
+        const sessionId = await this.initSession(newToken);
+        const data = await this.callTool(newToken, sessionId, toolName, args);
+        this.cache.set(cacheKey, data, 5 * 60 * 1000);
+        return data as T;
       }
 
-      if (status === 429) {
-        throw new InternalServerErrorException(
-          'MF API rate limit exceeded. Please retry later.',
-        );
-      }
-
-      this.logger.error(`MF API error: ${status} ${path}`, err?.message);
+      this.logger.error(`MF MCP error: ${toolName}`, msg);
       throw new InternalServerErrorException(
         `MF API error: ${status || 'unknown'}`,
       );
     }
   }
 
-  // --- Public API methods ---
+  // ============================
+  // Public API methods
+  // ============================
 
   async getOffice(orgId: string): Promise<MfOffice> {
-    return this.request<MfOffice>(orgId, '/office');
+    return this.mcpRequest<MfOffice>(orgId, 'mfc_ca_currentOffice');
   }
 
   async getTrialBalancePL(
     orgId: string,
     fiscalYear?: number,
   ): Promise<MfTrialBalance> {
-    const params: Record<string, any> = {};
-    if (fiscalYear) params.fiscal_year = fiscalYear;
-    return this.request<MfTrialBalance>(
+    const args: Record<string, any> = {};
+    if (fiscalYear) args.fiscal_year = fiscalYear;
+    return this.mcpRequest<MfTrialBalance>(
       orgId,
-      '/reports/trial_balance/profit_loss',
-      params,
+      'mfc_ca_getReportsTrialBalanceProfitLoss',
+      args,
     );
   }
 
@@ -194,12 +340,12 @@ export class MfApiService {
     orgId: string,
     fiscalYear?: number,
   ): Promise<MfTrialBalance> {
-    const params: Record<string, any> = {};
-    if (fiscalYear) params.fiscal_year = fiscalYear;
-    return this.request<MfTrialBalance>(
+    const args: Record<string, any> = {};
+    if (fiscalYear) args.fiscal_year = fiscalYear;
+    return this.mcpRequest<MfTrialBalance>(
       orgId,
-      '/reports/trial_balance/balance_sheet',
-      params,
+      'mfc_ca_getReportsTrialBalanceBalanceSheet',
+      args,
     );
   }
 
@@ -207,12 +353,12 @@ export class MfApiService {
     orgId: string,
     fiscalYear?: number,
   ): Promise<MfTransition> {
-    const params: Record<string, any> = { type: 'monthly' };
-    if (fiscalYear) params.fiscal_year = fiscalYear;
-    return this.request<MfTransition>(
+    const args: Record<string, any> = {};
+    if (fiscalYear) args.fiscal_year = fiscalYear;
+    return this.mcpRequest<MfTransition>(
       orgId,
-      '/reports/transition/profit_loss',
-      params,
+      'mfc_ca_getReportsTransitionProfitLoss',
+      args,
     );
   }
 
@@ -220,26 +366,27 @@ export class MfApiService {
     orgId: string,
     fiscalYear?: number,
   ): Promise<MfTransition> {
-    const params: Record<string, any> = { type: 'monthly' };
-    if (fiscalYear) params.fiscal_year = fiscalYear;
-    return this.request<MfTransition>(
+    const args: Record<string, any> = {};
+    if (fiscalYear) args.fiscal_year = fiscalYear;
+    return this.mcpRequest<MfTransition>(
       orgId,
-      '/reports/transition/balance_sheet',
-      params,
+      'mfc_ca_getReportsTransitionBalanceSheet',
+      args,
     );
   }
 
   async getAccounts(orgId: string): Promise<{ accounts: MfAccount[] }> {
-    return this.request<{ accounts: MfAccount[] }>(orgId, '/accounts');
+    const data = await this.mcpRequest<any>(orgId, 'mfc_ca_getAccounts');
+    return { accounts: Array.isArray(data) ? data : data?.accounts || [] };
   }
 
   async getJournals(
     orgId: string,
     params?: { startDate?: string; endDate?: string },
   ): Promise<any> {
-    const queryParams: Record<string, any> = {};
-    if (params?.startDate) queryParams.start_date = params.startDate;
-    if (params?.endDate) queryParams.end_date = params.endDate;
-    return this.request<any>(orgId, '/journals', queryParams);
+    const args: Record<string, any> = {};
+    if (params?.startDate) args.start_date = params.startDate;
+    if (params?.endDate) args.end_date = params.endDate;
+    return this.mcpRequest<any>(orgId, 'mfc_ca_getJournals', args);
   }
 }
