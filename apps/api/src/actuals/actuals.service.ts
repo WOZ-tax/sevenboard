@@ -96,7 +96,7 @@ export class ActualsService {
       try {
         const entry = await this.prisma.actualEntry.upsert({
           where: {
-            orgId_accountId_departmentId_month: {
+            actual_entry_with_dept: {
               orgId,
               accountId: account.id,
               departmentId: departmentId,
