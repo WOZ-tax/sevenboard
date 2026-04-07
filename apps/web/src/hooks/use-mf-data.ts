@@ -4,12 +4,19 @@ import { useEffect } from "react";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth";
+import { usePeriodStore } from "@/lib/period-store";
 
 function useOrgId() {
   const user = useAuthStore((s) => s.user);
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   if (!isAuthenticated) return "";
   return user?.orgId || "";
+}
+
+/** グローバル期間セレクターの値を返す。引数で上書き可能 */
+function useGlobalFiscalYear(override?: number): number | undefined {
+  const global = usePeriodStore((s) => s.fiscalYear);
+  return override ?? global;
 }
 
 /**
@@ -30,8 +37,9 @@ export function usePrefetchMfData() {
   }, [orgId, queryClient]);
 }
 
-export function useMfDashboard(fiscalYear?: number) {
+export function useMfDashboard(fiscalYearOverride?: number) {
   const orgId = useOrgId();
+  const fiscalYear = useGlobalFiscalYear(fiscalYearOverride);
   return useQuery({
     queryKey: ["mf", "dashboard", orgId, fiscalYear],
     queryFn: () => api.mf.getDashboard(orgId, fiscalYear),
@@ -40,8 +48,9 @@ export function useMfDashboard(fiscalYear?: number) {
   });
 }
 
-export function useMfPL(fiscalYear?: number) {
+export function useMfPL(fiscalYearOverride?: number) {
   const orgId = useOrgId();
+  const fiscalYear = useGlobalFiscalYear(fiscalYearOverride);
   return useQuery({
     queryKey: ["mf", "pl", orgId, fiscalYear],
     queryFn: () => api.mf.getPL(orgId, fiscalYear),
@@ -50,8 +59,9 @@ export function useMfPL(fiscalYear?: number) {
   });
 }
 
-export function useMfBS(fiscalYear?: number) {
+export function useMfBS(fiscalYearOverride?: number) {
   const orgId = useOrgId();
+  const fiscalYear = useGlobalFiscalYear(fiscalYearOverride);
   return useQuery({
     queryKey: ["mf", "bs", orgId, fiscalYear],
     queryFn: () => api.mf.getBS(orgId, fiscalYear),
@@ -60,8 +70,9 @@ export function useMfBS(fiscalYear?: number) {
   });
 }
 
-export function useMfCashflow(fiscalYear?: number) {
+export function useMfCashflow(fiscalYearOverride?: number) {
   const orgId = useOrgId();
+  const fiscalYear = useGlobalFiscalYear(fiscalYearOverride);
   return useQuery({
     queryKey: ["mf", "cashflow", orgId, fiscalYear],
     queryFn: () => api.mf.getCashflow(orgId, fiscalYear),
@@ -70,8 +81,9 @@ export function useMfCashflow(fiscalYear?: number) {
   });
 }
 
-export function useMfPLTransition(fiscalYear?: number) {
+export function useMfPLTransition(fiscalYearOverride?: number) {
   const orgId = useOrgId();
+  const fiscalYear = useGlobalFiscalYear(fiscalYearOverride);
   return useQuery({
     queryKey: ["mf", "pl-transition", orgId, fiscalYear],
     queryFn: () => api.mf.getPLTransition(orgId, fiscalYear),
@@ -80,8 +92,9 @@ export function useMfPLTransition(fiscalYear?: number) {
   });
 }
 
-export function useAiSummary(fiscalYear?: number) {
+export function useAiSummary(fiscalYearOverride?: number) {
   const orgId = useOrgId();
+  const fiscalYear = useGlobalFiscalYear(fiscalYearOverride);
   return useQuery({
     queryKey: ["ai", "summary", orgId, fiscalYear],
     queryFn: () => api.ai.getSummary(orgId, fiscalYear),
@@ -160,8 +173,9 @@ export function useMfJournals(params?: { startDate?: string; endDate?: string; a
   });
 }
 
-export function useMfFinancialIndicators(fiscalYear?: number) {
+export function useMfFinancialIndicators(fiscalYearOverride?: number) {
   const orgId = useOrgId();
+  const fiscalYear = useGlobalFiscalYear(fiscalYearOverride);
   return useQuery({
     queryKey: ["mf", "financial-indicators", orgId, fiscalYear],
     queryFn: () => api.mf.getFinancialIndicators(orgId, fiscalYear),
@@ -170,8 +184,9 @@ export function useMfFinancialIndicators(fiscalYear?: number) {
   });
 }
 
-export function useAlerts(fiscalYear?: number) {
+export function useAlerts(fiscalYearOverride?: number) {
   const orgId = useOrgId();
+  const fiscalYear = useGlobalFiscalYear(fiscalYearOverride);
   return useQuery({
     queryKey: ["alerts", orgId, fiscalYear],
     queryFn: () => api.alerts.getAll(orgId, fiscalYear),

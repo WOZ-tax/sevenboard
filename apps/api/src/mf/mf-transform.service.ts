@@ -278,54 +278,42 @@ export class MfTransformService {
     out: FinancialStatementRow[],
   ) {
     for (const row of rows) {
-      const isSubtotal = row.name.endsWith('合計');
-      const isHeader =
-        row.type === 'financial_statement_item' &&
-        !isSubtotal &&
-        row.rows &&
-        row.rows.length > 0;
+      const isSubtotal = row.name.endsWith(`合計`);
+      const hasChildren = row.rows && row.rows.length > 0;
 
-      if (isHeader) {
-        // ヘッダー行 (e.g. "流動資産合計" の子を展開)
+      if (hasChildren && !isSubtotal) {
+        // Header row with children
         out.push({
-          category: `【${row.name.replace('合計', '')}】`,
+          category: `【${row.name}】`,
           current: 0,
           prior: 0,
           isHeader: true,
         });
-        // 子科目
-        if (row.rows) {
-          for (const child of row.rows) {
-            if (child.type === 'account') {
-              out.push({
-                category: `  ${child.name}`,
-                current: this.val(child, TB_COL.CLOSING),
-                prior: this.val(child, TB_COL.OPENING),
-              });
-            } else if (child.rows) {
-              // 更にネスト（現金及び預金合計 → 現金, 普通預金）
-              for (const grandchild of child.rows) {
-                out.push({
-                  category: `  ${grandchild.name}`,
-                  current: this.val(grandchild, TB_COL.CLOSING),
-                  prior: this.val(grandchild, TB_COL.OPENING),
-                });
-              }
-            }
-          }
-          // 小計
-          out.push({
-            category: row.name,
-            current: this.val(row, TB_COL.CLOSING),
-            prior: this.val(row, TB_COL.OPENING),
-            isTotal: true,
-          });
-        }
-      } else if (row.type === 'account') {
+        // Recurse into children
+        this.flattenBsSection(row.rows!, out);
+        // Section subtotal
         out.push({
-          category: `  ${row.name}`,
+          category: `${row.name}合計`,
           current: this.val(row, TB_COL.CLOSING),
           prior: this.val(row, TB_COL.OPENING),
+          isTotal: true,
+        });
+      } else if (hasChildren && isSubtotal) {
+        // Subtotal row that also has children - expand children then show subtotal
+        this.flattenBsSection(row.rows!, out);
+        out.push({
+          category: row.name,
+          current: this.val(row, TB_COL.CLOSING),
+          prior: this.val(row, TB_COL.OPENING),
+          isTotal: true,
+        });
+      } else {
+        // Leaf row (account or standalone item)
+        out.push({
+          category: isSubtotal ? row.name : `  ${row.name}`,
+          current: this.val(row, TB_COL.CLOSING),
+          prior: this.val(row, TB_COL.OPENING),
+          isTotal: isSubtotal,
         });
       }
     }
@@ -363,8 +351,11 @@ export class MfTransformService {
       this.findRow(bsTransition.rows, '売掛金');
     const arBalances = this.monthlyValues(arRow, mc);
     const salesCollection = revMonthly.map((rev, i) => {
-      const arPrev = i === 0 ? 0 : arBalances[i - 1];
-      return rev + arPrev - arBalances[i];
+      if (i === 0) {
+        // First month: no prior AR data, use revenue as cash-basis approximation
+        return rev;
+      }
+      return rev + arBalances[i - 1] - arBalances[i];
     });
 
     const nonOpIncRow = this.findRowByPartial(plTransition.rows, '営業外収益');
@@ -397,8 +388,11 @@ export class MfTransformService {
       this.findRow(bsTransition.rows, '買掛金');
     const apBalances = this.monthlyValues(apRow, mc);
     const purchasePayment = cogsMonthly.map((cogs, i) => {
-      const apPrev = i === 0 ? 0 : apBalances[i - 1];
-      return cogs + apPrev - apBalances[i];
+      if (i === 0) {
+        // First month: no prior AP data, use COGS as cash-basis approximation
+        return cogs;
+      }
+      return cogs + apBalances[i - 1] - apBalances[i];
     });
 
     const sgaRow = this.findRowByPartial(plTransition.rows, '販売費及び一般管理費');
@@ -653,11 +647,11 @@ export class MfTransformService {
     return {
       currentRatio: safeDivide(currentAssets, currentLiabilities, 100),
       equityRatio: safeDivide(netAssets, totalAssets, 100),
-      // 債務超過（純資産<0）の場合、負債比率とROEは意味をなさない → 0（N/A）
-      debtEquityRatio: netAssets > 0 ? safeDivide(totalLiabilities, netAssets, 100) : 0,
+      // 債務超過（純資産<0）でも計算する。純資産=0の場合のみ0（ゼロ除算回避）
+      debtEquityRatio: netAssets !== 0 ? safeDivide(totalLiabilities, netAssets, 100) : 0,
       grossProfitMargin: safeDivide(grossProfit, revenue, 100),
       operatingProfitMargin: safeDivide(operatingProfit, revenue, 100),
-      roe: netAssets > 0 ? safeDivide(netIncome, netAssets, 100) : 0,
+      roe: netAssets !== 0 ? safeDivide(netIncome, netAssets, 100) : 0,
       roa: safeDivide(netIncome, totalAssets, 100),
       totalAssetTurnover: safeDivide(revenue, totalAssets),
       receivablesTurnover: safeDivide(revenue, receivables),

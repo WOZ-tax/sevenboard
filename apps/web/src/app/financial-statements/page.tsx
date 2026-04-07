@@ -17,7 +17,8 @@ import { cn } from "@/lib/utils";
 import { formatManYen, getValueColor } from "@/lib/format";
 import { FileText, FlaskConical } from "lucide-react";
 import { PrintButton } from "@/components/ui/print-button";
-import { useMfPL, useMfBS, useMfCashflow, useMfOffice } from "@/hooks/use-mf-data";
+import { useMfPL, useMfBS, useMfCashflow } from "@/hooks/use-mf-data";
+import { usePeriodStore, getPeriodLabel } from "@/lib/period-store";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth";
 
@@ -131,10 +132,8 @@ export default function FinancialStatementsPage() {
   const mfPL = useMfPL();
   const mfBS = useMfBS();
   const mfCF = useMfCashflow();
-  const mfOffice = useMfOffice();
-  const periodLabel = mfOffice.data?.accounting_periods?.[0]
-    ? `${mfOffice.data.accounting_periods[0].fiscal_year}年${mfOffice.data.accounting_periods[0].end_month}月度`
-    : "";
+  const { fiscalYear, month, periods } = usePeriodStore();
+  const periodLabel = getPeriodLabel(fiscalYear, month, periods);
 
   const effectivePlData = mfPL.data;
   const effectiveBsAssets = mfBS.data?.assets;

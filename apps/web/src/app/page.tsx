@@ -22,10 +22,10 @@ import { formatManYen } from "@/lib/format";
 import {
   useMfDashboard,
   useMfPLTransition,
-  useMfOffice,
   useAiSummary,
   useAlerts,
 } from "@/hooks/use-mf-data";
+import { usePeriodStore, getPeriodLabel } from "@/lib/period-store";
 import { MfEmptyState } from "@/components/ui/mf-empty-state";
 import { QueryErrorState } from "@/components/ui/query-error-state";
 
@@ -64,9 +64,9 @@ export default function DashboardPage() {
   const [comparisonMode, setComparisonMode] = useState<"mom" | "yoy">("mom");
   const dashboard = useMfDashboard();
   const plTransition = useMfPLTransition();
-  const office = useMfOffice();
   const aiSummaryQuery = useAiSummary();
   const alertsQuery = useAlerts();
+  const { fiscalYear, month, periods } = usePeriodStore();
 
   const comparisonLabel = comparisonMode === "mom" ? "前月比" : "前年比";
 
@@ -85,9 +85,7 @@ export default function DashboardPage() {
       })
     : null;
 
-  const periodLabel = office.data?.accounting_periods?.[0]
-    ? `${office.data.accounting_periods[0].fiscal_year}年${office.data.accounting_periods[0].end_month}月度`
-    : "";
+  const periodLabel = getPeriodLabel(fiscalYear, month, periods);
 
   const isLoading = dashboard.isLoading;
   const isError = dashboard.isError;
