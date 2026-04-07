@@ -355,7 +355,7 @@ export class MfApiService {
     orgId: string,
     fiscalYear?: number,
   ): Promise<MfTransition> {
-    const args: Record<string, any> = {};
+    const args: Record<string, any> = { type: 'monthly' };
     if (fiscalYear) args.fiscal_year = fiscalYear;
     return this.mcpRequest<MfTransition>(
       orgId,
@@ -368,7 +368,7 @@ export class MfApiService {
     orgId: string,
     fiscalYear?: number,
   ): Promise<MfTransition> {
-    const args: Record<string, any> = {};
+    const args: Record<string, any> = { type: 'monthly' };
     if (fiscalYear) args.fiscal_year = fiscalYear;
     return this.mcpRequest<MfTransition>(
       orgId,
