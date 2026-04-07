@@ -24,6 +24,12 @@ export class CsrfGuard implements CanActivate {
       return true;
     }
 
+    // 認証エンドポイントはCSRF除外（まだトークンがない）
+    const path = req.path || req.url || '';
+    if (path.startsWith('/auth/login') || path.startsWith('/auth/mf/')) {
+      return true;
+    }
+
     // Cookie認証を使っていない場合（Bearer onlyの場合）はスキップ
     const cookieToken = req.cookies?.[CSRF_COOKIE_NAME];
     if (!cookieToken) {
