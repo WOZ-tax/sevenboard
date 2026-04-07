@@ -9,15 +9,15 @@ export const CSRF_HEADER_NAME = 'x-csrf-token';
 export const jwtCookieOptions: CookieOptions = {
   httpOnly: true,
   secure: isProd,
-  sameSite: isProd ? 'strict' : 'lax',
+  sameSite: isProd ? 'none' : 'lax', // Cross-origin (Vercel↔Railway) requires 'none'
   path: '/',
   maxAge: 24 * 60 * 60 * 1000, // 24h
 };
 
 export const csrfCookieOptions: CookieOptions = {
   httpOnly: false, // フロントから読み取れるようにする
-  secure: isProd,
-  sameSite: isProd ? 'strict' : 'lax',
+  secure: isProd, // SameSite=None requires Secure
+  sameSite: isProd ? 'none' : 'lax',
   path: '/',
   maxAge: 24 * 60 * 60 * 1000,
 };
