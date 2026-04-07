@@ -106,19 +106,19 @@ export class MfOAuthController {
 
     try {
       // Token exchange
+      const basicAuth = Buffer.from(`${process.env.MF_CLIENT_ID}:${process.env.MF_CLIENT_SECRET}`).toString('base64');
       const tokenRes: AxiosResponse = await firstValueFrom(
         this.httpService.post(
           'https://api.biz.moneyforward.com/token',
           new URLSearchParams({
             grant_type: 'authorization_code',
             code,
-            client_id: process.env.MF_CLIENT_ID!,
-            client_secret: process.env.MF_CLIENT_SECRET!,
             redirect_uri: process.env.MF_REDIRECT_URI!,
           }).toString(),
           {
             headers: {
               'Content-Type': 'application/x-www-form-urlencoded',
+              'Authorization': `Basic ${basicAuth}`,
             },
           },
         ) as any,
