@@ -56,7 +56,7 @@ export class MfOAuthController {
       response_type: 'code',
       client_id: clientId,
       redirect_uri: redirectUri,
-      scope: 'mfc/accounting/offices.read mfc/accounting/accounts.read mfc/accounting/journal.read mfc/accounting/journal.write mfc/accounting/report.read mfc/accounting/taxes.read mfc/accounting/trade_partners.read mfc/accounting/connected_account.read mfc/accounting/transaction.write',
+      scope: 'mfc/accounting/offices.read mfc/accounting/accounts.read mfc/accounting/departments.read mfc/accounting/journal.read mfc/accounting/journal.write mfc/accounting/report.read mfc/accounting/taxes.read mfc/accounting/trade_partners.read mfc/accounting/trade_partners.write mfc/accounting/connected_account.read mfc/accounting/transaction.write',
       state,
     });
 
