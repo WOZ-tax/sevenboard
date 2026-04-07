@@ -24,6 +24,7 @@ import {
   FileBarChart,
   Gauge,
   FlaskConical,
+  CalendarDays,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState, useEffect } from "react";
@@ -54,6 +55,7 @@ const menuItems = [
   { label: "予算策定ヘルパー", href: "/budget-helper", icon: Calculator },
   { label: "資金調達レポート", href: "/funding-report", icon: FileBarChart },
   { label: "アラート", href: "/alerts", icon: Bell },
+  { label: "カレンダー", href: "/calendar", icon: CalendarDays },
   { label: "マスタ管理", href: "/masters", icon: Database },
   { label: "設定", href: "/settings", icon: Settings },
 ];
