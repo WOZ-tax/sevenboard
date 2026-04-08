@@ -73,10 +73,10 @@ export function useMfBS() {
 
 export function useMfCashflow() {
   const orgId = useOrgId();
-  const { fiscalYear, month } = useGlobalPeriod();
+  const { fiscalYear } = useGlobalPeriod();
   return useQuery({
-    queryKey: ["mf", "cashflow", orgId, fiscalYear, month],
-    queryFn: () => api.mf.getCashflow(orgId, fiscalYear, month),
+    queryKey: ["mf", "cashflow", orgId, fiscalYear],
+    queryFn: () => api.mf.getCashflow(orgId, fiscalYear),
     enabled: !!orgId,
     staleTime: 5 * 60 * 1000,
   });
@@ -84,10 +84,10 @@ export function useMfCashflow() {
 
 export function useMfPLTransition() {
   const orgId = useOrgId();
-  const { fiscalYear, month } = useGlobalPeriod();
+  const { fiscalYear } = useGlobalPeriod();
   return useQuery({
-    queryKey: ["mf", "pl-transition", orgId, fiscalYear, month],
-    queryFn: () => api.mf.getPLTransition(orgId, fiscalYear, month),
+    queryKey: ["mf", "pl-transition", orgId, fiscalYear],
+    queryFn: () => api.mf.getPLTransition(orgId, fiscalYear),
     enabled: !!orgId,
     staleTime: 5 * 60 * 1000,
   });
@@ -98,7 +98,7 @@ export function useAiSummary() {
   const { fiscalYear, month } = useGlobalPeriod();
   return useQuery({
     queryKey: ["ai", "summary", orgId, fiscalYear, month],
-    queryFn: () => api.ai.getSummary(orgId, fiscalYear),
+    queryFn: () => api.ai.getSummary(orgId, fiscalYear, month),
     enabled: !!orgId,
     staleTime: 30 * 60 * 1000, // 30分キャッシュ（AI生成はコストがかかるため）
   });

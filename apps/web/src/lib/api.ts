@@ -199,10 +199,15 @@ export const api = {
 
   // === AI ===
   ai: {
-    getSummary: (orgId: string, fiscalYear?: number) =>
-      apiFetch<{ summary: string; sections?: { title: string; content: string }[]; highlights: { type: string; text: string }[]; generatedAt: string }>(
-        `/organizations/${orgId}/ai/summary${fiscalYear ? `?fiscalYear=${fiscalYear}` : ''}`,
-      ),
+    getSummary: (orgId: string, fiscalYear?: number, month?: number) => {
+      const qs = new URLSearchParams();
+      if (fiscalYear) qs.set('fiscalYear', String(fiscalYear));
+      if (month) qs.set('endMonth', String(month));
+      const suffix = qs.toString() ? `?${qs}` : '';
+      return apiFetch<{ summary: string; sections?: { title: string; content: string }[]; highlights: { type: string; text: string }[]; generatedAt: string }>(
+        `/organizations/${orgId}/ai/summary${suffix}`,
+      );
+    },
     getTalkScript: (orgId: string, fiscalYear?: number) =>
       apiFetch<any>(`/organizations/${orgId}/ai/talk-script${fiscalYear ? `?fiscalYear=${fiscalYear}` : ''}`),
     getBudgetScenarios: (orgId: string, fiscalYear?: number) =>

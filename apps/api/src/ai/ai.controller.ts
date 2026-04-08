@@ -31,8 +31,10 @@ export class AiController {
   async getSummary(
     @Param('orgId') orgId: string,
     @Query('fiscalYear') fiscalYear?: string,
+    @Query('endMonth') endMonth?: string,
   ) {
-    return this.aiService.generateMonthlySummary(orgId, this.parseFy(fiscalYear));
+    const em = endMonth ? parseInt(endMonth, 10) : undefined;
+    return this.aiService.generateMonthlySummary(orgId, this.parseFy(fiscalYear), em);
   }
 
   @Get('talk-script')

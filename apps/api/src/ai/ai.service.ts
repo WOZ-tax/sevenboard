@@ -71,10 +71,10 @@ export class AiService {
     return this.llm;
   }
 
-  private async getFinancialContext(orgId: string, fiscalYear?: number) {
+  private async getFinancialContext(orgId: string, fiscalYear?: number, endMonth?: number) {
     const [pl, bs] = await Promise.all([
-      this.mfApi.getTrialBalancePL(orgId, fiscalYear),
-      this.mfApi.getTrialBalanceBS(orgId, fiscalYear),
+      this.mfApi.getTrialBalancePL(orgId, fiscalYear, endMonth),
+      this.mfApi.getTrialBalanceBS(orgId, fiscalYear, endMonth),
     ]);
     const dashboard = this.mfTransform.buildDashboardSummary(pl, bs);
     const plRows = this.mfTransform.transformTrialBalancePL(pl);
@@ -99,8 +99,8 @@ ${plRows.map((r) => `${r.category}: ${r.current}円`).join('\n')}`;
   // =========================================
   // #既存: 月次AIサマリー
   // =========================================
-  async generateMonthlySummary(orgId: string, fiscalYear?: number): Promise<AiSummaryResponse> {
-    const { dashboard, plRows } = await this.getFinancialContext(orgId, fiscalYear);
+  async generateMonthlySummary(orgId: string, fiscalYear?: number, endMonth?: number): Promise<AiSummaryResponse> {
+    const { dashboard, plRows } = await this.getFinancialContext(orgId, fiscalYear, endMonth);
 
     try {
       const llm = this.ensureLlm();

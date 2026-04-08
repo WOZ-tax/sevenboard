@@ -9,12 +9,10 @@ import {
   CartesianGrid,
   Tooltip,
   Legend,
-  ReferenceLine,
   ResponsiveContainer,
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatManYen } from "@/lib/format";
-import { usePeriodStore } from "@/lib/period-store";
 
 interface PlTransitionPoint {
   month: string;
@@ -28,7 +26,6 @@ interface RevenueChartProps {
 
 export function RevenueChart({ mfData }: RevenueChartProps = {}) {
   const [mounted, setMounted] = useState(false);
-  const selectedMonth = usePeriodStore((s) => s.month);
 
   useEffect(() => {
     setMounted(true);
@@ -39,11 +36,6 @@ export function RevenueChart({ mfData }: RevenueChartProps = {}) {
     revenue: p.revenue,
     operatingProfit: p.operatingProfit,
   }));
-
-  // 選択月のラベル。未選択時は現在月を表示
-  const currentMonth = new Date().getMonth() + 1;
-  const displayMonth = selectedMonth ?? currentMonth;
-  const selectedMonthLabel = `${displayMonth}月`;
 
   return (
     <Card>
@@ -81,19 +73,6 @@ export function RevenueChart({ mfData }: RevenueChartProps = {}) {
                   }}
                 />
                 <Legend wrapperStyle={{ fontSize: "13px" }} />
-                <ReferenceLine
-                  x={selectedMonthLabel}
-                  stroke={selectedMonth ? "var(--color-primary)" : "#999"}
-                  strokeWidth={2}
-                  strokeDasharray="4 4"
-                  label={{
-                    value: selectedMonth ? `${selectedMonth}月` : "現在",
-                    position: "insideTopRight",
-                    fontSize: 11,
-                    fill: selectedMonth ? "var(--color-primary)" : "#999",
-                    offset: 8,
-                  }}
-                />
                 <Line
                   type="monotone"
                   dataKey="revenue"
