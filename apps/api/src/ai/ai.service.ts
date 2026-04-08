@@ -123,10 +123,16 @@ ${this.financialDataBlock(dashboard, plRows)}
 }`;
 
       const res = await llm.generate(prompt, { maxTokens: 2048, json: true });
-      const parsed = extractJson<{ summary: string; sections?: AiSectionItem[]; highlights: AiHighlight[] }>(res.text);
+      let parsed = extractJson<{ summary: string; sections?: AiSectionItem[]; highlights: AiHighlight[] }>(res.text);
+
+      // Geminiが二重JSON（summaryの値がさらにJSON）を返す場合の対策
+      if (parsed?.summary && parsed.summary.trim().startsWith('{')) {
+        const inner = extractJson<{ summary: string; sections?: AiSectionItem[]; highlights: AiHighlight[] }>(parsed.summary);
+        if (inner) parsed = { ...parsed, ...inner };
+      }
 
       return {
-        summary: parsed?.summary || res.text,
+        summary: parsed?.summary || res.text.replace(/[{}"]/g, '').replace(/\\n/g, ' ').substring(0, 500),
         sections: parsed?.sections || [],
         highlights: parsed?.highlights || [],
         generatedAt: new Date().toISOString(),
