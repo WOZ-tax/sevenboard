@@ -19,6 +19,7 @@ export class AlertsController {
   async getAlerts(
     @Param('orgId') orgId: string,
     @Query('fiscalYear') fy?: string,
+    @Query('endMonth') endMonth?: string,
   ) {
     let fiscalYear: number | undefined;
     if (fy) {
@@ -27,6 +28,13 @@ export class AlertsController {
         throw new BadRequestException('Invalid fiscal year');
       }
     }
-    return this.alertsService.detectAlerts(orgId, fiscalYear);
+    let em: number | undefined;
+    if (endMonth) {
+      em = parseInt(endMonth, 10);
+      if (isNaN(em) || em < 1 || em > 12) {
+        throw new BadRequestException('Invalid month (1-12)');
+      }
+    }
+    return this.alertsService.detectAlerts(orgId, fiscalYear, em);
   }
 }

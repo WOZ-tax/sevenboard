@@ -19,22 +19,27 @@ export class AlertsService {
     private mfTransform: MfTransformService,
   ) {}
 
-  async detectAlerts(orgId: string, fiscalYear?: number): Promise<AlertItem[]> {
+  async detectAlerts(orgId: string, fiscalYear?: number, endMonth?: number): Promise<AlertItem[]> {
     const alerts: AlertItem[] = [];
     const now = new Date().toISOString();
 
     try {
       const [plT, bsT, pl, bs] = await Promise.all([
-        this.mfApi.getTransitionPL(orgId, fiscalYear),
-        this.mfApi.getTransitionBS(orgId, fiscalYear),
-        this.mfApi.getTrialBalancePL(orgId, fiscalYear),
-        this.mfApi.getTrialBalanceBS(orgId, fiscalYear),
+        this.mfApi.getTransitionPL(orgId, fiscalYear, endMonth),
+        this.mfApi.getTransitionBS(orgId, fiscalYear, endMonth),
+        this.mfApi.getTrialBalancePL(orgId, fiscalYear, endMonth),
+        this.mfApi.getTrialBalanceBS(orgId, fiscalYear, endMonth),
       ]);
 
-      // 1. 月次変動 > 30% の科目検知
-      this.detectMonthlyVariance(plT.rows, alerts, now, 0.3);
+      // 月ラベルをMCP推移表のcolumnsから動的生成
+      const monthLabels = (plT.columns || [])
+        .filter((c: string) => /^\d+$/.test(c))
+        .map((c: string) => `${c}月`);
 
-      // 2. ランウェイ < 12ヶ月
+      // 1. 月次変動 > 30% の科目検知
+      this.detectMonthlyVariance(plT.rows, alerts, now, 0.3, monthLabels);
+
+      // 2. ランウェイ
       const cashflow = this.mfTransform.deriveCashflow(bsT, plT);
       if (cashflow.runway.months < 6) {
         alerts.push({
@@ -80,7 +85,7 @@ export class AlertsService {
         }
       }
 
-      // 5. 営業利益率が低い
+      // 5. 営業利益率
       if (indicators.operatingProfitMargin < 0) {
         alerts.push({
           id: `op-margin-${Date.now()}`,
@@ -94,7 +99,6 @@ export class AlertsService {
       this.logger.warn('Alert detection failed, returning empty alerts', err);
     }
 
-    // severity順にソート
     const order = { critical: 0, warning: 1, info: 2 };
     alerts.sort((a, b) => order[a.severity] - order[b.severity]);
 
@@ -106,18 +110,17 @@ export class AlertsService {
     alerts: AlertItem[],
     now: string,
     threshold: number,
+    monthLabels: string[],
   ) {
     this.walkRows(rows, (row) => {
       if (row.type !== 'account') return;
       const values: number[] = row.values || [];
-      // 月次データで前月比を確認（index 0-11）
-      for (let i = 1; i < Math.min(values.length, 12); i++) {
+      for (let i = 1; i < Math.min(values.length, monthLabels.length); i++) {
         const prev = values[i - 1] as number;
         const curr = values[i] as number;
-        if (!prev || !curr || Math.abs(prev) < 10000) continue; // 少額は無視
+        if (!prev || !curr || Math.abs(prev) < 10000) continue;
         const changeRate = (curr - prev) / Math.abs(prev);
         if (Math.abs(changeRate) > threshold) {
-          const monthLabels = ['4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月', '1月', '2月', '3月'];
           const direction = changeRate > 0 ? '増加' : '減少';
           const pctStr = Math.round(Math.abs(changeRate) * 100);
           alerts.push({
@@ -127,7 +130,7 @@ export class AlertsService {
             description: `${monthLabels[i]}の${row.name}が前月比${pctStr}%${direction}しています（${Math.round(prev / 10000).toLocaleString()}万→${Math.round(curr / 10000).toLocaleString()}万）。`,
             detectedAt: now,
           });
-          break; // 同じ科目で複数アラートを出さない
+          break;
         }
       }
     });

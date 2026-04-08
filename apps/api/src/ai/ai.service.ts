@@ -104,23 +104,14 @@ ${plRows.map((r) => `${r.category}: ${r.current}円`).join('\n')}`;
 
     try {
       const llm = this.ensureLlm();
-      const prompt = `あなたは会計事務所の経営コンサルタントです。以下の財務データに基づき、月次経営サマリーを生成してください。
+      const periodNote = endMonth ? `（${endMonth}月末時点の累計データ）` : '（通期累計）';
+      const prompt = `あなたは会計事務所の経営コンサルタントです。以下の財務データ${periodNote}に基づき、経営サマリーを日本語で生成してください。
 
 ${this.financialDataBlock(dashboard, plRows)}
 
-## 出力形式（JSON）
-{
-  "summary": "3〜5文のエグゼクティブサマリー。具体的な数字を含めること。",
-  "sections": [
-    {"title":"売上・利益分析","content":"2-3文で売上高・営業利益・経常利益の動向を分析"},
-    {"title":"費用動向","content":"2-3文で主要費用項目の増減を分析"},
-    {"title":"キャッシュフロー","content":"2-3文で現預金残高・ランウェイを分析"},
-    {"title":"財務指標","content":"2-3文で総資産利益率や自己資本比率等を分析"},
-    {"title":"リスク分析","content":"2-3文で財務上のリスク要因を指摘"},
-    {"title":"アクション提案","content":"2-3文で具体的な改善アクションを提案"}
-  ],
-  "highlights": [{"type":"positive","text":"良い点"},{"type":"negative","text":"懸念点"},{"type":"neutral","text":"注意点"}]
-}`;
+以下のJSON形式で回答してください。summaryは必ず日本語の平文で、JSONではなく普通の文章にしてください。
+
+{"summary":"3〜5文のエグゼクティブサマリー。売上・利益・キャッシュの状況を具体的な数字で端的にまとめる。","sections":[{"title":"売上・利益","content":"分析"},{"title":"費用","content":"分析"},{"title":"キャッシュ","content":"分析"},{"title":"リスクと提案","content":"分析"}],"highlights":[{"type":"positive","text":"良い点"},{"type":"negative","text":"懸念点"}]}`;
 
       const res = await llm.generate(prompt, { maxTokens: 2048, json: true });
       let parsed = extractJson<{ summary: string; sections?: AiSectionItem[]; highlights: AiHighlight[] }>(res.text);

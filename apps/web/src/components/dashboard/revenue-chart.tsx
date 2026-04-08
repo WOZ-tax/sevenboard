@@ -9,10 +9,12 @@ import {
   CartesianGrid,
   Tooltip,
   Legend,
+  ReferenceLine,
   ResponsiveContainer,
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatManYen } from "@/lib/format";
+import { usePeriodStore } from "@/lib/period-store";
 
 interface PlTransitionPoint {
   month: string;
@@ -26,10 +28,14 @@ interface RevenueChartProps {
 
 export function RevenueChart({ mfData }: RevenueChartProps = {}) {
   const [mounted, setMounted] = useState(false);
+  const selectedMonth = usePeriodStore((s) => s.month);
 
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  // 選択月がある場合のみマーカー表示
+  const monthMarker = selectedMonth ? `${selectedMonth}月` : null;
 
   const chartData = mfData?.map((p) => ({
     month: p.month,
@@ -73,6 +79,20 @@ export function RevenueChart({ mfData }: RevenueChartProps = {}) {
                   }}
                 />
                 <Legend wrapperStyle={{ fontSize: "13px" }} />
+                {monthMarker && (
+                  <ReferenceLine
+                    x={monthMarker}
+                    stroke="var(--color-primary)"
+                    strokeWidth={2}
+                    strokeDasharray="4 4"
+                    label={{
+                      value: monthMarker,
+                      position: "insideTopLeft",
+                      fontSize: 11,
+                      fill: "var(--color-primary)",
+                    }}
+                  />
+                )}
                 <Line
                   type="monotone"
                   dataKey="revenue"
