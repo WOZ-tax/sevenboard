@@ -28,6 +28,15 @@ export class MfController {
     return fy;
   }
 
+  private parseMonth(value?: string): number | undefined {
+    if (!value) return undefined;
+    const m = parseInt(value, 10);
+    if (isNaN(m) || m < 1 || m > 12) {
+      throw new BadRequestException('Invalid month (1-12)');
+    }
+    return m;
+  }
+
   @Get('office')
   async getOffice(@Param('orgId') orgId: string) {
     return this.mfApi.getOffice(orgId);
@@ -37,11 +46,13 @@ export class MfController {
   async getDashboard(
     @Param('orgId') orgId: string,
     @Query('fiscalYear') fiscalYear?: string,
+    @Query('endMonth') endMonth?: string,
   ) {
     const fy = this.parseFiscalYear(fiscalYear);
+    const em = this.parseMonth(endMonth);
     const [pl, bs] = await Promise.all([
-      this.mfApi.getTrialBalancePL(orgId, fy),
-      this.mfApi.getTrialBalanceBS(orgId, fy),
+      this.mfApi.getTrialBalancePL(orgId, fy, em),
+      this.mfApi.getTrialBalanceBS(orgId, fy, em),
     ]);
     return this.mfTransform.buildDashboardSummary(pl, bs);
   }
@@ -50,14 +61,15 @@ export class MfController {
   async getPL(
     @Param('orgId') orgId: string,
     @Query('fiscalYear') fiscalYear?: string,
+    @Query('endMonth') endMonth?: string,
   ) {
     const fy = this.parseFiscalYear(fiscalYear);
-    // 当期 + 前期を並列取得して前期比較を実現
+    const em = this.parseMonth(endMonth);
     const priorFy = fy ? fy - 1 : undefined;
     const [data, priorData] = await Promise.all([
-      this.mfApi.getTrialBalancePL(orgId, fy),
+      this.mfApi.getTrialBalancePL(orgId, fy, em),
       priorFy
-        ? this.mfApi.getTrialBalancePL(orgId, priorFy).catch(() => null)
+        ? this.mfApi.getTrialBalancePL(orgId, priorFy, em).catch(() => null)
         : Promise.resolve(null),
     ]);
     return this.mfTransform.transformTrialBalancePL(data, priorData);
@@ -67,13 +79,15 @@ export class MfController {
   async getBS(
     @Param('orgId') orgId: string,
     @Query('fiscalYear') fiscalYear?: string,
+    @Query('endMonth') endMonth?: string,
   ) {
     const fy = this.parseFiscalYear(fiscalYear);
+    const em = this.parseMonth(endMonth);
     const priorFy = fy ? fy - 1 : undefined;
     const [data, priorData] = await Promise.all([
-      this.mfApi.getTrialBalanceBS(orgId, fy),
+      this.mfApi.getTrialBalanceBS(orgId, fy, em),
       priorFy
-        ? this.mfApi.getTrialBalanceBS(orgId, priorFy).catch(() => null)
+        ? this.mfApi.getTrialBalanceBS(orgId, priorFy, em).catch(() => null)
         : Promise.resolve(null),
     ]);
     return this.mfTransform.transformTrialBalanceBS(data, priorData);
@@ -83,11 +97,13 @@ export class MfController {
   async getCashflow(
     @Param('orgId') orgId: string,
     @Query('fiscalYear') fiscalYear?: string,
+    @Query('endMonth') endMonth?: string,
   ) {
     const fy = this.parseFiscalYear(fiscalYear);
+    const em = this.parseMonth(endMonth);
     const [bsT, plT] = await Promise.all([
-      this.mfApi.getTransitionBS(orgId, fy),
-      this.mfApi.getTransitionPL(orgId, fy),
+      this.mfApi.getTransitionBS(orgId, fy, em),
+      this.mfApi.getTransitionPL(orgId, fy, em),
     ]);
     return this.mfTransform.deriveCashflow(bsT, plT);
   }
@@ -96,9 +112,11 @@ export class MfController {
   async getPLTransition(
     @Param('orgId') orgId: string,
     @Query('fiscalYear') fiscalYear?: string,
+    @Query('endMonth') endMonth?: string,
   ) {
     const fy = this.parseFiscalYear(fiscalYear);
-    const data = await this.mfApi.getTransitionPL(orgId, fy);
+    const em = this.parseMonth(endMonth);
+    const data = await this.mfApi.getTransitionPL(orgId, fy, em);
     return this.mfTransform.transformTransitionPL(data);
   }
 
@@ -118,7 +136,6 @@ export class MfController {
       this.mfApi.getTransitionPL(orgId, fy),
       this.mfApi.getTransitionBS(orgId, fy),
     ]);
-    // PLかBSのどちらかから見つかる科目を返す
     const decoded = decodeURIComponent(accountName);
     const plResult = this.mfTransform.getAccountTransition(plT, decoded);
     const hasData = plResult.some((r) => r.amount !== 0);
@@ -135,7 +152,6 @@ export class MfController {
   ) {
     const data = await this.mfApi.getJournals(orgId, { startDate, endDate });
     if (!accountName) return data;
-    // 科目名でフィルタリング
     const decoded = decodeURIComponent(accountName);
     if (data?.journals) {
       data.journals = data.journals.filter(
@@ -154,11 +170,13 @@ export class MfController {
   async getFinancialIndicators(
     @Param('orgId') orgId: string,
     @Query('fiscalYear') fiscalYear?: string,
+    @Query('endMonth') endMonth?: string,
   ) {
     const fy = this.parseFiscalYear(fiscalYear);
+    const em = this.parseMonth(endMonth);
     const [pl, bs] = await Promise.all([
-      this.mfApi.getTrialBalancePL(orgId, fy),
-      this.mfApi.getTrialBalanceBS(orgId, fy),
+      this.mfApi.getTrialBalancePL(orgId, fy, em),
+      this.mfApi.getTrialBalanceBS(orgId, fy, em),
     ]);
     return this.mfTransform.calculateFinancialIndicators(pl, bs);
   }

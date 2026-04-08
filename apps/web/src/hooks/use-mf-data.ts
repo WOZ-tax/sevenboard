@@ -13,10 +13,11 @@ function useOrgId() {
   return user?.orgId || "";
 }
 
-/** グローバル期間セレクターの値を返す。引数で上書き可能 */
-function useGlobalFiscalYear(override?: number): number | undefined {
-  const global = usePeriodStore((s) => s.fiscalYear);
-  return override ?? global;
+/** グローバル期間セレクターの値を返す */
+function useGlobalPeriod() {
+  const fiscalYear = usePeriodStore((s) => s.fiscalYear);
+  const month = usePeriodStore((s) => s.month);
+  return { fiscalYear, month };
 }
 
 /**
@@ -37,66 +38,66 @@ export function usePrefetchMfData() {
   }, [orgId, queryClient]);
 }
 
-export function useMfDashboard(fiscalYearOverride?: number) {
+export function useMfDashboard() {
   const orgId = useOrgId();
-  const fiscalYear = useGlobalFiscalYear(fiscalYearOverride);
+  const { fiscalYear, month } = useGlobalPeriod();
   return useQuery({
-    queryKey: ["mf", "dashboard", orgId, fiscalYear],
-    queryFn: () => api.mf.getDashboard(orgId, fiscalYear),
-    enabled: !!orgId,
-    staleTime: 5 * 60 * 1000, // 5分キャッシュ
-  });
-}
-
-export function useMfPL(fiscalYearOverride?: number) {
-  const orgId = useOrgId();
-  const fiscalYear = useGlobalFiscalYear(fiscalYearOverride);
-  return useQuery({
-    queryKey: ["mf", "pl", orgId, fiscalYear],
-    queryFn: () => api.mf.getPL(orgId, fiscalYear),
+    queryKey: ["mf", "dashboard", orgId, fiscalYear, month],
+    queryFn: () => api.mf.getDashboard(orgId, fiscalYear, month),
     enabled: !!orgId,
     staleTime: 5 * 60 * 1000,
   });
 }
 
-export function useMfBS(fiscalYearOverride?: number) {
+export function useMfPL() {
   const orgId = useOrgId();
-  const fiscalYear = useGlobalFiscalYear(fiscalYearOverride);
+  const { fiscalYear, month } = useGlobalPeriod();
   return useQuery({
-    queryKey: ["mf", "bs", orgId, fiscalYear],
-    queryFn: () => api.mf.getBS(orgId, fiscalYear),
+    queryKey: ["mf", "pl", orgId, fiscalYear, month],
+    queryFn: () => api.mf.getPL(orgId, fiscalYear, month),
     enabled: !!orgId,
     staleTime: 5 * 60 * 1000,
   });
 }
 
-export function useMfCashflow(fiscalYearOverride?: number) {
+export function useMfBS() {
   const orgId = useOrgId();
-  const fiscalYear = useGlobalFiscalYear(fiscalYearOverride);
+  const { fiscalYear, month } = useGlobalPeriod();
   return useQuery({
-    queryKey: ["mf", "cashflow", orgId, fiscalYear],
-    queryFn: () => api.mf.getCashflow(orgId, fiscalYear),
+    queryKey: ["mf", "bs", orgId, fiscalYear, month],
+    queryFn: () => api.mf.getBS(orgId, fiscalYear, month),
     enabled: !!orgId,
     staleTime: 5 * 60 * 1000,
   });
 }
 
-export function useMfPLTransition(fiscalYearOverride?: number) {
+export function useMfCashflow() {
   const orgId = useOrgId();
-  const fiscalYear = useGlobalFiscalYear(fiscalYearOverride);
+  const { fiscalYear, month } = useGlobalPeriod();
   return useQuery({
-    queryKey: ["mf", "pl-transition", orgId, fiscalYear],
-    queryFn: () => api.mf.getPLTransition(orgId, fiscalYear),
+    queryKey: ["mf", "cashflow", orgId, fiscalYear, month],
+    queryFn: () => api.mf.getCashflow(orgId, fiscalYear, month),
     enabled: !!orgId,
     staleTime: 5 * 60 * 1000,
   });
 }
 
-export function useAiSummary(fiscalYearOverride?: number) {
+export function useMfPLTransition() {
   const orgId = useOrgId();
-  const fiscalYear = useGlobalFiscalYear(fiscalYearOverride);
+  const { fiscalYear, month } = useGlobalPeriod();
   return useQuery({
-    queryKey: ["ai", "summary", orgId, fiscalYear],
+    queryKey: ["mf", "pl-transition", orgId, fiscalYear, month],
+    queryFn: () => api.mf.getPLTransition(orgId, fiscalYear, month),
+    enabled: !!orgId,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useAiSummary() {
+  const orgId = useOrgId();
+  const { fiscalYear, month } = useGlobalPeriod();
+  return useQuery({
+    queryKey: ["ai", "summary", orgId, fiscalYear, month],
     queryFn: () => api.ai.getSummary(orgId, fiscalYear),
     enabled: !!orgId,
     staleTime: 30 * 60 * 1000, // 30分キャッシュ（AI生成はコストがかかるため）
@@ -173,20 +174,20 @@ export function useMfJournals(params?: { startDate?: string; endDate?: string; a
   });
 }
 
-export function useMfFinancialIndicators(fiscalYearOverride?: number) {
+export function useMfFinancialIndicators() {
   const orgId = useOrgId();
-  const fiscalYear = useGlobalFiscalYear(fiscalYearOverride);
+  const { fiscalYear, month } = useGlobalPeriod();
   return useQuery({
-    queryKey: ["mf", "financial-indicators", orgId, fiscalYear],
-    queryFn: () => api.mf.getFinancialIndicators(orgId, fiscalYear),
+    queryKey: ["mf", "financial-indicators", orgId, fiscalYear, month],
+    queryFn: () => api.mf.getFinancialIndicators(orgId, fiscalYear, month),
     enabled: !!orgId,
     staleTime: 5 * 60 * 1000,
   });
 }
 
-export function useAlerts(fiscalYearOverride?: number) {
+export function useAlerts() {
   const orgId = useOrgId();
-  const fiscalYear = useGlobalFiscalYear(fiscalYearOverride);
+  const { fiscalYear } = useGlobalPeriod();
   return useQuery({
     queryKey: ["alerts", orgId, fiscalYear],
     queryFn: () => api.alerts.getAll(orgId, fiscalYear),

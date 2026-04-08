@@ -328,9 +328,11 @@ export class MfApiService {
   async getTrialBalancePL(
     orgId: string,
     fiscalYear?: number,
+    endMonth?: number,
   ): Promise<MfTrialBalance> {
     const args: Record<string, any> = {};
     if (fiscalYear) args.fiscal_year = fiscalYear;
+    if (endMonth) args.end_month = endMonth;
     return this.mcpRequest<MfTrialBalance>(
       orgId,
       'mfc_ca_getReportsTrialBalanceProfitLoss',
@@ -341,9 +343,11 @@ export class MfApiService {
   async getTrialBalanceBS(
     orgId: string,
     fiscalYear?: number,
+    endMonth?: number,
   ): Promise<MfTrialBalance> {
     const args: Record<string, any> = {};
     if (fiscalYear) args.fiscal_year = fiscalYear;
+    if (endMonth) args.end_month = endMonth;
     return this.mcpRequest<MfTrialBalance>(
       orgId,
       'mfc_ca_getReportsTrialBalanceBalanceSheet',
@@ -354,9 +358,11 @@ export class MfApiService {
   async getTransitionPL(
     orgId: string,
     fiscalYear?: number,
+    endMonth?: number,
   ): Promise<MfTransition> {
     const args: Record<string, any> = { type: 'monthly' };
     if (fiscalYear) args.fiscal_year = fiscalYear;
+    if (endMonth) args.end_month = endMonth;
     return this.mcpRequest<MfTransition>(
       orgId,
       'mfc_ca_getReportsTransitionProfitLoss',
@@ -367,9 +373,11 @@ export class MfApiService {
   async getTransitionBS(
     orgId: string,
     fiscalYear?: number,
+    endMonth?: number,
   ): Promise<MfTransition> {
     const args: Record<string, any> = { type: 'monthly' };
     if (fiscalYear) args.fiscal_year = fiscalYear;
+    if (endMonth) args.end_month = endMonth;
     return this.mcpRequest<MfTransition>(
       orgId,
       'mfc_ca_getReportsTransitionBalanceSheet',
