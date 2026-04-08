@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Home,
+  ClipboardCheck,
   BarChart3,
   PenLine,
   FileText,
@@ -40,6 +41,7 @@ import {
 
 const menuItems = [
   { label: "ダッシュボード", href: "/", icon: Home },
+  { label: "月次レビュー", href: "/monthly-review", icon: ClipboardCheck },
   { label: "予実差異", href: "/variance", icon: BarChart3 },
   { label: "予算策定", href: "/budget", icon: PenLine },
   { label: "変動損益", href: "/variable-cost", icon: TrendingDown },

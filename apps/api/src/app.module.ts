@@ -21,6 +21,7 @@ import { SimulationModule } from './simulation/simulation.module';
 import { SyncModule } from './sync/sync.module';
 import { OnboardingModule } from './onboarding/onboarding.module';
 import { CalendarModule } from './calendar/calendar.module';
+import { KintoneModule } from './kintone/kintone.module';
 
 @Module({
   imports: [
@@ -44,6 +45,7 @@ import { CalendarModule } from './calendar/calendar.module';
     SyncModule,
     OnboardingModule,
     CalendarModule,
+    KintoneModule,
   ],
   providers: [
     {

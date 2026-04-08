@@ -410,6 +410,26 @@ export const api = {
       }),
   },
 
+  // === kintone (月次進捗) ===
+  kintone: {
+    getMonthlyProgress: (fiscalYear?: string, search?: string) => {
+      const qs = new URLSearchParams();
+      if (fiscalYear) qs.set('fiscalYear', fiscalYear);
+      if (search) qs.set('search', search);
+      const suffix = qs.toString() ? `?${qs}` : '';
+      return apiFetch<any[]>(`/kintone/monthly-progress${suffix}`);
+    },
+    getByMfCode: (mfCode: string, fiscalYear?: string) =>
+      apiFetch<any>(
+        `/kintone/monthly-progress/by-mf/${mfCode}${fiscalYear ? `?fiscalYear=${fiscalYear}` : ''}`,
+      ),
+    updateStatus: (recordId: string, month: number, status: string) =>
+      apiFetch<{ success: boolean }>(`/kintone/monthly-progress/${recordId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ month, status }),
+      }),
+  },
+
   // === Sync ===
   sync: {
     run: (orgId: string) =>
