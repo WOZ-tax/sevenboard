@@ -40,8 +40,10 @@ export function RevenueChart({ mfData }: RevenueChartProps = {}) {
     operatingProfit: p.operatingProfit,
   }));
 
-  // 選択月のラベル（例: "3月"）
-  const selectedMonthLabel = selectedMonth ? `${selectedMonth}月` : null;
+  // 選択月のラベル。未選択時は現在月を表示
+  const currentMonth = new Date().getMonth() + 1;
+  const displayMonth = selectedMonth ?? currentMonth;
+  const selectedMonthLabel = `${displayMonth}月`;
 
   return (
     <Card>
@@ -79,20 +81,19 @@ export function RevenueChart({ mfData }: RevenueChartProps = {}) {
                   }}
                 />
                 <Legend wrapperStyle={{ fontSize: "13px" }} />
-                {selectedMonthLabel && (
-                  <ReferenceLine
-                    x={selectedMonthLabel}
-                    stroke="var(--color-primary)"
-                    strokeWidth={2}
-                    strokeDasharray="4 4"
-                    label={{
-                      value: "選択月",
-                      position: "top",
-                      fontSize: 11,
-                      fill: "var(--color-primary)",
-                    }}
-                  />
-                )}
+                <ReferenceLine
+                  x={selectedMonthLabel}
+                  stroke={selectedMonth ? "var(--color-primary)" : "#999"}
+                  strokeWidth={2}
+                  strokeDasharray="4 4"
+                  label={{
+                    value: selectedMonth ? `${selectedMonth}月` : "現在",
+                    position: "insideTopRight",
+                    fontSize: 11,
+                    fill: selectedMonth ? "var(--color-primary)" : "#999",
+                    offset: 8,
+                  }}
+                />
                 <Line
                   type="monotone"
                   dataKey="revenue"
@@ -106,10 +107,10 @@ export function RevenueChart({ mfData }: RevenueChartProps = {}) {
                   type="monotone"
                   dataKey="operatingProfit"
                   name="営業利益"
-                  stroke="#0f7f85"
+                  stroke="#f56121"
                   strokeWidth={2}
                   strokeDasharray="6 3"
-                  dot={{ fill: "#0f7f85", r: 3 }}
+                  dot={{ fill: "#f56121", r: 3 }}
                 />
               </LineChart>
             </ResponsiveContainer>
