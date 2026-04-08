@@ -113,7 +113,7 @@ ${this.financialDataBlock(dashboard, plRows)}
 
 {"summary":"3〜5文のエグゼクティブサマリー。売上・利益・キャッシュの状況を具体的な数字で端的にまとめる。","sections":[{"title":"売上・利益","content":"分析"},{"title":"費用","content":"分析"},{"title":"キャッシュ","content":"分析"},{"title":"リスクと提案","content":"分析"}],"highlights":[{"type":"positive","text":"良い点"},{"type":"negative","text":"懸念点"}]}`;
 
-      const res = await llm.generate(prompt, { maxTokens: 2048, json: true });
+      const res = await llm.generate(prompt, { maxTokens: 4096, json: true });
       let parsed = extractJson<{ summary: string; sections?: AiSectionItem[]; highlights: AiHighlight[] }>(res.text);
 
       // Geminiが二重JSON（summaryの値がさらにJSON）を返す場合の対策
@@ -122,10 +122,32 @@ ${this.financialDataBlock(dashboard, plRows)}
         if (inner) parsed = { ...parsed, ...inner };
       }
 
+      // summaryにJSONキー名が混入している場合の除去（"summary: ..."→"..."）
+      let summary = parsed?.summary || '';
+      if (!summary || summary.includes('summary:')) {
+        // extractJsonが失敗した場合: テキストからsummary部分を抽出
+        const summaryMatch = res.text.match(/summary["\s:]+([^"}{]+)/);
+        summary = summaryMatch ? summaryMatch[1].trim() : res.text.replace(/[{}"\\n]/g, ' ').replace(/\s+/g, ' ').replace(/^\s*summary\s*:\s*/i, '').substring(0, 500);
+      }
+
+      // sectionsをテキストから抽出（parsedで取れなかった場合）
+      let sections = parsed?.sections || [];
+      if (sections.length === 0) {
+        const sectionMatches = [...res.text.matchAll(/"title"\s*:\s*"([^"]+)"\s*,\s*"content"\s*:\s*"([^"]+)"/g)];
+        sections = sectionMatches.map((m) => ({ title: m[1], content: m[2] }));
+      }
+
+      // highlightsをテキストから抽出
+      let highlights = parsed?.highlights || [];
+      if (highlights.length === 0) {
+        const hlMatches = [...res.text.matchAll(/"type"\s*:\s*"(positive|negative|neutral)"\s*,\s*"text"\s*:\s*"([^"]+)"/g)];
+        highlights = hlMatches.map((m) => ({ type: m[1] as AiHighlight['type'], text: m[2] }));
+      }
+
       return {
-        summary: parsed?.summary || res.text.replace(/[{}"]/g, '').replace(/\\n/g, ' ').substring(0, 500),
-        sections: parsed?.sections || [],
-        highlights: parsed?.highlights || [],
+        summary,
+        sections,
+        highlights,
         generatedAt: new Date().toISOString(),
       };
     } catch (err: any) {
