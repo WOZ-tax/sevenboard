@@ -109,9 +109,13 @@ ${plRows.map((r) => `${r.category}: ${r.current}円`).join('\n')}`;
 
 ${this.financialDataBlock(dashboard, plRows)}
 
-以下のJSON形式で回答してください。summaryは必ず日本語の平文で、JSONではなく普通の文章にしてください。
+重要なルール:
+- 各contentは必ず2〜3文の平文のみ。箇条書き・番号リスト・マークダウン記法（**太字**等）は禁止
+- summaryは3〜5文の平文。具体的な数字を含めること
+- highlightsのtextは15文字以内の短いフレーズ
 
-{"summary":"3〜5文のエグゼクティブサマリー。売上・利益・キャッシュの状況を具体的な数字で端的にまとめる。","sections":[{"title":"売上・利益","content":"分析"},{"title":"費用","content":"分析"},{"title":"キャッシュ","content":"分析"},{"title":"リスクと提案","content":"分析"}],"highlights":[{"type":"positive","text":"良い点"},{"type":"negative","text":"懸念点"}]}`;
+以下のJSON形式で回答してください:
+{"summary":"エグゼクティブサマリー","sections":[{"title":"売上・利益","content":"2-3文の平文"},{"title":"費用","content":"2-3文の平文"},{"title":"キャッシュ","content":"2-3文の平文"},{"title":"リスクと提案","content":"2-3文の平文"}],"highlights":[{"type":"positive","text":"短いフレーズ"},{"type":"negative","text":"短いフレーズ"}]}`;
 
       const res = await llm.generate(prompt, { maxTokens: 4096, json: true });
       let parsed = extractJson<{ summary: string; sections?: AiSectionItem[]; highlights: AiHighlight[] }>(res.text);
