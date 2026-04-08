@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import dynamic from "next/dynamic";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { KpiCard } from "@/components/dashboard/kpi-card";
@@ -15,7 +14,6 @@ const RevenueChart = dynamic(
 );
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Bot, AlertTriangle, AlertCircle, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatManYen } from "@/lib/format";
@@ -53,37 +51,50 @@ const alertLevelConfig = {
   },
 };
 
-const kpiMeta = {
-  revenue: { title: "売上高", unit: "円" },
-  operatingProfit: { title: "営業利益", unit: "円" },
-  cashBalance: { title: "現預金残高", unit: "円" },
-  runway: { title: "ランウェイ", unit: "か月" },
-} as const;
+function buildKpis(data: any) {
+  const revenue = data.revenue ?? 0;
+  const opProfit = data.operatingProfit ?? 0;
+  const cashBalance = data.cashBalance ?? 0;
+  const runway = data.runway ?? 0;
+  const opMargin = revenue > 0 ? Math.round((opProfit / revenue) * 1000) / 10 : 0;
+
+  return [
+    {
+      title: "売上高",
+      value: Math.round(revenue / 10000),
+      unit: "万円",
+    },
+    {
+      title: "営業利益",
+      value: Math.round(opProfit / 10000),
+      unit: "万円",
+    },
+    {
+      title: "営業利益率",
+      value: opMargin,
+      unit: "%",
+    },
+    {
+      title: "現預金残高",
+      value: Math.round(cashBalance / 10000),
+      unit: "万円",
+    },
+    {
+      title: "ランウェイ",
+      value: runway,
+      unit: "か月",
+    },
+  ];
+}
 
 export default function DashboardPage() {
-  const [comparisonMode, setComparisonMode] = useState<"mom" | "yoy">("mom");
   const dashboard = useMfDashboard();
   const plTransition = useMfPLTransition();
   const aiSummaryQuery = useAiSummary();
   const alertsQuery = useAlerts();
   const { fiscalYear, month, periods } = usePeriodStore();
 
-  const comparisonLabel = comparisonMode === "mom" ? "前月比" : "前年比";
-
-  const kpiKeys = ["revenue", "operatingProfit", "cashBalance", "runway"] as const;
-
-  const kpis = dashboard.data
-    ? kpiKeys.map((key) => {
-        const meta = kpiMeta[key];
-        const value = dashboard.data[key] ?? 0;
-        return {
-          title: meta.title,
-          value,
-          unit: meta.unit,
-          comparisonLabel,
-        };
-      })
-    : null;
+  const kpis = dashboard.data ? buildKpis(dashboard.data) : null;
 
   const periodLabel = getPeriodLabel(fiscalYear, month, periods);
 
@@ -104,8 +115,8 @@ export default function DashboardPage() {
         </div>
 
         {isLoading ? (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {Array.from({ length: 4 }).map((_, i) => (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+            {Array.from({ length: 5 }).map((_, i) => (
               <div key={i} className="h-24 animate-pulse rounded-lg bg-muted" />
             ))}
           </div>
@@ -115,37 +126,10 @@ export default function DashboardPage() {
           <MfEmptyState />
         ) : kpis ? (
           <>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
               {kpis.map((kpi) => (
                 <KpiCard key={kpi.title} {...kpi} />
               ))}
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-[var(--color-text-secondary)]">比較:</span>
-              <div className="flex overflow-hidden rounded-md border border-input">
-                <Button
-                  variant={comparisonMode === "mom" ? "default" : "ghost"}
-                  size="sm"
-                  className={cn(
-                    "h-7 rounded-none px-3 text-xs",
-                    comparisonMode === "mom" && "bg-[var(--color-primary)] text-white"
-                  )}
-                  onClick={() => setComparisonMode("mom")}
-                >
-                  前月比
-                </Button>
-                <Button
-                  variant={comparisonMode === "yoy" ? "default" : "ghost"}
-                  size="sm"
-                  className={cn(
-                    "h-7 rounded-none px-3 text-xs",
-                    comparisonMode === "yoy" && "bg-[var(--color-primary)] text-white"
-                  )}
-                  onClick={() => setComparisonMode("yoy")}
-                >
-                  前年比
-                </Button>
-              </div>
             </div>
           </>
         ) : null}
