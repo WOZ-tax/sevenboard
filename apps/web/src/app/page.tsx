@@ -176,10 +176,25 @@ export default function DashboardPage() {
                   <p className="text-sm leading-relaxed text-muted-foreground">
                     {aiSummaryQuery.data?.summary || "AIサマリーを生成するにはMFクラウド会計を接続してください。"}
                   </p>
+                  {aiSummaryQuery.data?.sections &&
+                    aiSummaryQuery.data.sections.length > 0 && (
+                      <div className="mt-4 space-y-3">
+                        {aiSummaryQuery.data.sections.map((s: any, i: number) => (
+                          <div key={i}>
+                            <h4 className="text-xs font-semibold text-[var(--color-text-primary)]">
+                              {s.title}
+                            </h4>
+                            <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+                              {s.content}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   {aiSummaryQuery.data?.highlights &&
                     aiSummaryQuery.data.highlights.length > 0 && (
                       <div className="mt-3 flex flex-wrap gap-1.5">
-                        {aiSummaryQuery.data.highlights.map((h, i) => (
+                        {aiSummaryQuery.data.highlights.map((h: any, i: number) => (
                           <Badge
                             key={i}
                             variant="secondary"
