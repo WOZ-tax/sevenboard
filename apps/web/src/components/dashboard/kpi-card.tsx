@@ -23,6 +23,7 @@ export interface KpiCardProps {
   trend?: number[];
   comparisonLabel?: string;
   comparisonValue?: number;
+  tag?: { label: string; className: string };
 }
 
 export function KpiCard({
@@ -34,6 +35,7 @@ export function KpiCard({
   trend,
   comparisonLabel = "前月比",
   comparisonValue,
+  tag,
 }: KpiCardProps) {
   const displayValue = comparisonValue ?? monthOverMonth;
   const hasBudget = budgetRatio != null;
@@ -69,9 +71,9 @@ export function KpiCard({
       <CardContent className="p-5">
         <div className="mb-1 flex items-center justify-between">
           <span className="text-sm text-[var(--color-text-secondary)]">{title}</span>
-          {statusBadge && (
-            <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium leading-none ${statusBadge.className}`}>
-              {statusBadge.label}
+          {(tag || statusBadge) && (
+            <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium leading-none ${(tag || statusBadge)!.className}`}>
+              {(tag || statusBadge)!.label}
             </span>
           )}
         </div>

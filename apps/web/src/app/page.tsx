@@ -58,31 +58,45 @@ function buildKpis(data: any) {
   const runway = data.runway ?? 0;
   const opMargin = revenue > 0 ? Math.round((opProfit / revenue) * 1000) / 10 : 0;
 
+  const judge = (good: boolean) =>
+    good
+      ? { label: "良好", className: "bg-[#e8f5e9] text-[var(--color-success)]" }
+      : { label: "要注意", className: "bg-[#fff8e1] text-[#8d6e00]" };
+
   return [
     {
       title: "売上高",
       value: Math.round(revenue / 10000),
       unit: "万円",
+      tag: judge(revenue > 0),
     },
     {
       title: "営業利益",
       value: Math.round(opProfit / 10000),
       unit: "万円",
+      tag: judge(opProfit > 0),
     },
     {
       title: "営業利益率",
       value: opMargin,
       unit: "%",
+      tag: judge(opMargin >= 10),
     },
     {
       title: "現預金残高",
       value: Math.round(cashBalance / 10000),
       unit: "万円",
+      tag: judge(cashBalance > 0),
     },
     {
       title: "ランウェイ",
       value: runway,
       unit: "か月",
+      tag: runway >= 12
+        ? { label: "安全", className: "bg-[#e8f5e9] text-[var(--color-success)]" }
+        : runway >= 6
+          ? { label: "注意", className: "bg-[#fff8e1] text-[#8d6e00]" }
+          : { label: "危険", className: "bg-[#fce4ec] text-[var(--color-error)]" },
     },
   ];
 }
