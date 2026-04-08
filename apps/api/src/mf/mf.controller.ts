@@ -97,13 +97,11 @@ export class MfController {
   async getCashflow(
     @Param('orgId') orgId: string,
     @Query('fiscalYear') fiscalYear?: string,
-    @Query('endMonth') endMonth?: string,
   ) {
     const fy = this.parseFiscalYear(fiscalYear);
-    const em = this.parseMonth(endMonth);
     const [bsT, plT] = await Promise.all([
-      this.mfApi.getTransitionBS(orgId, fy, em),
-      this.mfApi.getTransitionPL(orgId, fy, em),
+      this.mfApi.getTransitionBS(orgId, fy),
+      this.mfApi.getTransitionPL(orgId, fy),
     ]);
     return this.mfTransform.deriveCashflow(bsT, plT);
   }
@@ -112,11 +110,9 @@ export class MfController {
   async getPLTransition(
     @Param('orgId') orgId: string,
     @Query('fiscalYear') fiscalYear?: string,
-    @Query('endMonth') endMonth?: string,
   ) {
     const fy = this.parseFiscalYear(fiscalYear);
-    const em = this.parseMonth(endMonth);
-    const data = await this.mfApi.getTransitionPL(orgId, fy, em);
+    const data = await this.mfApi.getTransitionPL(orgId, fy);
     return this.mfTransform.transformTransitionPL(data);
   }
 

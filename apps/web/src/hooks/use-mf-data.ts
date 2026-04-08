@@ -187,10 +187,10 @@ export function useMfFinancialIndicators() {
 
 export function useAlerts() {
   const orgId = useOrgId();
-  const { fiscalYear } = useGlobalPeriod();
+  const { fiscalYear, month } = useGlobalPeriod();
   return useQuery({
-    queryKey: ["alerts", orgId, fiscalYear],
-    queryFn: () => api.alerts.getAll(orgId, fiscalYear),
+    queryKey: ["alerts", orgId, fiscalYear, month],
+    queryFn: () => api.alerts.getAll(orgId, fiscalYear, month),
     enabled: !!orgId,
     staleTime: 5 * 60 * 1000,
   });

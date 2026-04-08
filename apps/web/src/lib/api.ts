@@ -339,21 +339,15 @@ export const api = {
       return apiFetch<any>(`/organizations/${orgId}/mf/financial-statements/bs${suffix}`);
     },
 
-    getCashflow: (orgId: string, fiscalYear?: number, month?: number) => {
-      const qs = new URLSearchParams();
-      if (fiscalYear) qs.set('fiscalYear', String(fiscalYear));
-      if (month) qs.set('endMonth', String(month));
-      const suffix = qs.toString() ? `?${qs}` : '';
-      return apiFetch<any>(`/organizations/${orgId}/mf/cashflow${suffix}`);
-    },
+    getCashflow: (orgId: string, fiscalYear?: number) =>
+      apiFetch<any>(
+        `/organizations/${orgId}/mf/cashflow${fiscalYear ? `?fiscalYear=${fiscalYear}` : ''}`,
+      ),
 
-    getPLTransition: (orgId: string, fiscalYear?: number, month?: number) => {
-      const qs = new URLSearchParams();
-      if (fiscalYear) qs.set('fiscalYear', String(fiscalYear));
-      if (month) qs.set('endMonth', String(month));
-      const suffix = qs.toString() ? `?${qs}` : '';
-      return apiFetch<any>(`/organizations/${orgId}/mf/pl-transition${suffix}`);
-    },
+    getPLTransition: (orgId: string, fiscalYear?: number) =>
+      apiFetch<any>(
+        `/organizations/${orgId}/mf/pl-transition${fiscalYear ? `?fiscalYear=${fiscalYear}` : ''}`,
+      ),
 
     getAccounts: (orgId: string) =>
       apiFetch<any>(`/organizations/${orgId}/mf/accounts`),
@@ -383,10 +377,13 @@ export const api = {
 
   // === Alerts (異常値検知) ===
   alerts: {
-    getAll: (orgId: string, fiscalYear?: number) =>
-      apiFetch<any[]>(
-        `/organizations/${orgId}/alerts${fiscalYear ? `?fiscalYear=${fiscalYear}` : ''}`,
-      ),
+    getAll: (orgId: string, fiscalYear?: number, month?: number) => {
+      const qs = new URLSearchParams();
+      if (fiscalYear) qs.set('fiscalYear', String(fiscalYear));
+      if (month) qs.set('endMonth', String(month));
+      const suffix = qs.toString() ? `?${qs}` : '';
+      return apiFetch<any[]>(`/organizations/${orgId}/alerts${suffix}`);
+    },
   },
 
   // === Simulation ===
