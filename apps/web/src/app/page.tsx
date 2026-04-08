@@ -150,80 +150,77 @@ export default function DashboardPage() {
           </>
         ) : null}
 
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-          <div className="lg:col-span-2">
-            <RevenueChart mfData={plTransition.data} />
-          </div>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="flex items-center gap-2 text-base font-semibold text-[var(--color-text-primary)]">
-                <Bot className="h-5 w-5 text-[var(--color-secondary)]" />
-                AIサマリー
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {aiSummaryQuery.isLoading ? (
-                <div className="space-y-2">
-                  <div className="h-4 w-full animate-pulse rounded bg-muted" />
-                  <div className="h-4 w-5/6 animate-pulse rounded bg-muted" />
-                  <div className="h-4 w-4/6 animate-pulse rounded bg-muted" />
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    AI生成中...
-                  </p>
-                </div>
-              ) : (
-                <>
-                  <p className="text-sm leading-relaxed text-muted-foreground">
-                    {aiSummaryQuery.data?.summary || "AIサマリーを生成するにはMFクラウド会計を接続してください。"}
-                  </p>
-                  {aiSummaryQuery.data?.sections &&
-                    aiSummaryQuery.data.sections.length > 0 && (
-                      <div className="mt-4 space-y-3">
-                        {aiSummaryQuery.data.sections.map((s: any, i: number) => (
-                          <div key={i}>
-                            <h4 className="text-xs font-semibold text-[var(--color-text-primary)]">
-                              {s.title}
-                            </h4>
-                            <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
-                              {s.content}
-                            </p>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  {aiSummaryQuery.data?.highlights &&
-                    aiSummaryQuery.data.highlights.length > 0 && (
-                      <div className="mt-3 flex flex-wrap gap-1.5">
-                        {aiSummaryQuery.data.highlights.map((h: any, i: number) => (
-                          <Badge
-                            key={i}
-                            variant="secondary"
-                            className={cn(
-                              "px-2 py-0.5 text-[10px]",
-                              h.type === "positive" &&
-                                "border-green-300 bg-green-100 text-green-700",
-                              h.type === "negative" &&
-                                "border-red-300 bg-red-100 text-red-700",
-                              h.type === "neutral" &&
-                                "border-gray-300 bg-gray-100 text-gray-700"
-                            )}
-                          >
-                            {h.text}
-                          </Badge>
-                        ))}
-                      </div>
-                    )}
-                  {aiSummaryQuery.data?.generatedAt && (
-                    <div className="mt-4 text-xs text-muted-foreground/60">
-                      生成日時:{" "}
-                      {new Date(aiSummaryQuery.data.generatedAt).toLocaleString("ja-JP")}
+        <RevenueChart mfData={plTransition.data} />
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-base font-semibold text-[var(--color-text-primary)]">
+              <Bot className="h-5 w-5 text-[var(--color-secondary)]" />
+              AIサマリー
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {aiSummaryQuery.isLoading ? (
+              <div className="space-y-2">
+                <div className="h-4 w-full animate-pulse rounded bg-muted" />
+                <div className="h-4 w-5/6 animate-pulse rounded bg-muted" />
+                <div className="h-4 w-4/6 animate-pulse rounded bg-muted" />
+                <p className="mt-2 text-xs text-muted-foreground">
+                  AI生成中...
+                </p>
+              </div>
+            ) : (
+              <>
+                <p className="text-sm leading-relaxed text-muted-foreground">
+                  {aiSummaryQuery.data?.summary || "AIサマリーを生成するにはMFクラウド会計を接続してください。"}
+                </p>
+                {aiSummaryQuery.data?.sections &&
+                  aiSummaryQuery.data.sections.length > 0 && (
+                    <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                      {aiSummaryQuery.data.sections.map((s: any, i: number) => (
+                        <div key={i} className="rounded-lg border border-[var(--color-border)] bg-muted/20 p-3">
+                          <h4 className="text-xs font-semibold text-[var(--color-text-primary)]">
+                            {s.title}
+                          </h4>
+                          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                            {s.content}
+                          </p>
+                        </div>
+                      ))}
                     </div>
                   )}
-                </>
-              )}
-            </CardContent>
-          </Card>
-        </div>
+                {aiSummaryQuery.data?.highlights &&
+                  aiSummaryQuery.data.highlights.length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {aiSummaryQuery.data.highlights.map((h: any, i: number) => (
+                        <Badge
+                          key={i}
+                          variant="secondary"
+                          className={cn(
+                            "px-2 py-0.5 text-[10px]",
+                            h.type === "positive" &&
+                              "border-green-300 bg-green-100 text-green-700",
+                            h.type === "negative" &&
+                              "border-red-300 bg-red-100 text-red-700",
+                            h.type === "neutral" &&
+                              "border-gray-300 bg-gray-100 text-gray-700"
+                          )}
+                        >
+                          {h.text}
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+                {aiSummaryQuery.data?.generatedAt && (
+                  <div className="mt-3 text-right text-xs text-muted-foreground/60">
+                    生成日時:{" "}
+                    {new Date(aiSummaryQuery.data.generatedAt).toLocaleString("ja-JP")}
+                  </div>
+                )}
+              </>
+            )}
+          </CardContent>
+        </Card>
 
         <Card>
           <CardHeader className="pb-2">
