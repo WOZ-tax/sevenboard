@@ -42,6 +42,10 @@ export class KintoneController {
   /**
    * 月次進捗ステータスを更新
    */
+  private static VALID_STATUSES = [
+    '0.未作業', '1.資料依頼済', '2.資料回収済', '3.入力済', '4.納品済', '5.実施不要',
+  ];
+
   @Put('monthly-progress/:recordId')
   async updateStatus(
     @Param('recordId') recordId: string,
@@ -49,6 +53,9 @@ export class KintoneController {
   ) {
     if (!body.month || body.month < 1 || body.month > 12) {
       throw new BadRequestException('month must be 1-12');
+    }
+    if (!KintoneController.VALID_STATUSES.includes(body.status)) {
+      throw new BadRequestException(`Invalid status. Must be one of: ${KintoneController.VALID_STATUSES.join(', ')}`);
     }
     const ok = await this.kintoneApi.updateMonthlyStatus(
       recordId,

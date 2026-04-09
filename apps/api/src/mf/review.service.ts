@@ -38,10 +38,10 @@ export class ReviewService {
   private readonly scriptPath: string;
 
   constructor(private mfApi: MfApiService) {
-    // analyze.py のパス（ビルド後のdistからの相対パス or 絶対パス）
+    // analyze.py: process.cwd() = /app (Docker) or project root
     this.scriptPath = path.resolve(
       process.env.REVIEW_SCRIPT_PATH ||
-        path.join(__dirname, '..', '..', 'scripts', 'analyze.py'),
+        path.join(process.cwd(), 'apps', 'api', 'scripts', 'analyze.py'),
     );
   }
 
@@ -112,7 +112,16 @@ export class ReviewService {
       };
     } catch (err: any) {
       this.logger.error('Review execution failed', err?.message);
-      return this.emptyResult('unknown');
+      const result = this.emptyResult('unknown');
+      result.alerts.push({
+        severity: 'HIGH',
+        category: 'システム',
+        title: 'レビュー実行エラー',
+        detail: `分析スクリプトの実行に失敗しました: ${err?.message || '不明'}`,
+      });
+      result.summary.highCount = 1;
+      result.summary.totalAlerts = 1;
+      return result;
     } finally {
       // 一時ファイルクリーンアップ
       try {
@@ -134,7 +143,10 @@ export class ReviewService {
 
     this.walkRows(transition.rows || [], (row: any, depth: number) => {
       const name = row.name || '';
-      const values = columns.map((_: string, i: number) => String((row.values?.[i] as number) || 0));
+      const values = columns.map((c: string) => {
+        const origIdx = transition.columns?.indexOf(c) ?? -1;
+        return String(origIdx >= 0 ? ((row.values?.[origIdx] as number) || 0) : 0);
+      });
       const settlementIdx = transition.columns?.indexOf('settlement_balance');
       const totalIdx = transition.columns?.indexOf('total');
       const total = totalIdx >= 0 ? String((row.values?.[totalIdx] as number) || 0) : '0';
@@ -142,7 +154,7 @@ export class ReviewService {
       rows.push([name, '', ...values, total]);
     });
 
-    fs.writeFileSync(path.join(dir, '損益計算書_月次推移.csv'), rows.map((r) => r.join(',')).join('\n'), 'utf-8');
+    fs.writeFileSync(path.join(dir, '損益計算書_月次推移.csv'), rows.map((r) => r.map((c) => `"${c.replace(/"/g, '""')}"`).join(',')).join('\n'), 'utf-8');
   }
 
   private writeBsCsv(dir: string, transition: any) {
@@ -154,11 +166,14 @@ export class ReviewService {
 
     this.walkRows(transition.rows || [], (row: any) => {
       const name = row.name || '';
-      const values = columns.map((_: string, i: number) => String((row.values?.[i] as number) || 0));
+      const values = columns.map((c: string) => {
+        const origIdx = transition.columns?.indexOf(c) ?? -1;
+        return String(origIdx >= 0 ? ((row.values?.[origIdx] as number) || 0) : 0);
+      });
       rows.push([name, '', ...values]);
     });
 
-    fs.writeFileSync(path.join(dir, '貸借対照表_月次推移.csv'), rows.map((r) => r.join(',')).join('\n'), 'utf-8');
+    fs.writeFileSync(path.join(dir, '貸借対照表_月次推移.csv'), rows.map((r) => r.map((c) => `"${c.replace(/"/g, '""')}"`).join(',')).join('\n'), 'utf-8');
   }
 
   private writeJournalCsv(dir: string, data: any) {

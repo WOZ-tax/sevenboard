@@ -46,13 +46,15 @@ export class KintoneApiService {
     fiscalYear?: string,
     query?: string,
   ): Promise<MonthlyProgressRecord[]> {
+    const esc = (s: string) => s.replace(/"/g, '\\"');
     const conditions: string[] = [];
     if (fiscalYear) {
-      conditions.push(`管理年度 in ("${fiscalYear}")`);
+      conditions.push(`管理年度 in ("${esc(fiscalYear)}")`);
     }
     conditions.push('契約状況 in ("継続中")');
     if (query) {
-      conditions.push(`(クライアント名 like "${query}" or 顧客ID like "${query}")`);
+      const q = esc(query);
+      conditions.push(`(クライアント名 like "${q}" or 顧客ID like "${q}")`);
     }
 
     const q = conditions.join(' and ') + ' order by クライアント名 asc limit 500';
@@ -88,9 +90,10 @@ export class KintoneApiService {
     mfOfficeCode: string,
     fiscalYear?: string,
   ): Promise<MonthlyProgressRecord | null> {
-    const conditions = [`MF事業者番号 = "${mfOfficeCode}"`];
+    const esc = (s: string) => s.replace(/"/g, '\\"');
+    const conditions = [`MF事業者番号 = "${esc(mfOfficeCode)}"`];
     if (fiscalYear) {
-      conditions.push(`管理年度 in ("${fiscalYear}")`);
+      conditions.push(`管理年度 in ("${esc(fiscalYear)}")`);
     }
     const q = conditions.join(' and ') + ' order by 管理年度 desc limit 1';
 
