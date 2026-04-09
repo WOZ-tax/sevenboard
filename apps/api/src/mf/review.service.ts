@@ -1,5 +1,6 @@
-import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { MfApiService } from './mf-api.service';
+import { KintoneApiService } from '../kintone/kintone-api.service';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs';
@@ -37,7 +38,10 @@ export class ReviewService {
   private readonly logger = new Logger(ReviewService.name);
   private readonly scriptPath: string;
 
-  constructor(private mfApi: MfApiService) {
+  constructor(
+    private mfApi: MfApiService,
+    private kintoneApi: KintoneApiService,
+  ) {
     // analyze.py: process.cwd() = /app (Docker) or project root
     this.scriptPath = path.resolve(
       process.env.REVIEW_SCRIPT_PATH ||
@@ -55,21 +59,52 @@ export class ReviewService {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-review-'));
 
     try {
-      // 1. MFからデータ取得
+      // 1. MFオフィス情報 + kintone進捗を取得
       const office = await this.mfApi.getOffice(orgId);
-
-      // 会計年度の日付範囲を特定（仕訳帳取得に必要）
+      const mfCode = office?.code || '';
       const targetFy = fiscalYear || office?.accounting_periods?.[0]?.fiscal_year;
       const period = office?.accounting_periods?.find(
         (p: any) => p.fiscal_year === targetFy,
       ) || office?.accounting_periods?.[0];
-      const startDate = period?.start_date || `${targetFy || new Date().getFullYear()}-01-01`;
-      const endDate = period?.end_date || `${targetFy || new Date().getFullYear()}-12-31`;
+      const fyStartDate = period?.start_date || `${targetFy || new Date().getFullYear()}-01-01`;
+
+      // kintone進捗から分析対象期間を決定（入力済 or 納品済の月まで）
+      let lastCompletedMonth = 12; // デフォルト: 通期
+      if (mfCode) {
+        const progress = await this.kintoneApi.getByMfOfficeCode(
+          mfCode,
+          String(targetFy),
+        );
+        if (progress) {
+          // 入力済(3)または納品済(4)の最後の月を特定
+          lastCompletedMonth = 0;
+          for (let m = 1; m <= 12; m++) {
+            const status = progress.monthlyStatus[m] || '0.未作業';
+            if (status.startsWith('3.') || status.startsWith('4.')) {
+              lastCompletedMonth = m;
+            }
+          }
+          if (lastCompletedMonth === 0) {
+            this.logger.warn(`No completed months in kintone for ${mfCode}`);
+            lastCompletedMonth = 12; // フォールバック
+          }
+        }
+      }
+      this.logger.log(`Review range: ${fyStartDate} ~ month ${lastCompletedMonth}`);
+
+      // 分析対象の終了日を計算
+      const fyStartYear = parseInt(fyStartDate.slice(0, 4), 10);
+      const fyStartMonth = parseInt(fyStartDate.slice(5, 7), 10);
+      // 会計年度の開始月からlastCompletedMonth分進んだ月末を計算
+      let endYear = fyStartYear;
+      let endMonth = fyStartMonth + lastCompletedMonth - 1;
+      if (endMonth > 12) { endYear++; endMonth -= 12; }
+      const endDate = new Date(endYear, endMonth, 0).toISOString().slice(0, 10); // 月末
 
       const [plTransition, bsTransition, journals] = await Promise.all([
         this.mfApi.getTransitionPL(orgId, fiscalYear),
         this.mfApi.getTransitionBS(orgId, fiscalYear),
-        this.mfApi.getJournals(orgId, { startDate, endDate }).catch((err) => {
+        this.mfApi.getJournals(orgId, { startDate: fyStartDate, endDate }).catch((err) => {
           this.logger.warn('Journal fetch failed, proceeding without journals', err?.message);
           return { journals: [] };
         }),
