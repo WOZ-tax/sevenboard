@@ -419,9 +419,24 @@ export class MfApiService {
     orgId: string,
     params?: { startDate?: string; endDate?: string },
   ): Promise<any> {
-    const args: Record<string, any> = {};
+    const args: Record<string, any> = { per_page: 500 };
     if (params?.startDate) args.start_date = params.startDate;
     if (params?.endDate) args.end_date = params.endDate;
-    return this.mcpRequest<any>(orgId, 'mfc_ca_getJournals', args);
+
+    // ページネーション: 全件取得
+    const firstPage = await this.mcpRequest<any>(orgId, 'mfc_ca_getJournals', args);
+    const allJournals = [...(firstPage?.journals || [])];
+
+    // 500件ちょうどなら次ページがある可能性
+    let page = 2;
+    while (firstPage?.journals?.length === 500 && page <= 20) {
+      const nextPage = await this.mcpRequest<any>(orgId, 'mfc_ca_getJournals', { ...args, page });
+      if (!nextPage?.journals?.length) break;
+      allJournals.push(...nextPage.journals);
+      if (nextPage.journals.length < 500) break;
+      page++;
+    }
+
+    return { journals: allJournals };
   }
 }
