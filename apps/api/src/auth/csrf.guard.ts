@@ -30,10 +30,16 @@ export class CsrfGuard implements CanActivate {
       return true;
     }
 
-    // Cookie認証を使っていない場合（Bearer onlyの場合）はスキップ
+    // Bearer認証を使っている場合はCSRFリスクなし（トークンは自動送信されない）
+    const authHeader = req.headers['authorization'] || '';
+    if (authHeader.startsWith('Bearer ')) {
+      return true;
+    }
+
+    // Cookie認証を使っていない場合もスキップ
     const cookieToken = req.cookies?.[CSRF_COOKIE_NAME];
     if (!cookieToken) {
-      return true; // Cookieがない = Bearer認証 → CSRFリスクなし
+      return true;
     }
 
     // Double Submit Cookie: ヘッダーとCookieの値を比較
