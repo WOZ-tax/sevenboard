@@ -25,15 +25,19 @@ import {
   BarChart3,
   Wallet,
   Gauge,
+  AlertTriangle,
   Bot,
   ChevronRight,
+  Play,
+  Loader2,
 } from "lucide-react";
 import { MfEmptyState } from "@/components/ui/mf-empty-state";
 
-type TabKey = "checklist" | "pl" | "bs" | "cashflow" | "indicators";
+type TabKey = "checklist" | "review" | "pl" | "bs" | "cashflow" | "indicators";
 
 const tabs: { key: TabKey; label: string; icon: typeof FileText }[] = [
   { key: "checklist", label: "チェックリスト", icon: ClipboardCheck },
+  { key: "review", label: "経理レビュー", icon: AlertTriangle },
   { key: "pl", label: "P/L", icon: BarChart3 },
   { key: "bs", label: "B/S", icon: FileText },
   { key: "cashflow", label: "資金繰り", icon: Wallet },
@@ -198,6 +202,10 @@ export default function MonthlyReviewPage() {
           />
         )}
 
+        {activeTab === "review" && (
+          <ReviewTab orgId={user?.orgId || ""} fiscalYear={fiscalYear} />
+        )}
+
         {activeTab === "pl" && (
           <Card>
             <CardHeader className="pb-2">
@@ -349,6 +357,152 @@ function ChecklistTab({
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+const SEVERITY_CONFIG = {
+  HIGH: { label: "HIGH", color: "bg-red-100 text-red-800 border-red-300" },
+  MEDIUM: { label: "MEDIUM", color: "bg-yellow-100 text-yellow-800 border-yellow-300" },
+  LOW: { label: "LOW", color: "bg-blue-100 text-blue-800 border-blue-300" },
+};
+
+function ReviewTab({ orgId, fiscalYear }: { orgId: string; fiscalYear?: number }) {
+  const reviewQuery = useQuery({
+    queryKey: ["review", orgId, fiscalYear],
+    queryFn: () => api.review.run(orgId, fiscalYear),
+    enabled: false, // manual trigger
+    staleTime: 30 * 60 * 1000,
+  });
+
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
+
+  const alerts = reviewQuery.data?.alerts || [];
+  const filteredAlerts = categoryFilter === "all"
+    ? alerts
+    : alerts.filter((a: any) => a.category === categoryFilter);
+
+  const catSet = new Set<string>();
+  alerts.forEach((a: any) => catSet.add(String(a.category)));
+  const categories = ["all", ...Array.from(catSet)];
+
+  return (
+    <div className="space-y-4">
+      {/* レビュー実行ボタン */}
+      {!reviewQuery.data && !reviewQuery.isFetching && (
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center py-12">
+            <AlertTriangle className="mb-3 h-10 w-10 text-muted-foreground/40" />
+            <p className="text-sm text-muted-foreground">経理レビューを実行して、PL/BS/仕訳/消費税のチェック結果を表示します</p>
+            <Button
+              className="mt-4 gap-2 bg-[var(--color-primary)] text-white"
+              onClick={() => reviewQuery.refetch()}
+            >
+              <Play className="h-4 w-4" />
+              経理レビューを実行
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ローディング */}
+      {reviewQuery.isFetching && (
+        <Card>
+          <CardContent className="flex items-center justify-center gap-3 py-12">
+            <Loader2 className="h-5 w-5 animate-spin text-[var(--color-primary)]" />
+            <span className="text-sm text-muted-foreground">分析実行中... PL/BS/仕訳/消費税を検証しています</span>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* 結果表示 */}
+      {reviewQuery.data && !reviewQuery.isFetching && (
+        <>
+          {/* サマリーカード */}
+          <div className="grid grid-cols-4 gap-3">
+            <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-center">
+              <div className="text-2xl font-bold text-red-700">{reviewQuery.data.summary.highCount}</div>
+              <div className="text-[10px] text-red-600">HIGH</div>
+            </div>
+            <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-center">
+              <div className="text-2xl font-bold text-yellow-700">{reviewQuery.data.summary.mediumCount}</div>
+              <div className="text-[10px] text-yellow-600">MEDIUM</div>
+            </div>
+            <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-center">
+              <div className="text-2xl font-bold text-blue-700">{reviewQuery.data.summary.lowCount}</div>
+              <div className="text-[10px] text-blue-600">LOW</div>
+            </div>
+            <div className="rounded-lg border bg-muted/20 p-3 text-center">
+              <div className="text-2xl font-bold">{reviewQuery.data.summary.totalAlerts}</div>
+              <div className="text-[10px] text-muted-foreground">合計</div>
+            </div>
+          </div>
+
+          {/* カテゴリフィルター */}
+          <div className="flex gap-1.5 overflow-x-auto">
+            {categories.map((cat) => (
+              <button
+                key={cat as string}
+                onClick={() => setCategoryFilter(cat as string)}
+                className={cn(
+                  "whitespace-nowrap rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+                  categoryFilter === cat
+                    ? "border-[var(--color-primary)] bg-[var(--color-primary)]/10 text-[var(--color-primary)]"
+                    : "border-input text-muted-foreground hover:bg-muted/50"
+                )}
+              >
+                {cat === "all" ? "すべて" : cat}
+                {cat !== "all" && (
+                  <span className="ml-1 text-[10px] opacity-60">
+                    ({alerts.filter((a: any) => a.category === cat).length})
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+
+          {/* アラート一覧 */}
+          <Card>
+            <CardContent className="divide-y p-0">
+              {filteredAlerts.length === 0 ? (
+                <div className="py-8 text-center text-sm text-muted-foreground">指摘事項はありません</div>
+              ) : (
+                filteredAlerts.map((alert: any, i: number) => {
+                  const config = SEVERITY_CONFIG[alert.severity as keyof typeof SEVERITY_CONFIG] || SEVERITY_CONFIG.LOW;
+                  return (
+                    <div key={i} className="flex items-start gap-3 px-4 py-3">
+                      <Badge className={cn("mt-0.5 shrink-0 border text-[10px]", config.color)}>
+                        {config.label}
+                      </Badge>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-medium text-muted-foreground">{alert.category}</span>
+                          <span className="text-sm font-medium text-[var(--color-text-primary)]">{alert.title}</span>
+                        </div>
+                        <p className="mt-0.5 text-xs text-muted-foreground">{alert.detail}</p>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </CardContent>
+          </Card>
+
+          {/* 再実行 */}
+          <div className="flex justify-end">
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1 text-xs"
+              onClick={() => reviewQuery.refetch()}
+              disabled={reviewQuery.isFetching}
+            >
+              <Play className="h-3 w-3" />
+              再実行
+            </Button>
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 

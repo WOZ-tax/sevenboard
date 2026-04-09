@@ -10,6 +10,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { OrgAccessGuard } from '../auth/org-access.guard';
 import { MfApiService } from './mf-api.service';
 import { MfTransformService } from './mf-transform.service';
+import { ReviewService } from './review.service';
 
 @Controller('organizations/:orgId/mf')
 @UseGuards(JwtAuthGuard, OrgAccessGuard)
@@ -17,6 +18,7 @@ export class MfController {
   constructor(
     private mfApi: MfApiService,
     private mfTransform: MfTransformService,
+    private reviewService: ReviewService,
   ) {}
 
   private parseFiscalYear(value?: string): number | undefined {
@@ -189,5 +191,14 @@ export class MfController {
       data,
       months ? parseInt(months, 10) : 3,
     );
+  }
+
+  @Get('review')
+  async runReview(
+    @Param('orgId') orgId: string,
+    @Query('fiscalYear') fiscalYear?: string,
+  ) {
+    const fy = this.parseFiscalYear(fiscalYear);
+    return this.reviewService.runReview(orgId, fy);
   }
 }

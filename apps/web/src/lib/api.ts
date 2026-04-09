@@ -410,6 +410,14 @@ export const api = {
       }),
   },
 
+  // === Review (経理レビュー) ===
+  review: {
+    run: (orgId: string, fiscalYear?: number) =>
+      apiFetch<any>(
+        `/organizations/${orgId}/mf/review${fiscalYear ? `?fiscalYear=${fiscalYear}` : ''}`,
+      ),
+  },
+
   // === kintone (月次進捗) ===
   kintone: {
     getMonthlyProgress: (fiscalYear?: string, search?: string) => {
