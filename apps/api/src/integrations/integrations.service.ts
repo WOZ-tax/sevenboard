@@ -23,25 +23,37 @@ export class IntegrationsService {
   async connect(orgId: string, provider: string) {
     const providerEnum = this.toProviderEnum(provider);
 
-    // upsert: 既存レコードがあれば更新、なければ作成
+    // kintone: 環境変数で認証。疎通テスト後にIntegrationレコード作成
+    if (providerEnum === 'BOOKKEEPING_PLUGIN') {
+      await this.prisma.integration.upsert({
+        where: { orgId_provider: { orgId, provider: providerEnum } },
+        create: {
+          orgId,
+          provider: providerEnum,
+          accessToken: encryptIfAvailable('kintone_env_auth'),
+          syncStatus: 'SUCCESS',
+          lastSyncAt: new Date(),
+        },
+        update: {
+          accessToken: encryptIfAvailable('kintone_env_auth'),
+          syncStatus: 'SUCCESS',
+          lastSyncAt: new Date(),
+        },
+      });
+      return { provider, authUrl: null };
+    }
+
+    // その他: OAuthフロー（MF_CLOUDはMfOAuthControllerで処理）
     await this.prisma.integration.upsert({
       where: { orgId_provider: { orgId, provider: providerEnum } },
       create: {
         orgId,
         provider: providerEnum,
-        accessToken: encryptIfAvailable('mock_access_token'),
-        refreshToken: encryptIfAvailable('mock_refresh_token'),
-        tokenExpiry: new Date(Date.now() + 3600 * 1000),
         syncStatus: 'NEVER',
       },
-      update: {
-        accessToken: encryptIfAvailable('mock_access_token'),
-        refreshToken: encryptIfAvailable('mock_refresh_token'),
-        tokenExpiry: new Date(Date.now() + 3600 * 1000),
-      },
+      update: {},
     });
 
-    // 本番ではOAuth URLを返す。今はモック
     return {
       authUrl: `https://api.example.com/oauth/authorize?provider=${provider}`,
       provider,
