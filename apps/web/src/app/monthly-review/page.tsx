@@ -370,153 +370,280 @@ function ReviewTab({ orgId, fiscalYear }: { orgId: string; fiscalYear?: number }
   const reviewQuery = useQuery({
     queryKey: ["review", orgId, fiscalYear],
     queryFn: () => api.review.run(orgId, fiscalYear),
-    enabled: false, // manual trigger
+    enabled: false,
     staleTime: 30 * 60 * 1000,
   });
 
-  const [categoryFilter, setCategoryFilter] = useState<string>("all");
+  const [section, setSection] = useState<string>("summary");
 
-  const alerts = reviewQuery.data?.alerts || [];
-  const filteredAlerts = categoryFilter === "all"
-    ? alerts
-    : alerts.filter((a: any) => a.category === categoryFilter);
+  if (!reviewQuery.data && !reviewQuery.isFetching && !reviewQuery.isError) {
+    return (
+      <Card>
+        <CardContent className="flex flex-col items-center justify-center py-12">
+          <AlertTriangle className="mb-3 h-10 w-10 text-muted-foreground/40" />
+          <p className="text-sm text-muted-foreground">PL/BS/仕訳/消費税の定量チェックを実行します</p>
+          <Button className="mt-4 gap-2 bg-[var(--color-primary)] text-white" onClick={() => reviewQuery.refetch()}>
+            <Play className="h-4 w-4" />経理レビュー実行
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
 
-  const catSet = new Set<string>();
-  alerts.forEach((a: any) => catSet.add(String(a.category)));
-  const categories = ["all", ...Array.from(catSet)];
+  if (reviewQuery.isError) {
+    return (
+      <Card><CardContent className="py-8 text-center">
+        <AlertTriangle className="mx-auto mb-3 h-10 w-10 text-red-400" />
+        <p className="text-sm text-red-600">レビュー実行に失敗しました</p>
+        <Button className="mt-4" variant="outline" onClick={() => reviewQuery.refetch()}>再試行</Button>
+      </CardContent></Card>
+    );
+  }
+
+  if (reviewQuery.isFetching) {
+    return (
+      <Card><CardContent className="flex items-center justify-center gap-3 py-12">
+        <Loader2 className="h-5 w-5 animate-spin text-[var(--color-primary)]" />
+        <span className="text-sm text-muted-foreground">分析実行中... PL/BS/仕訳/消費税を検証しています</span>
+      </CardContent></Card>
+    );
+  }
+
+  const d = reviewQuery.data;
+  const { pl, bs, tax, journal, crossCheck, alerts, summary } = d;
+  const fmt = (n: number | undefined) => (n ?? 0).toLocaleString();
+  const sections = [
+    { key: "summary", label: "サマリー" },
+    { key: "pl", label: "P/L分析" },
+    { key: "bs", label: "B/S分析" },
+    { key: "tax", label: "消費税" },
+    { key: "journal", label: "仕訳帳" },
+    { key: "cross", label: "クロスチェック" },
+    { key: "alerts", label: `指摘一覧(${alerts?.length || 0})` },
+  ];
 
   return (
     <div className="space-y-4">
-      {/* レビュー実行ボタン */}
-      {!reviewQuery.data && !reviewQuery.isFetching && (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-12">
-            <AlertTriangle className="mb-3 h-10 w-10 text-muted-foreground/40" />
-            <p className="text-sm text-muted-foreground">経理レビューを実行して、PL/BS/仕訳/消費税のチェック結果を表示します</p>
-            <Button
-              className="mt-4 gap-2 bg-[var(--color-primary)] text-white"
-              onClick={() => reviewQuery.refetch()}
-            >
-              <Play className="h-4 w-4" />
-              経理レビューを実行
-            </Button>
-          </CardContent>
-        </Card>
-      )}
+      {/* セクションナビ */}
+      <div className="flex gap-1 overflow-x-auto">
+        {sections.map((s) => (
+          <button key={s.key} onClick={() => setSection(s.key)}
+            className={cn("whitespace-nowrap rounded-full border px-3 py-1 text-xs font-medium",
+              section === s.key ? "border-[var(--color-primary)] bg-[var(--color-primary)]/10 text-[var(--color-primary)]" : "border-input text-muted-foreground hover:bg-muted/50"
+            )}>{s.label}</button>
+        ))}
+      </div>
 
-      {/* エラー */}
-      {reviewQuery.isError && !reviewQuery.isFetching && (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-12">
-            <AlertTriangle className="mb-3 h-10 w-10 text-red-400" />
-            <p className="text-sm text-red-600">
-              レビュー実行に失敗しました
-            </p>
-            <Button className="mt-4" variant="outline" onClick={() => reviewQuery.refetch()}>
-              再試行
-            </Button>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* ローディング */}
-      {reviewQuery.isFetching && (
-        <Card>
-          <CardContent className="flex items-center justify-center gap-3 py-12">
-            <Loader2 className="h-5 w-5 animate-spin text-[var(--color-primary)]" />
-            <span className="text-sm text-muted-foreground">分析実行中... PL/BS/仕訳/消費税を検証しています</span>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* 結果表示 */}
-      {reviewQuery.data && !reviewQuery.isFetching && (
-        <>
-          {/* サマリーカード */}
+      {/* サマリー */}
+      {section === "summary" && (
+        <div className="space-y-4">
           <div className="grid grid-cols-4 gap-3">
             <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-center">
-              <div className="text-2xl font-bold text-red-700">{reviewQuery.data.summary.highCount}</div>
+              <div className="text-2xl font-bold text-red-700">{summary?.highCount}</div>
               <div className="text-[10px] text-red-600">HIGH</div>
             </div>
             <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-center">
-              <div className="text-2xl font-bold text-yellow-700">{reviewQuery.data.summary.mediumCount}</div>
+              <div className="text-2xl font-bold text-yellow-700">{summary?.mediumCount}</div>
               <div className="text-[10px] text-yellow-600">MEDIUM</div>
             </div>
             <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-center">
-              <div className="text-2xl font-bold text-blue-700">{reviewQuery.data.summary.lowCount}</div>
+              <div className="text-2xl font-bold text-blue-700">{summary?.lowCount}</div>
               <div className="text-[10px] text-blue-600">LOW</div>
             </div>
             <div className="rounded-lg border bg-muted/20 p-3 text-center">
-              <div className="text-2xl font-bold">{reviewQuery.data.summary.totalAlerts}</div>
+              <div className="text-2xl font-bold">{summary?.totalAlerts}</div>
               <div className="text-[10px] text-muted-foreground">合計</div>
             </div>
           </div>
-
-          {/* カテゴリフィルター */}
-          <div className="flex gap-1.5 overflow-x-auto">
-            {categories.map((cat) => (
-              <button
-                key={cat as string}
-                onClick={() => setCategoryFilter(cat as string)}
-                className={cn(
-                  "whitespace-nowrap rounded-full border px-3 py-1 text-xs font-medium transition-colors",
-                  categoryFilter === cat
-                    ? "border-[var(--color-primary)] bg-[var(--color-primary)]/10 text-[var(--color-primary)]"
-                    : "border-input text-muted-foreground hover:bg-muted/50"
-                )}
-              >
-                {cat === "all" ? "すべて" : cat}
-                {cat !== "all" && (
-                  <span className="ml-1 text-[10px] opacity-60">
-                    ({alerts.filter((a: any) => a.category === cat).length})
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
-
-          {/* アラート一覧 */}
-          <Card>
-            <CardContent className="divide-y p-0">
-              {filteredAlerts.length === 0 ? (
-                <div className="py-8 text-center text-sm text-muted-foreground">指摘事項はありません</div>
-              ) : (
-                filteredAlerts.map((alert: any, i: number) => {
-                  const config = SEVERITY_CONFIG[alert.severity as keyof typeof SEVERITY_CONFIG] || SEVERITY_CONFIG.LOW;
-                  return (
-                    <div key={i} className="flex items-start gap-3 px-4 py-3">
-                      <Badge className={cn("mt-0.5 shrink-0 border text-[10px]", config.color)}>
-                        {config.label}
-                      </Badge>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-medium text-muted-foreground">{alert.category}</span>
-                          <span className="text-sm font-medium text-[var(--color-text-primary)]">{alert.title}</span>
-                        </div>
-                        <p className="mt-0.5 text-xs text-muted-foreground">{alert.detail}</p>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </CardContent>
+          <Card><CardHeader className="pb-2"><CardTitle className="text-sm">PL計算検証</CardTitle></CardHeader>
+            <CardContent><Badge className={pl?.all_ok ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}>{pl?.all_ok ? "✓ 全項目一致" : "✗ 不一致あり"}</Badge></CardContent>
           </Card>
-
-          {/* 再実行 */}
-          <div className="flex justify-end">
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-1 text-xs"
-              onClick={() => reviewQuery.refetch()}
-              disabled={reviewQuery.isFetching}
-            >
-              <Play className="h-3 w-3" />
-              再実行
-            </Button>
-          </div>
-        </>
+          {(pl?.interpretations || []).length > 0 && (
+            <Card><CardHeader className="pb-2"><CardTitle className="text-sm">PL解釈</CardTitle></CardHeader>
+              <CardContent className="space-y-1">{pl.interpretations.map((t: string, i: number) => <p key={i} className="text-xs text-muted-foreground">{t}</p>)}</CardContent>
+            </Card>
+          )}
+          {(bs?.stagnant_interpretations || []).length > 0 && (
+            <Card><CardHeader className="pb-2"><CardTitle className="text-sm">滞留勘定</CardTitle></CardHeader>
+              <CardContent className="space-y-1">{bs.stagnant_interpretations.map((t: string, i: number) => <p key={i} className="text-xs text-muted-foreground">{t}</p>)}</CardContent>
+            </Card>
+          )}
+          <div className="text-right text-xs text-muted-foreground">分析日時: {d.analyzedAt ? new Date(d.analyzedAt).toLocaleString("ja-JP") : "—"}</div>
+        </div>
       )}
+
+      {/* PL分析 */}
+      {section === "pl" && (
+        <div className="space-y-4">
+          <Card><CardHeader className="pb-2"><CardTitle className="text-sm">月次推移</CardTitle></CardHeader>
+            <CardContent><div className="overflow-x-auto"><table className="w-full text-xs">
+              <thead><tr className="border-b">{["月", "売上高", "販管費", "販管費率", "営業利益", "経常利益"].map((h) => <th key={h} className="py-1.5 text-right font-semibold first:text-left">{h}</th>)}</tr></thead>
+              <tbody>{(pl?.monthly_table || []).map((m: any, i: number) => (
+                <tr key={i} className={cn("border-b", m.operating < 0 && "bg-red-50")}>
+                  <td className="py-1.5 font-medium">{m.month}</td>
+                  <td className="py-1.5 text-right tabular-nums">{fmt(m.sales)}</td>
+                  <td className="py-1.5 text-right tabular-nums">{fmt(m.sga)}</td>
+                  <td className="py-1.5 text-right tabular-nums">{m.sga_ratio}%</td>
+                  <td className={cn("py-1.5 text-right tabular-nums", m.operating < 0 && "text-red-600 font-bold")}>{fmt(m.operating)}</td>
+                  <td className={cn("py-1.5 text-right tabular-nums", m.ordinary < 0 && "text-red-600")}>{fmt(m.ordinary)}</td>
+                </tr>
+              ))}</tbody>
+            </table></div></CardContent>
+          </Card>
+          <Card><CardHeader className="pb-2"><CardTitle className="text-sm">販管費構成 Top10</CardTitle></CardHeader>
+            <CardContent><div className="overflow-x-auto"><table className="w-full text-xs">
+              <thead><tr className="border-b"><th className="py-1.5 text-left font-semibold">勘定科目</th><th className="py-1.5 text-right font-semibold">合計</th></tr></thead>
+              <tbody>{(pl?.sga_breakdown || []).map((s: any, i: number) => (
+                <tr key={i} className="border-b"><td className="py-1.5">{s.account}</td><td className="py-1.5 text-right tabular-nums">{fmt(s.total)}</td></tr>
+              ))}</tbody>
+            </table></div></CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* BS分析 */}
+      {section === "bs" && (
+        <div className="space-y-4">
+          <Card><CardHeader className="pb-2"><CardTitle className="text-sm">財務比率推移</CardTitle></CardHeader>
+            <CardContent><div className="overflow-x-auto"><table className="w-full text-xs">
+              <thead><tr className="border-b">{["月", "流動比率", "自己資本比率"].map((h) => <th key={h} className="py-1.5 text-right font-semibold first:text-left">{h}</th>)}</tr></thead>
+              <tbody>{(bs?.ratios || []).map((r: any, i: number) => (
+                <tr key={i} className="border-b">
+                  <td className="py-1.5 font-medium">{r.month}</td>
+                  <td className={cn("py-1.5 text-right tabular-nums", r.current_ratio < 100 && "text-red-600")}>{r.current_ratio}%</td>
+                  <td className={cn("py-1.5 text-right tabular-nums", r.equity_ratio < 0 && "text-red-600")}>{r.equity_ratio}%</td>
+                </tr>
+              ))}</tbody>
+            </table></div></CardContent>
+          </Card>
+          {(bs?.negatives || []).length > 0 && (
+            <Card><CardHeader className="pb-2"><CardTitle className="text-sm">マイナス残高 ({bs.negatives.length}件)</CardTitle></CardHeader>
+              <CardContent><div className="space-y-1">{(bs?.neg_interpretations || []).map((t: string, i: number) => <p key={i} className="text-xs text-muted-foreground">{t}</p>)}</div></CardContent>
+            </Card>
+          )}
+          {(bs?.stagnant || []).length > 0 && (
+            <Card><CardHeader className="pb-2"><CardTitle className="text-sm">滞留勘定 ({bs.stagnant.length}件)</CardTitle></CardHeader>
+              <CardContent><div className="space-y-1">{(bs?.stagnant_interpretations || []).map((t: string, i: number) => <p key={i} className="text-xs text-muted-foreground">{t}</p>)}</div></CardContent>
+            </Card>
+          )}
+        </div>
+      )}
+
+      {/* 消費税 */}
+      {section === "tax" && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-3 gap-3">
+            <div className="rounded-lg border p-3"><div className="text-[10px] text-muted-foreground">税区分不整合</div><div className="text-lg font-bold">{tax?.mismatches?.length || 0}件</div></div>
+            <div className="rounded-lg border p-3"><div className="text-[10px] text-muted-foreground">80%控除否認額</div><div className="text-lg font-bold">{fmt(tax?.inv_80_total_denied)}円</div></div>
+            <div className="rounded-lg border p-3"><div className="text-[10px] text-muted-foreground">仮払消費税(推計)</div><div className="text-lg font-bold">{fmt(tax?.karibarai_est)}円</div></div>
+          </div>
+          {(tax?.mismatches || []).length > 0 && (
+            <Card><CardHeader className="pb-2"><CardTitle className="text-sm">税区分不整合</CardTitle></CardHeader>
+              <CardContent><div className="overflow-x-auto"><table className="w-full text-xs">
+                <thead><tr className="border-b">{["日付", "No", "科目", "実際", "期待", "摘要"].map((h) => <th key={h} className="py-1.5 text-left font-semibold">{h}</th>)}</tr></thead>
+                <tbody>{tax.mismatches.slice(0, 20).map((m: any, i: number) => (
+                  <tr key={i} className="border-b"><td className="py-1">{m.date}</td><td className="py-1">{m.no}</td><td className="py-1">{m.account}</td><td className="py-1 text-red-600">{m.actual_tax}</td><td className="py-1 text-green-600">{m.expected_tax}</td><td className="py-1 text-muted-foreground truncate max-w-[200px]">{m.memo}</td></tr>
+                ))}</tbody>
+              </table></div></CardContent>
+            </Card>
+          )}
+          {(tax?.inv_80_entries || []).length > 0 && (
+            <Card><CardHeader className="pb-2"><CardTitle className="text-sm">インボイス80%控除 ({tax.inv_80_entries.length}件)</CardTitle></CardHeader>
+              <CardContent><div className="overflow-x-auto"><table className="w-full text-xs">
+                <thead><tr className="border-b">{["日付", "科目", "金額", "税額(満額)", "否認額", "摘要"].map((h) => <th key={h} className="py-1.5 text-left font-semibold">{h}</th>)}</tr></thead>
+                <tbody>{tax.inv_80_entries.slice(0, 20).map((e: any, i: number) => (
+                  <tr key={i} className="border-b"><td className="py-1">{e.date}</td><td className="py-1">{e.account}</td><td className="py-1 text-right tabular-nums">{fmt(e.amount)}</td><td className="py-1 text-right tabular-nums">{fmt(e.tax_full)}</td><td className="py-1 text-right tabular-nums text-red-600">{fmt(e.denied)}</td><td className="py-1 text-muted-foreground truncate max-w-[200px]">{e.memo}</td></tr>
+                ))}</tbody>
+              </table></div></CardContent>
+            </Card>
+          )}
+        </div>
+      )}
+
+      {/* 仕訳帳 */}
+      {section === "journal" && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-4 gap-3">
+            <div className="rounded-lg border p-3"><div className="text-[10px] text-muted-foreground">仕訳件数</div><div className="text-lg font-bold">{fmt(journal?.entry_count)}</div></div>
+            <div className="rounded-lg border p-3"><div className="text-[10px] text-muted-foreground">重複仕訳</div><div className="text-lg font-bold text-red-600">{journal?.duplicates?.length || 0}</div></div>
+            <div className="rounded-lg border p-3"><div className="text-[10px] text-muted-foreground">金額異常</div><div className="text-lg font-bold text-yellow-600">{journal?.anomalies?.length || 0}</div></div>
+            <div className="rounded-lg border p-3"><div className="text-[10px] text-muted-foreground">摘要不備</div><div className="text-lg font-bold">{journal?.no_memo_count || 0}</div></div>
+          </div>
+          {(journal?.duplicates || []).length > 0 && (
+            <Card><CardHeader className="pb-2"><CardTitle className="text-sm">重複仕訳</CardTitle></CardHeader>
+              <CardContent><div className="overflow-x-auto"><table className="w-full text-xs">
+                <thead><tr className="border-b">{["日付", "借方", "金額", "摘要", "件数"].map((h) => <th key={h} className="py-1.5 text-left font-semibold">{h}</th>)}</tr></thead>
+                <tbody>{journal.duplicates.slice(0, 10).map((d: any, i: number) => (
+                  <tr key={i} className="border-b"><td className="py-1">{d.date}</td><td className="py-1">{d.dr_acct}</td><td className="py-1 text-right tabular-nums">{fmt(d.dr_amt)}</td><td className="py-1 text-muted-foreground">{d.memo}</td><td className="py-1 text-red-600 font-bold">{d.count}</td></tr>
+                ))}</tbody>
+              </table></div></CardContent>
+            </Card>
+          )}
+          {(journal?.personal || []).length > 0 && (
+            <Card><CardHeader className="pb-2"><CardTitle className="text-sm">私的支出の可能性</CardTitle></CardHeader>
+              <CardContent><div className="space-y-1">{journal.personal.slice(0, 10).map((p: any, i: number) => (
+                <p key={i} className="text-xs text-muted-foreground">{p.date} {p.dr_acct} {fmt(p.dr_amt)}円 — {p.memo}</p>
+              ))}</div></CardContent>
+            </Card>
+          )}
+          {journal?.karibarai && (
+            <Card><CardHeader className="pb-2"><CardTitle className="text-sm">仮払金分析</CardTitle></CardHeader>
+              <CardContent><p className="text-xs text-muted-foreground">借方合計: {fmt(journal.karibarai.debit_total)}円 / 貸方合計: {fmt(journal.karibarai.credit_total)}円 / 残高: {fmt(journal.karibarai.balance)}円</p></CardContent>
+            </Card>
+          )}
+          {journal?.yakuin_kashitsuke && (
+            <Card><CardHeader className="pb-2"><CardTitle className="text-sm">役員貸付金分析</CardTitle></CardHeader>
+              <CardContent><p className="text-xs text-muted-foreground">借方合計: {fmt(journal.yakuin_kashitsuke.debit_total)}円 / 貸方合計: {fmt(journal.yakuin_kashitsuke.credit_total)}円 / 残高: {fmt(journal.yakuin_kashitsuke.balance)}円</p></CardContent>
+            </Card>
+          )}
+        </div>
+      )}
+
+      {/* クロスチェック */}
+      {section === "cross" && (
+        <div className="space-y-4">
+          {(crossCheck?.findings || []).length === 0 ? (
+            <Card><CardContent className="py-8 text-center text-sm text-muted-foreground">クロスチェック項目はありません</CardContent></Card>
+          ) : (crossCheck.findings.map((f: any, i: number) => (
+            <Card key={i}><CardHeader className="pb-2"><CardTitle className="flex items-center gap-2 text-sm">
+              <Badge className={cn("text-[10px]", f.priority === "高" ? "bg-red-100 text-red-800" : f.priority === "中" ? "bg-yellow-100 text-yellow-800" : "bg-blue-100 text-blue-800")}>{f.priority}</Badge>
+              {f.title}
+            </CardTitle></CardHeader>
+              <CardContent><p className="text-xs text-muted-foreground">{f.interpretation}</p></CardContent>
+            </Card>
+          )))}
+        </div>
+      )}
+
+      {/* 指摘一覧 */}
+      {section === "alerts" && (
+        <Card><CardContent className="divide-y p-0">
+          {(alerts || []).length === 0 ? (
+            <div className="py-8 text-center text-sm text-muted-foreground">指摘事項はありません</div>
+          ) : alerts.map((alert: any, i: number) => {
+            const config = SEVERITY_CONFIG[alert.severity as keyof typeof SEVERITY_CONFIG] || SEVERITY_CONFIG.LOW;
+            return (
+              <div key={i} className="flex items-start gap-3 px-4 py-3">
+                <Badge className={cn("mt-0.5 shrink-0 border text-[10px]", config.color)}>{config.label}</Badge>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-medium text-muted-foreground">{alert.category}</span>
+                    <span className="text-sm font-medium">{alert.title}</span>
+                  </div>
+                  <p className="mt-0.5 text-xs text-muted-foreground">{alert.detail}</p>
+                </div>
+              </div>
+            );
+          })}
+        </CardContent></Card>
+      )}
+
+      {/* 再実行 */}
+      <div className="flex justify-end">
+        <Button variant="outline" size="sm" className="gap-1 text-xs" onClick={() => reviewQuery.refetch()} disabled={reviewQuery.isFetching}>
+          <Play className="h-3 w-3" />再実行
+        </Button>
+      </div>
     </div>
   );
 }
