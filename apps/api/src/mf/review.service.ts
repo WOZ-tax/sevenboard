@@ -55,12 +55,24 @@ export class ReviewService {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-review-'));
 
     try {
-      // 1. MFからデータ取得（並列）
-      const [plTransition, bsTransition, journals, office] = await Promise.all([
+      // 1. MFからデータ取得
+      const office = await this.mfApi.getOffice(orgId);
+
+      // 会計年度の日付範囲を特定（仕訳帳取得に必要）
+      const targetFy = fiscalYear || office?.accounting_periods?.[0]?.fiscal_year;
+      const period = office?.accounting_periods?.find(
+        (p: any) => p.fiscal_year === targetFy,
+      ) || office?.accounting_periods?.[0];
+      const startDate = period?.start_date || `${targetFy || new Date().getFullYear()}-01-01`;
+      const endDate = period?.end_date || `${targetFy || new Date().getFullYear()}-12-31`;
+
+      const [plTransition, bsTransition, journals] = await Promise.all([
         this.mfApi.getTransitionPL(orgId, fiscalYear),
         this.mfApi.getTransitionBS(orgId, fiscalYear),
-        this.mfApi.getJournals(orgId).catch(() => ({ journals: [] })),
-        this.mfApi.getOffice(orgId),
+        this.mfApi.getJournals(orgId, { startDate, endDate }).catch((err) => {
+          this.logger.warn('Journal fetch failed, proceeding without journals', err?.message);
+          return { journals: [] };
+        }),
       ]);
 
       const companyName = office?.name || orgId;
