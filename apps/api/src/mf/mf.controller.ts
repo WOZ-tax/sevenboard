@@ -56,6 +56,9 @@ export class MfController {
       this.mfApi.getTrialBalancePL(orgId, fy, em),
       this.mfApi.getTrialBalanceBS(orgId, fy, em),
     ]);
+    if (!pl?.rows || !bs?.rows) {
+      throw new BadRequestException('MF returned empty trial balance data');
+    }
     return this.mfTransform.buildDashboardSummary(pl, bs);
   }
 

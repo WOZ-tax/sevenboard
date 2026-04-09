@@ -284,6 +284,11 @@ export class MfApiService {
     try {
       const sessionId = await this.initSession(token);
       const data = await this.callTool(token, sessionId, toolName, args);
+      if (data == null) {
+        throw new InternalServerErrorException(
+          `MF MCP returned empty response for ${toolName}`,
+        );
+      }
       this.cache.set(cacheKey, data, 5 * 60 * 1000);
       return data as T;
     } catch (err: any) {

@@ -24,7 +24,13 @@ export const usePeriodStore = create<PeriodState>((set) => ({
   month: undefined,
   periods: [],
   setPeriod: (fiscalYear, month) => set({ fiscalYear, month }),
-  initPeriods: (periods) => set({ periods }),
+  initPeriods: (periods) => {
+    const latest = periods[0];
+    set((state) => ({
+      periods,
+      fiscalYear: state.fiscalYear ?? latest?.fiscal_year,
+    }));
+  },
 }));
 
 /** 表示用の期間ラベルを生成 */
