@@ -572,9 +572,9 @@ function ReviewTab({ orgId, fiscalYear }: { orgId: string; fiscalYear?: number }
           {(journal?.duplicates || []).length > 0 && (
             <Card><CardHeader className="pb-2"><CardTitle className="text-sm">重複仕訳</CardTitle></CardHeader>
               <CardContent><div className="overflow-x-auto"><table className="w-full text-xs">
-                <thead><tr className="border-b">{["日付", "借方", "金額", "摘要", "件数"].map((h) => <th key={h} className="py-1.5 text-left font-semibold">{h}</th>)}</tr></thead>
+                <thead><tr className="border-b">{["日付", "仕訳No", "借方", "金額", "摘要", "件数"].map((h) => <th key={h} className="py-1.5 text-left font-semibold">{h}</th>)}</tr></thead>
                 <tbody>{journal.duplicates.slice(0, 10).map((d: any, i: number) => (
-                  <tr key={i} className="border-b"><td className="py-1">{d.date}</td><td className="py-1">{d.dr_acct}</td><td className="py-1 text-right tabular-nums">{fmt(d.dr_amt)}</td><td className="py-1 text-muted-foreground">{d.memo}</td><td className="py-1 text-red-600 font-bold">{d.count}</td></tr>
+                  <tr key={i} className="border-b"><td className="py-1">{d.date}</td><td className="py-1 text-muted-foreground">{(d.nos || []).join(', ')}</td><td className="py-1">{d.dr_acct}</td><td className="py-1 text-right tabular-nums">{fmt(d.dr_amt)}</td><td className="py-1 text-muted-foreground">{d.memo}</td><td className="py-1 text-red-600 font-bold">{d.count}</td></tr>
                 ))}</tbody>
               </table></div></CardContent>
             </Card>

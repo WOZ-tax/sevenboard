@@ -280,19 +280,25 @@ def analyze_pl(pl):
             "ordinary": ordinary, "sga_ratio": round(sga_ratio, 1)
         })
 
-    # 月次推移の解釈（決算整理月は比較対象から除外）
+    # 月次推移の解釈（前月比で異常値を検出）
     interpretations = []
     is_kessan = lambda m: "決算" in m["month"] or "整理" in m["month"]
-    compare_months = [m for m in monthly_table if not is_kessan(m)]
-    if len(compare_months) >= 2:
-        first = compare_months[0]
-        last = compare_months[-1]
-        if first["sales"] > 0:
-            change = (last["sales"] - first["sales"]) / first["sales"] * 100
-            if change < -20:
-                interpretations.append(f"売上高が{first['month']}から{last['month']}にかけて{abs(change):.0f}%減少。原因の確認が必要。")
-        if last["operating"] < 0:
-            interpretations.append(f"{last['month']}は営業損失（{last['operating']:,}円）。販管費率{last['sga_ratio']}%。固定費（役員報酬・地代家賃等）が売上減少に対して下方硬直的。")
+    compare_months = [m for m in monthly_table if not is_kessan(m) and m["sales"] > 0]
+    for i in range(1, len(compare_months)):
+        prev = compare_months[i - 1]
+        curr = compare_months[i]
+        # 売上の前月比異常
+        if prev["sales"] > 0:
+            change = (curr["sales"] - prev["sales"]) / prev["sales"] * 100
+            if abs(change) > 30:
+                direction = "増加" if change > 0 else "減少"
+                interpretations.append(f"{curr['month']}の売上高が前月比{abs(change):.0f}%{direction}（{prev['month']}: {prev['sales']:,}円 → {curr['month']}: {curr['sales']:,}円）。原因の確認が必要。")
+        # 営業損失
+        if curr["operating"] < 0 and (prev["operating"] >= 0 or abs(curr["operating"]) > abs(prev.get("operating", 0)) * 1.5):
+            interpretations.append(f"{curr['month']}は営業損失（{curr['operating']:,}円）。販管費率{curr['sga_ratio']}%。")
+        # 販管費率の急上昇
+        if curr["sga_ratio"] > 100 and prev["sga_ratio"] <= 100:
+            interpretations.append(f"{curr['month']}の販管費率が{curr['sga_ratio']}%に急上昇（前月{prev['sga_ratio']}%）。売上減少または費用増加の確認が必要。")
 
     # 販管費構成の分析
     sga_breakdown = []
@@ -450,14 +456,18 @@ def analyze_bs(bs, pl):
 def analyze_tax(entries):
     """消費税区分レビュー"""
     # 1. 勘定科目と税区分の整合性
+    # 対象外/対象外仕入/非課税仕入 等は税務上同義のため許容
     mismatches = []
-    allowed_purchase_taxes = {"対象外", ""}
+    # 対象外/対象外仕入/非課税仕入/不課税は税務上同義のため許容
+    # ただし「非課税売上」は重要なので許容しない
+    TAISYOGAI_VARIANTS = {"対象外", "対象外仕入", "非課税仕入", "不課税", ""}
     for e in entries:
         for prefix in ["dr", "cr"]:
             acct = e[f"{prefix}_acct"]
             tax = e[f"{prefix}_tax"]
             is_purchase_side = "仕入" in str(tax)
-            if acct in ACCOUNTS_MUST_BE_TAISYOGAI and tax not in allowed_purchase_taxes and not is_purchase_side:
+            is_taisyogai = tax in TAISYOGAI_VARIANTS or "対象外" in str(tax) or ("非課税" in str(tax) and "売上" not in str(tax)) or "不課税" in str(tax)
+            if acct in ACCOUNTS_MUST_BE_TAISYOGAI and not is_taisyogai and not is_purchase_side:
                 mismatches.append({
                     "date": e["date"], "no": e["no"], "account": acct,
                     "actual_tax": tax, "expected_tax": "対象外", "memo": e["memo"]
