@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
 import { MfApiService } from './mf-api.service';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
@@ -202,26 +202,33 @@ export class ReviewService {
 
     for (const j of journals) {
       for (const b of j.branches || []) {
+        const dr = b.debitor || {};
+        const cr = b.creditor || {};
+        // invoice_kind → analyze.pyが期待する形式に変換
+        const drInv = dr.invoice_kind === 'INVOICE_KIND_80_PERCENT' ? '80%控除'
+          : dr.invoice_kind === 'INVOICE_KIND_NOT_TARGET' ? '' : (dr.invoice_kind || '');
+        const crInv = cr.invoice_kind === 'INVOICE_KIND_80_PERCENT' ? '80%控除'
+          : cr.invoice_kind === 'INVOICE_KIND_NOT_TARGET' ? '' : (cr.invoice_kind || '');
         rows.push([
-          String(j.id || ''),
-          j.date || '',
-          b.debitor?.account_name || '',
-          b.debitor?.sub_account_name || '',
-          b.debitor?.department_name || '',
-          b.debitor?.partner_name || '',
-          b.debitor?.tax_name || '',
-          b.debitor?.invoice_registration || '',
-          String(b.debitor?.amount || 0),
-          b.creditor?.account_name || '',
-          b.creditor?.sub_account_name || '',
-          b.creditor?.department_name || '',
-          b.creditor?.partner_name || '',
-          b.creditor?.tax_name || '',
-          b.creditor?.invoice_registration || '',
-          String(b.creditor?.amount || 0),
-          j.description || '',
-          j.tag || '',
-          j.note || '',
+          String(j.number || j.id || ''),
+          j.transaction_date || j.date || '',
+          dr.account_name || '',
+          dr.sub_account_name || '',
+          dr.department_name || '',
+          dr.trade_partner_name || '',
+          dr.tax_name || '',
+          drInv,
+          String(dr.value || dr.amount || 0),
+          cr.account_name || '',
+          cr.sub_account_name || '',
+          cr.department_name || '',
+          cr.trade_partner_name || '',
+          cr.tax_name || '',
+          crInv,
+          String(cr.value || cr.amount || 0),
+          b.remark || j.memo || '',
+          Array.isArray(j.tags) ? j.tags.join(',') : (j.tags || ''),
+          j.memo || '',
         ]);
       }
     }
