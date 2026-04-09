@@ -214,6 +214,8 @@ export class MfApiService {
             ...(sessionId ? { 'Mcp-Session': sessionId } : {}),
           },
           transformResponse: [(data: string) => data],
+          maxContentLength: Infinity,
+          maxBodyLength: Infinity,
         },
       ) as any,
     );
@@ -250,17 +252,35 @@ export class MfApiService {
       try { return JSON.parse(trimmed); } catch { /* fall through */ }
     }
 
-    // SSE format: extract data lines
-    const dataLines = trimmed
-      .split('\n')
-      .filter((l) => l.startsWith('data:'))
-      .map((l) => l.slice(5).trim());
+    // SSE format: events separated by double newlines.
+    // Large MCP responses split JSON across multiple data: lines.
+    // Concatenate all data: fragments within each event before parsing.
+    const events = trimmed.split(/\n\n+/);
 
-    for (const line of dataLines) {
+    for (const event of events) {
+      const eventLines = event.split('\n');
+      const dataFragments: string[] = [];
+      for (const line of eventLines) {
+        if (line.startsWith('data:')) {
+          dataFragments.push(line.slice(5).trim());
+        }
+      }
+      if (dataFragments.length === 0) continue;
+
+      // Try concatenating fragments (JSON split across lines)
+      const joined = dataFragments.join('');
       try {
-        const parsed = JSON.parse(line);
-        if (parsed.id || parsed.result || parsed.error) return parsed;
-      } catch { /* skip non-JSON data lines */ }
+        const parsed = JSON.parse(joined);
+        if (parsed.id !== undefined || parsed.result || parsed.error) return parsed;
+      } catch { /* try next */ }
+
+      // Try each fragment individually
+      for (const frag of dataFragments) {
+        try {
+          const parsed = JSON.parse(frag);
+          if (parsed.id !== undefined || parsed.result || parsed.error) return parsed;
+        } catch { /* skip */ }
+      }
     }
 
     return null;
