@@ -40,10 +40,9 @@ export function usePrefetchMfData() {
 
 export function useMfDashboard() {
   const orgId = useOrgId();
-  const { fiscalYear, month } = useGlobalPeriod();
   return useQuery({
-    queryKey: ["mf", "dashboard", orgId, fiscalYear, month],
-    queryFn: () => api.mf.getDashboard(orgId, fiscalYear, month),
+    queryKey: ["mf", "dashboard", orgId],
+    queryFn: () => api.mf.getDashboard(orgId),
     enabled: !!orgId,
     staleTime: 5 * 60 * 1000,
   });
@@ -51,10 +50,9 @@ export function useMfDashboard() {
 
 export function useMfPL() {
   const orgId = useOrgId();
-  const { fiscalYear, month } = useGlobalPeriod();
   return useQuery({
-    queryKey: ["mf", "pl", orgId, fiscalYear, month],
-    queryFn: () => api.mf.getPL(orgId, fiscalYear, month),
+    queryKey: ["mf", "pl", orgId],
+    queryFn: () => api.mf.getPL(orgId),
     enabled: !!orgId,
     staleTime: 5 * 60 * 1000,
   });
@@ -62,10 +60,9 @@ export function useMfPL() {
 
 export function useMfBS() {
   const orgId = useOrgId();
-  const { fiscalYear, month } = useGlobalPeriod();
   return useQuery({
-    queryKey: ["mf", "bs", orgId, fiscalYear, month],
-    queryFn: () => api.mf.getBS(orgId, fiscalYear, month),
+    queryKey: ["mf", "bs", orgId],
+    queryFn: () => api.mf.getBS(orgId),
     enabled: !!orgId,
     staleTime: 5 * 60 * 1000,
   });
@@ -176,10 +173,9 @@ export function useMfJournals(params?: { startDate?: string; endDate?: string; a
 
 export function useMfFinancialIndicators() {
   const orgId = useOrgId();
-  const { fiscalYear, month } = useGlobalPeriod();
   return useQuery({
-    queryKey: ["mf", "financial-indicators", orgId, fiscalYear, month],
-    queryFn: () => api.mf.getFinancialIndicators(orgId, fiscalYear, month),
+    queryKey: ["mf", "financial-indicators", orgId],
+    queryFn: () => api.mf.getFinancialIndicators(orgId),
     enabled: !!orgId,
     staleTime: 5 * 60 * 1000,
   });
