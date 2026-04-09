@@ -75,7 +75,7 @@ export class ReviewService {
       const { stdout, stderr } = await execFileAsync(
         pythonCmd,
         [this.scriptPath, tmpDir],
-        { timeout: 60000 },
+        { timeout: 60000, maxBuffer: 10 * 1024 * 1024 },
       );
 
       if (stderr) {
@@ -102,7 +102,7 @@ export class ReviewService {
         bs: raw.bs || {},
         tax: raw.tax || {},
         journal: raw.journal || {},
-        crossCheck: raw.cross_check || {},
+        crossCheck: raw.cross || {},
         summary: {
           highCount: alerts.filter((a) => a.severity === 'HIGH').length,
           mediumCount: alerts.filter((a) => a.severity === 'MEDIUM').length,
@@ -317,13 +317,14 @@ export class ReviewService {
       });
     }
 
-    // クロスチェック
-    for (const c of raw.cross_check?.large_karibarai || []) {
+    // クロスチェック（全findings）
+    for (const f of raw.cross?.findings || []) {
+      const severity = f.priority === '高' ? 'HIGH' : f.priority === '中' ? 'MEDIUM' : 'LOW';
       alerts.push({
-        severity: 'HIGH',
+        severity: severity as ReviewAlert['severity'],
         category: 'クロスチェック',
-        title: `仮払金大口: ${c.sub || ''}`,
-        detail: `${c.amount?.toLocaleString()}円 — 役員貸付金リスク`,
+        title: f.title || f.id || 'クロスチェック項目',
+        detail: (f.interpretation || '').substring(0, 200),
       });
     }
 

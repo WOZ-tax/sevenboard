@@ -404,6 +404,21 @@ function ReviewTab({ orgId, fiscalYear }: { orgId: string; fiscalYear?: number }
         </Card>
       )}
 
+      {/* エラー */}
+      {reviewQuery.isError && !reviewQuery.isFetching && (
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center py-12">
+            <AlertTriangle className="mb-3 h-10 w-10 text-red-400" />
+            <p className="text-sm text-red-600">
+              レビュー実行に失敗しました
+            </p>
+            <Button className="mt-4" variant="outline" onClick={() => reviewQuery.refetch()}>
+              再試行
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
       {/* ローディング */}
       {reviewQuery.isFetching && (
         <Card>

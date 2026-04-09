@@ -24,6 +24,7 @@ RUN npx prisma generate --schema=packages/database/prisma/schema.prisma
 RUN npm run build -w apps/api
 
 ENV NODE_ENV=production
+ENV REVIEW_SCRIPT_PATH=/app/apps/api/scripts/analyze.py
 EXPOSE 3001
 CMD ["sh", "scripts/start.sh"]
 # force rebuild Tue Apr  7 14:49:26     2026

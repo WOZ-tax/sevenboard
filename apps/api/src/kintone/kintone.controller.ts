@@ -51,6 +51,9 @@ export class KintoneController {
     @Param('recordId') recordId: string,
     @Body() body: { month: number; status: string },
   ) {
+    if (!/^\d+$/.test(recordId)) {
+      throw new BadRequestException('recordId must be numeric');
+    }
     if (!body.month || body.month < 1 || body.month > 12) {
       throw new BadRequestException('month must be 1-12');
     }

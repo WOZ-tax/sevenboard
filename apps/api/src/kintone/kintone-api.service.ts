@@ -36,7 +36,7 @@ export class KintoneApiService {
 
     const user = process.env.KINTONE_USERNAME || '';
     const pass = process.env.KINTONE_PASSWORD || '';
-    this.authHeader = `Basic ${Buffer.from(`${user}:${pass}`).toString('base64')}`;
+    this.authHeader = Buffer.from(`${user}:${pass}`).toString('base64');
   }
 
   /**
@@ -46,7 +46,10 @@ export class KintoneApiService {
     fiscalYear?: string,
     query?: string,
   ): Promise<MonthlyProgressRecord[]> {
-    const esc = (s: string) => s.replace(/"/g, '\\"');
+    const esc = (s: string) => {
+      if (/[()"]/.test(s)) throw new Error('Invalid search characters');
+      return s.replace(/\\/g, '\\\\');
+    };
     const conditions: string[] = [];
     if (fiscalYear) {
       conditions.push(`管理年度 in ("${esc(fiscalYear)}")`);
@@ -64,9 +67,7 @@ export class KintoneApiService {
         this.httpService.get(`${this.baseUrl}/k/v1/records.json`, {
           params: { app: this.appId, query: q },
           headers: {
-            'X-Cybozu-Authorization': Buffer.from(
-              `${process.env.KINTONE_USERNAME || ''}:${process.env.KINTONE_PASSWORD || ''}`,
-            ).toString('base64'),
+            'X-Cybozu-Authorization': this.authHeader,
           },
         }) as any,
       );
@@ -102,9 +103,7 @@ export class KintoneApiService {
         this.httpService.get(`${this.baseUrl}/k/v1/records.json`, {
           params: { app: this.appId, query: q },
           headers: {
-            'X-Cybozu-Authorization': Buffer.from(
-              `${process.env.KINTONE_USERNAME || ''}:${process.env.KINTONE_PASSWORD || ''}`,
-            ).toString('base64'),
+            'X-Cybozu-Authorization': this.authHeader,
           },
         }) as any,
       );
