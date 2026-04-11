@@ -23,9 +23,10 @@ export class KintoneController {
   async getMonthlyProgress(
     @Query('fiscalYear') fiscalYear?: string,
     @Query('search') search?: string,
+    @Query('assignee') assignee?: string,
   ) {
     const fy = fiscalYear || new Date().getFullYear().toString();
-    return this.kintoneApi.getMonthlyProgress(fy, search);
+    return this.kintoneApi.getMonthlyProgress(fy, search, assignee);
   }
 
   /**

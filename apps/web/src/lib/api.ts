@@ -420,10 +420,11 @@ export const api = {
 
   // === kintone (月次進捗) ===
   kintone: {
-    getMonthlyProgress: (fiscalYear?: string, search?: string) => {
+    getMonthlyProgress: (fiscalYear?: string, search?: string, assignee?: string) => {
       const qs = new URLSearchParams();
       if (fiscalYear) qs.set('fiscalYear', fiscalYear);
       if (search) qs.set('search', search);
+      if (assignee) qs.set('assignee', assignee);
       const suffix = qs.toString() ? `?${qs}` : '';
       return apiFetch<any[]>(`/kintone/monthly-progress${suffix}`);
     },

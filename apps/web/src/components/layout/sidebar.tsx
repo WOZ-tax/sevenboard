@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   Home,
   ClipboardCheck,
+  Users,
   BarChart3,
   PenLine,
   FileText,
@@ -41,6 +42,7 @@ import {
 
 const menuItems = [
   { label: "ダッシュボード", href: "/", icon: Home },
+  { label: "トリアージ", href: "/triage", icon: Users },
   { label: "月次レビュー", href: "/monthly-review", icon: ClipboardCheck },
   { label: "予実差異", href: "/variance", icon: BarChart3 },
   { label: "予算策定", href: "/budget", icon: PenLine },

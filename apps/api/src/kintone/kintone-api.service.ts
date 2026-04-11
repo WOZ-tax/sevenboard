@@ -45,6 +45,7 @@ export class KintoneApiService {
   async getMonthlyProgress(
     fiscalYear?: string,
     query?: string,
+    assignee?: string,
   ): Promise<MonthlyProgressRecord[]> {
     const esc = (s: string) => {
       if (/[()"]/.test(s)) throw new Error('Invalid search characters');
@@ -58,6 +59,10 @@ export class KintoneApiService {
     if (query) {
       const q = esc(query);
       conditions.push(`(クライアント名 like "${q}" or 顧客ID like "${q}")`);
+    }
+    if (assignee) {
+      const a = esc(assignee);
+      conditions.push(`(InCharge in ("${a}") or Reviewer in ("${a}") or Preparer in ("${a}"))`);
     }
 
     const q = conditions.join(' and ') + ' order by クライアント名 asc limit 500';
