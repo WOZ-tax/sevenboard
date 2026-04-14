@@ -23,8 +23,14 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
     },
   });
   if (res.status === 401) {
-    // 401はthrowするだけ。トークン消去やリダイレクトはAuthGuardに任せる
-    // window.location.hrefでハードリロードするとReact stateが全消しされる
+    // トークン期限切れ → ログイン画面にリダイレクト
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      if (!window.location.pathname.includes('/login')) {
+        window.location.href = '/login';
+      }
+    }
     throw new Error('Unauthorized');
   }
   if (!res.ok) {

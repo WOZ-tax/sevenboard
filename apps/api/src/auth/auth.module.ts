@@ -16,7 +16,7 @@ import { JwtStrategy } from './jwt.strategy';
         if (process.env.NODE_ENV === 'production') throw new Error('JWT_SECRET is required');
         return 'sevenboard-dev-secret-do-not-use-in-production';
       })(),
-      signOptions: { expiresIn: '24h' },
+      signOptions: { expiresIn: '30d' },
     }),
   ],
   controllers: [AuthController, MfOAuthController],
