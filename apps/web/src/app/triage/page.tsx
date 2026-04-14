@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -12,11 +13,9 @@ import { useAuthStore } from "@/lib/auth";
 import {
   Users,
   Search,
-  Filter,
   AlertTriangle,
-  CheckCircle2,
-  Clock,
-  FileText,
+  ChevronRight,
+  Loader2,
 } from "lucide-react";
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; priority: number }> = {
@@ -47,9 +46,13 @@ function getCompletedCount(monthlyStatus: Record<number, string>): number {
 
 export default function TriagePage() {
   const user = useAuthStore((s) => s.user);
+  const switchOrgStore = useAuthStore((s) => s.switchOrg);
+  const router = useRouter();
+  const queryClient = useQueryClient();
   const [myOnly, setMyOnly] = useState(true);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [switchingClient, setSwitchingClient] = useState<string | null>(null);
 
   // 自分の名前でフィルタ（myOnly時）
   const assignee = myOnly ? (user?.name || "") : undefined;
@@ -64,6 +67,47 @@ export default function TriagePage() {
       ),
     staleTime: 60 * 1000,
   });
+
+  // ADVISORのorg一覧を取得（MF事業者番号でマッチング用）
+  const orgsQuery = useQuery({
+    queryKey: ["advisor", "orgs"],
+    queryFn: () => api.getAdvisorOrgs(),
+    staleTime: 5 * 60 * 1000,
+    enabled: user?.role === "ADVISOR",
+  });
+
+  // クライアント選択→org切替→月次レビューへ
+  const handleSelectClient = useCallback(async (record: any) => {
+    if (switchingClient) return;
+
+    // MF事業者番号でorgを特定
+    const mfCode = record.mfOfficeCode;
+    const orgs = orgsQuery.data || [];
+    // orgのcodeフィールドとMF事業者番号をマッチ（将来的にはDB紐付け）
+    // 現状はデモ用: 最初のorgに切替
+    const targetOrg = orgs.find((o: any) => o.code === mfCode) || orgs[0];
+
+    if (!targetOrg) {
+      // ADVISORでない場合 or orgが見つからない → 月次レビューにそのまま遷移
+      router.push("/monthly-review");
+      return;
+    }
+
+    setSwitchingClient(record.clientName);
+    try {
+      const result = await api.switchOrg(targetOrg.id);
+      switchOrgStore(result.accessToken, result.user);
+      // キャッシュクリア（新しいorgのデータに切替）
+      queryClient.clear();
+      router.push("/monthly-review");
+    } catch (err) {
+      console.error("Org switch failed", err);
+      // 失敗してもレビューには遷移
+      router.push("/monthly-review");
+    } finally {
+      setSwitchingClient(null);
+    }
+  }, [switchingClient, orgsQuery.data, switchOrgStore, queryClient, router]);
 
   const records = progressQuery.data || [];
 
@@ -211,17 +255,25 @@ export default function TriagePage() {
                 const statusConfig = STATUS_CONFIG[latest.status] || STATUS_CONFIG["0.未作業"];
                 const isDelayed = latest.month < currentMonth && !latest.status.startsWith("4.");
 
+                const isSwitching = switchingClient === record.clientName;
+
                 return (
-                  <div
+                  <button
                     key={i}
+                    onClick={() => handleSelectClient(record)}
+                    disabled={!!switchingClient}
                     className={cn(
-                      "flex items-center justify-between rounded-lg border px-4 py-3",
-                      isDelayed && "border-red-200 bg-red-50/50",
+                      "flex w-full items-center justify-between rounded-lg border px-4 py-3 text-left transition-colors hover:bg-muted/30",
+                      isDelayed && "border-red-200 bg-red-50/50 hover:bg-red-50",
+                      isSwitching && "opacity-60",
                     )}
                   >
                     <div className="flex items-center gap-3">
                       <div className="min-w-0">
                         <div className="flex items-center gap-2">
+                          {isSwitching ? (
+                            <Loader2 className="h-4 w-4 animate-spin text-[var(--color-primary)]" />
+                          ) : null}
                           <span className="text-sm font-medium text-[var(--color-text-primary)]">
                             {record.clientName}
                           </span>
@@ -266,8 +318,9 @@ export default function TriagePage() {
                           {completed}/12 完了
                         </div>
                       </div>
+                      <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
                     </div>
-                  </div>
+                  </button>
                 );
               })}
           </div>

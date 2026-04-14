@@ -58,6 +58,12 @@ export function AppHeader() {
   return (
     <header className="flex h-14 items-center justify-between border-b border-[var(--color-border)] bg-[var(--color-surface)] px-6">
       <div className="flex items-center gap-3">
+        {/* 現在のクライアント名 */}
+        {office.data?.name && (
+          <span className="hidden rounded-md bg-[var(--color-primary)]/10 px-2.5 py-1 text-xs font-medium text-[var(--color-primary)] sm:inline">
+            {office.data.name}
+          </span>
+        )}
         <Calendar className="h-4 w-4 text-muted-foreground" />
         <div className="flex items-center gap-1.5">
           {/* 会計年度セレクタ */}
