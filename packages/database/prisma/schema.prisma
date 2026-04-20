@@ -21,6 +21,9 @@ model Organization {
   employeeCount  Int?     @map("employee_count")
   planType       PlanType @default(STARTER) @map("plan_type")
   aiOptOut       Boolean  @default(false) @map("ai_opt_out") // AI機能オプトアウト
+  briefPushEnabled     Boolean @default(false) @map("brief_push_enabled")
+  briefPushHourJst     Int     @default(8) @map("brief_push_hour_jst") // 0-23
+  briefSlackWebhookUrl String? @map("brief_slack_webhook_url")
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
@@ -43,6 +46,10 @@ model Organization {
   runwaySnapshots    RunwaySnapshot[]
   loanSimulations    LoanSimulation[]
   calendarEvents     CalendarEvent[]
+  actions            Action[]
+  dataSyncLogs       DataSyncLog[]
+  businessEvents     BusinessEvent[]
+  briefingSnapshots  BriefingSnapshot[]
 
   @@map("organizations")
 }
@@ -70,6 +77,10 @@ model User {
   aiComments         AiComment[]         @relation("ReviewedBy")
   notifications      Notification[]
   auditLogs          AuditLog[]
+  ownedActions       Action[]            @relation("ActionOwner")
+  createdActions     Action[]            @relation("ActionCreator")
+  actionEvents       ActionEvent[]
+  businessEvents     BusinessEvent[]
 
   @@map("users")
 }
@@ -611,4 +622,167 @@ model CalendarEvent {
 
   @@index([orgId, date])
   @@map("calendar_events")
+}
+
+// ============================================================
+// Action共通オブジェクト（§5 tier-s-spec）
+// ============================================================
+
+model Action {
+  id                   String             @id @default(uuid()) @db.Uuid
+  orgId                String             @map("org_id") @db.Uuid
+  title                String
+  description          String?
+  sourceScreen         ActionSourceScreen @map("source_screen")
+  sourceRef            Json               @default("{}") @map("source_ref")
+  severity             ActionSeverity     @default(MEDIUM)
+  ownerRole            ActionOwnerRole    @default(ADVISOR) @map("owner_role")
+  ownerUserId          String?            @map("owner_user_id") @db.Uuid
+  dueDate              DateTime?          @map("due_date") @db.Date
+  status               ActionStatus       @default(NOT_STARTED)
+  linkedSlackThreadUrl String?            @map("linked_slack_thread_url")
+  createdBy            String             @map("created_by") @db.Uuid
+  createdAt            DateTime           @default(now()) @map("created_at")
+  updatedAt            DateTime           @updatedAt @map("updated_at")
+  completedAt          DateTime?          @map("completed_at")
+
+  organization Organization  @relation(fields: [orgId], references: [id])
+  owner        User?         @relation("ActionOwner", fields: [ownerUserId], references: [id])
+  creator      User          @relation("ActionCreator", fields: [createdBy], references: [id])
+  events       ActionEvent[]
+
+  @@index([orgId, status])
+  @@index([orgId, dueDate])
+  @@index([orgId, sourceScreen])
+  @@map("actions")
+}
+
+enum ActionStatus {
+  NOT_STARTED   // 未着手
+  IN_PROGRESS   // 進行中
+  COMPLETED     // 完了
+  ON_HOLD       // 保留
+}
+
+enum ActionSeverity {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum ActionOwnerRole {
+  ADVISOR     // 顧問
+  EXECUTIVE   // 経営者
+  ACCOUNTING  // 経理担当
+}
+
+enum ActionSourceScreen {
+  DASHBOARD
+  CASHFLOW
+  MONTHLY_REVIEW
+  AI_REPORT
+  ALERTS
+  VARIANCE
+  KPI
+  MANUAL
+}
+
+model ActionEvent {
+  id        String          @id @default(uuid()) @db.Uuid
+  actionId  String          @map("action_id") @db.Uuid
+  eventType ActionEventType @map("event_type")
+  eventBy   String          @map("event_by") @db.Uuid
+  eventAt   DateTime        @default(now()) @map("event_at")
+  payload   Json            @default("{}")
+
+  action Action @relation(fields: [actionId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [eventBy], references: [id])
+
+  @@index([actionId, eventAt])
+  @@map("action_events")
+}
+
+enum ActionEventType {
+  CREATED
+  REASSIGNED
+  STATUS_CHANGED
+  NOTE_ADDED
+  SLACK_LINKED
+}
+
+// ============================================================
+// データ鮮度ログ（§6.1 tier-s-spec）
+// ============================================================
+
+model DataSyncLog {
+  id           String     @id @default(uuid()) @db.Uuid
+  orgId        String     @map("org_id") @db.Uuid
+  source       SyncSource
+  status       SyncResult
+  errorMessage String?    @map("error_message")
+  syncedAt     DateTime   @default(now()) @map("synced_at")
+  durationMs   Int?       @map("duration_ms")
+
+  organization Organization @relation(fields: [orgId], references: [id])
+
+  @@index([orgId, source, syncedAt])
+  @@map("data_sync_logs")
+}
+
+enum SyncSource {
+  MF_CLOUD
+  KINTONE
+  SLACK
+  TAX_PLUGIN
+  BOOKKEEPING_PLUGIN
+  MANUAL
+}
+
+enum SyncResult {
+  SUCCESS
+  PARTIAL
+  FAILED
+}
+
+// ============================================================
+// 経営イベントログ（§6.2 tier-s-spec）
+// ============================================================
+
+model BusinessEvent {
+  id         String   @id @default(uuid()) @db.Uuid
+  orgId      String   @map("org_id") @db.Uuid
+  eventDate  DateTime @map("event_date") @db.Date
+  eventType  String   @map("event_type") // 値上げ実施/大型採用/賞与支給/広告投下/借入実行/設備投資 等
+  title      String
+  note       String?
+  impactTags String[] @default([]) @map("impact_tags") // sales / cost / cash / headcount
+  createdBy  String   @map("created_by") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [orgId], references: [id])
+  creator      User         @relation(fields: [createdBy], references: [id])
+
+  @@index([orgId, eventDate])
+  @@map("business_events")
+}
+
+/// 朝のサマリー（briefエージェント）のスナップショット履歴
+/// headlines は {title, body, source, severity, linkHref?} の配列。JSONで保持。
+model BriefingSnapshot {
+  id             String   @id @default(uuid()) @db.Uuid
+  orgId          String   @map("org_id") @db.Uuid
+  generatedAt    DateTime @default(now()) @map("generated_at")
+  greeting       String
+  headlines      Json     @default("[]")
+  fallbackReason String?  @map("fallback_reason")
+  urgentCount    Int      @default(0) @map("urgent_count")
+  thisWeekCount  Int      @default(0) @map("this_week_count")
+  headlineCount  Int      @default(0) @map("headline_count")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [orgId], references: [id])
+
+  @@index([orgId, generatedAt])
+  @@map("briefing_snapshots")
 }

@@ -15,6 +15,11 @@ const RevenueChart = dynamic(
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Bot, AlertTriangle, AlertCircle, Info } from "lucide-react";
+import { AgentBanner } from "@/components/agent/agent-banner";
+import { AGENTS } from "@/lib/agent-voice";
+import { CopilotOpenButton } from "@/components/copilot/copilot-open-button";
+import { ActionizeButton } from "@/components/ui/actionize-button";
+import { BriefingCard } from "@/components/dashboard/briefing-card";
 import { cn } from "@/lib/utils";
 import { formatManYen } from "@/lib/format";
 import {
@@ -128,6 +133,22 @@ export default function DashboardPage() {
           </p>
         </div>
 
+        <AgentBanner
+          agent={AGENTS.brief}
+          status={alertsQuery.data && alertsQuery.data.length > 0 ? "alert" : "ok"}
+          detectionCount={alertsQuery.data?.length ?? 0}
+          lastUpdatedAt={new Date().toISOString()}
+          actions={
+            <CopilotOpenButton
+              agentKey="brief"
+              mode="observe"
+              seed="今朝の注目点を3点に絞って整理してください。"
+            />
+          }
+        />
+
+        <BriefingCard />
+
         {isLoading ? (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
             {Array.from({ length: 5 }).map((_, i) => (
@@ -238,6 +259,12 @@ export default function DashboardPage() {
                 const level = alert.level || alert.severity || "info";
                 const config = alertLevelConfig[level as keyof typeof alertLevelConfig] || alertLevelConfig.info;
                 const Icon = config.icon;
+                const severityMap: Record<string, "CRITICAL" | "HIGH" | "MEDIUM"> = {
+                  critical: "CRITICAL",
+                  warning: "HIGH",
+                  info: "MEDIUM",
+                };
+                const defaultSeverity = severityMap[level] ?? "MEDIUM";
 
                 return (
                   <div
@@ -259,9 +286,20 @@ export default function DashboardPage() {
                         {alert.description || alert.message}
                       </p>
                     </div>
-                    <span className="shrink-0 text-xs text-muted-foreground">
-                      {alert.date || alert.createdAt?.slice(0, 10)}
-                    </span>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <ActionizeButton
+                        sourceScreen="ALERTS"
+                        sourceRef={{ alertId: alert.id, level }}
+                        defaultTitle={alert.title}
+                        defaultDescription={alert.description || alert.message}
+                        defaultSeverity={defaultSeverity}
+                        defaultOwnerRole="ADVISOR"
+                        size="sm"
+                      />
+                      <span className="text-xs text-muted-foreground">
+                        {alert.date || alert.createdAt?.slice(0, 10)}
+                      </span>
+                    </div>
                   </div>
                 );
               })

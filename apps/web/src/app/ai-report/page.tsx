@@ -28,6 +28,11 @@ import {
 } from "lucide-react";
 import { PrintButton } from "@/components/ui/print-button";
 import { useAiSummary } from "@/hooks/use-mf-data";
+import { AgentBanner } from "@/components/agent/agent-banner";
+import { AGENTS } from "@/lib/agent-voice";
+import { CopilotOpenButton } from "@/components/copilot/copilot-open-button";
+import { ActionizeButton } from "@/components/ui/actionize-button";
+import { DrafterCard } from "@/components/dashboard/drafter-card";
 
 // --- フォールバック用モックデータ ---
 const fallbackAnalysis = {
@@ -176,6 +181,22 @@ export default function AiReportPage() {
           <PrintButton />
         </div>
 
+        <AgentBanner
+          agent={AGENTS.drafter}
+          status={isLoading || isFetching ? "running" : aiData ? "ok" : "unknown"}
+          detectionCount={risks.length}
+          lastUpdatedAt={aiData?.generatedAt ?? new Date().toISOString()}
+          actions={
+            <CopilotOpenButton
+              agentKey="drafter"
+              mode="execute"
+              seed="顧問向け月次レポートの初稿を、根拠データと信頼度を併記してドラフト化してください。"
+            />
+          }
+        />
+
+        <DrafterCard />
+
         {/* 月次経営分析 */}
         <Card>
           <CardHeader className="pb-2">
@@ -267,25 +288,47 @@ export default function AiReportPage() {
           <CardContent className="space-y-3">
             {risks.map((risk, index) => {
               const config = severityConfig[risk.severity];
+              const severityMap: Record<
+                "高" | "中" | "低",
+                "HIGH" | "MEDIUM" | "LOW"
+              > = { 高: "HIGH", 中: "MEDIUM", 低: "LOW" };
               return (
                 <div
                   key={index}
-                  className="rounded-lg border p-4"
+                  className="flex items-start gap-3 rounded-lg border p-4"
                 >
-                  <div className="mb-1 flex items-center gap-2">
-                    <span className="text-sm font-semibold text-[var(--color-text-primary)]">
-                      {risk.title}
-                    </span>
-                    <Badge
-                      variant="secondary"
-                      className={cn("border px-2 py-0 text-[10px]", config.color)}
-                    >
-                      {risk.severity}
-                    </Badge>
+                  <div className="min-w-0 flex-1">
+                    <div className="mb-1 flex items-center gap-2">
+                      <span className="text-sm font-semibold text-[var(--color-text-primary)]">
+                        {risk.title}
+                      </span>
+                      <Badge
+                        variant="secondary"
+                        className={cn(
+                          "border px-2 py-0 text-[10px]",
+                          config.color,
+                        )}
+                      >
+                        {risk.severity}
+                      </Badge>
+                    </div>
+                    <p className="text-xs leading-relaxed text-muted-foreground">
+                      {risk.description}
+                    </p>
                   </div>
-                  <p className="text-xs leading-relaxed text-muted-foreground">
-                    {risk.description}
-                  </p>
+                  <ActionizeButton
+                    sourceScreen="AI_REPORT"
+                    sourceRef={{
+                      riskIndex: index,
+                      severity: risk.severity,
+                      from: "ai-report-risk",
+                    }}
+                    defaultTitle={risk.title}
+                    defaultDescription={risk.description}
+                    defaultSeverity={severityMap[risk.severity]}
+                    defaultOwnerRole="ADVISOR"
+                    size="sm"
+                  />
                 </div>
               );
             })}

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { APP_INTERCEPTOR } from '@nestjs/core';
+import { ScheduleModule } from '@nestjs/schedule';
 import { PrismaModule } from './prisma/prisma.module';
 import { CacheModule } from './common/cache.module';
 import { AuditLogInterceptor } from './common/audit-log.interceptor';
@@ -22,9 +23,20 @@ import { SyncModule } from './sync/sync.module';
 import { OnboardingModule } from './onboarding/onboarding.module';
 import { CalendarModule } from './calendar/calendar.module';
 import { KintoneModule } from './kintone/kintone.module';
+import { ActionsModule } from './actions/actions.module';
+import { DataHealthModule } from './data-health/data-health.module';
+import { BusinessEventsModule } from './business-events/business-events.module';
+import { TriageModule } from './triage/triage.module';
+import { CopilotModule } from './copilot/copilot.module';
+import { BriefingModule } from './briefing/briefing.module';
+import { NotificationsModule } from './notifications/notifications.module';
+import { SentinelModule } from './sentinel/sentinel.module';
+import { AuditorModule } from './auditor/auditor.module';
+import { DrafterModule } from './drafter/drafter.module';
 
 @Module({
   imports: [
+    ScheduleModule.forRoot(),
     PrismaModule,
     CacheModule,
     HealthModule,
@@ -46,6 +58,16 @@ import { KintoneModule } from './kintone/kintone.module';
     OnboardingModule,
     CalendarModule,
     KintoneModule,
+    ActionsModule,
+    DataHealthModule,
+    BusinessEventsModule,
+    TriageModule,
+    CopilotModule,
+    BriefingModule,
+    NotificationsModule,
+    SentinelModule,
+    AuditorModule,
+    DrafterModule,
   ],
   providers: [
     {

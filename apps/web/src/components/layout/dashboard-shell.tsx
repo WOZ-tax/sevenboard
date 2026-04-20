@@ -5,6 +5,8 @@ import { AppHeader } from "@/components/layout/header";
 import { AuthGuard } from "@/components/auth-guard";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { usePrefetchMfData } from "@/hooks/use-mf-data";
+import { CopilotLauncher } from "@/components/copilot/copilot-launcher";
+import { CopilotPane } from "@/components/copilot/copilot-pane";
 
 export function DashboardShell({ children }: { children: React.ReactNode }) {
   // P-1: ログイン後に主要MFデータを一括プリフェッチ
@@ -23,6 +25,8 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           </main>
         </div>
       </div>
+      <CopilotLauncher />
+      <CopilotPane />
     </AuthGuard>
   );
 }

@@ -34,7 +34,10 @@ import {
   Link,
   Loader2,
   AlertCircle,
+  Send,
+  Clock,
 } from "lucide-react";
+import { Input } from "@/components/ui/input";
 
 interface NotificationSetting {
   id: string;
@@ -337,6 +340,8 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
 
+        <BriefingPushCard orgId={orgId} />
+
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2 text-base font-semibold text-[var(--color-text-primary)]">
@@ -428,6 +433,200 @@ export default function SettingsPage() {
         <MenuVisibilitySettings />
       </div>
     </DashboardShell>
+  );
+}
+
+function BriefingPushCard({ orgId }: { orgId: string }) {
+  const queryClient = useQueryClient();
+  const { data, isLoading } = useQuery({
+    queryKey: ["briefing-push-config", orgId],
+    queryFn: () => api.briefing.getPushConfig(orgId),
+    enabled: !!orgId,
+    staleTime: 30_000,
+  });
+
+  const [enabled, setEnabled] = useState(false);
+  const [hour, setHour] = useState(8);
+  const [webhookUrl, setWebhookUrl] = useState("");
+  const [testResult, setTestResult] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (data) {
+      setEnabled(data.enabled);
+      setHour(data.hourJst);
+    }
+  }, [data]);
+
+  const saveMutation = useMutation({
+    mutationFn: (payload: {
+      enabled?: boolean;
+      hourJst?: number;
+      webhookUrl?: string | null;
+    }) => api.briefing.updatePushConfig(orgId, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["briefing-push-config", orgId],
+      });
+      setWebhookUrl("");
+    },
+  });
+
+  const testMutation = useMutation({
+    mutationFn: () => api.briefing.pushTest(orgId),
+    onSuccess: (res) =>
+      setTestResult(
+        res.sent ? "テスト送信に成功しました" : `送信できません: ${res.reason}`,
+      ),
+    onError: (err) =>
+      setTestResult(
+        `送信失敗: ${err instanceof Error ? err.message : String(err)}`,
+      ),
+  });
+
+  if (!orgId) return null;
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center gap-2 text-base font-semibold text-[var(--color-text-primary)]">
+          <Send className="h-4 w-4" />
+          朝サマリーのSlack定時配信
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="h-16 animate-pulse rounded bg-muted" />
+        ) : (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between rounded-md border px-4 py-3">
+              <div>
+                <div className="text-sm text-[var(--color-text-primary)]">
+                  定時配信
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {data?.webhookConfigured
+                    ? "Webhookは設定済み"
+                    : "Webhookを設定すると有効化できます"}
+                </div>
+              </div>
+              <button
+                role="switch"
+                aria-checked={enabled}
+                aria-label="サマリー定時配信"
+                disabled={!data?.webhookConfigured && !enabled}
+                className={cn(
+                  "relative inline-flex h-6 w-11 rounded-full border-2 border-transparent transition-colors",
+                  enabled ? "bg-[var(--color-primary)]" : "bg-gray-200",
+                  !data?.webhookConfigured && !enabled && "opacity-50",
+                )}
+                onClick={() => {
+                  const next = !enabled;
+                  setEnabled(next);
+                  saveMutation.mutate({ enabled: next });
+                }}
+              >
+                <span
+                  className={cn(
+                    "inline-block h-5 w-5 rounded-full bg-white shadow transition-transform",
+                    enabled ? "translate-x-5" : "translate-x-0",
+                  )}
+                />
+              </button>
+            </div>
+
+            <div className="flex items-center gap-3 rounded-md border px-4 py-3">
+              <Clock className="h-4 w-4 text-muted-foreground" />
+              <div className="text-sm text-[var(--color-text-primary)]">
+                配信時刻 (JST)
+              </div>
+              <select
+                value={hour}
+                onChange={(e) => {
+                  const v = Number(e.target.value);
+                  setHour(v);
+                  saveMutation.mutate({ hourJst: v });
+                }}
+                className="ml-auto h-8 rounded border border-[var(--color-border)] bg-white px-2 text-sm"
+              >
+                {Array.from({ length: 24 }, (_, i) => i).map((h) => (
+                  <option key={h} value={h}>
+                    {String(h).padStart(2, "0")}:00
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="rounded-md border px-4 py-3">
+              <div className="text-sm text-[var(--color-text-primary)]">
+                Slack Incoming Webhook URL
+              </div>
+              <div className="mt-1 text-xs text-muted-foreground">
+                {data?.webhookConfigured
+                  ? "設定済み。上書きするには新しいURLを入力してください。空欄で保存すると削除されます。"
+                  : "Slackの Incoming Webhook URL を入力してください。"}
+              </div>
+              <div className="mt-2 flex gap-2">
+                <Input
+                  type="url"
+                  placeholder="https://hooks.slack.com/services/..."
+                  value={webhookUrl}
+                  onChange={(e) => setWebhookUrl(e.target.value)}
+                  className="flex-1"
+                />
+                <Button
+                  size="sm"
+                  onClick={() =>
+                    saveMutation.mutate({ webhookUrl: webhookUrl || null })
+                  }
+                  disabled={saveMutation.isPending}
+                >
+                  保存
+                </Button>
+                {data?.webhookConfigured && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() =>
+                      saveMutation.mutate({ webhookUrl: null })
+                    }
+                    disabled={saveMutation.isPending}
+                  >
+                    削除
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between rounded-md border px-4 py-3">
+              <div className="text-sm text-[var(--color-text-primary)]">
+                今すぐテスト送信
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setTestResult(null);
+                  testMutation.mutate();
+                }}
+                disabled={
+                  testMutation.isPending || !data?.webhookConfigured
+                }
+              >
+                {testMutation.isPending ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Send className="h-3.5 w-3.5" />
+                )}
+                <span className="ml-1">送信</span>
+              </Button>
+            </div>
+            {testResult && (
+              <p className="text-xs text-muted-foreground">{testResult}</p>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

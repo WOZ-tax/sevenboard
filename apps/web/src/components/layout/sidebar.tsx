@@ -27,11 +27,16 @@ import {
   Gauge,
   FlaskConical,
   CalendarDays,
+  Zap,
+  Activity,
+  Briefcase,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useAuthStore } from "@/lib/auth";
 import { useSidebarConfig } from "@/lib/sidebar-config";
+import { api } from "@/lib/api";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -42,7 +47,8 @@ import {
 
 const menuItems = [
   { label: "ダッシュボード", href: "/", icon: Home },
-  { label: "トリアージ", href: "/triage", icon: Users },
+  { label: "Actionセンター", href: "/actions", icon: Zap },
+  { label: "AIトリアージ", href: "/triage", icon: Users },
   { label: "月次レビュー", href: "/monthly-review", icon: ClipboardCheck },
   { label: "予実差異", href: "/variance", icon: BarChart3 },
   { label: "予算策定", href: "/budget", icon: PenLine },
@@ -60,6 +66,8 @@ const menuItems = [
   { label: "資金調達レポート", href: "/funding-report", icon: FileBarChart },
   { label: "アラート", href: "/alerts", icon: Bell },
   { label: "カレンダー", href: "/calendar", icon: CalendarDays },
+  { label: "経営イベント", href: "/business-events", icon: Briefcase },
+  { label: "データ鮮度", href: "/data-health", icon: Activity },
   { label: "マスタ管理", href: "/masters", icon: Database },
   { label: "設定", href: "/settings", icon: Settings },
 ];
@@ -70,8 +78,19 @@ export function AppSidebar() {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const { isHidden, hydrate } = useSidebarConfig();
+  const orgId = useAuthStore((s) => s.user?.orgId || "");
 
   useEffect(() => { hydrate(); }, [hydrate]);
+
+  const { data: triageData } = useQuery({
+    queryKey: ["triage", orgId],
+    queryFn: () => api.triage.classify(orgId),
+    enabled: !!orgId,
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+  });
+
+  const urgentCount = triageData?.summary.urgent ?? 0;
 
   const visibleMenus = menuItems.filter((item) => !isHidden(item.href));
 
@@ -108,19 +127,34 @@ export function AppSidebar() {
           const isActive =
             item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
 
+          const showUrgentBadge =
+            item.href === "/triage" && urgentCount > 0;
+
           const linkContent = (
             <Link
               key={item.href}
               href={item.href}
               className={cn(
-                "flex items-center gap-3 px-4 py-2.5 text-sm transition-colors",
+                "relative flex items-center gap-3 px-4 py-2.5 text-sm transition-colors",
                 isActive
                   ? "border-l-3 border-[var(--color-tertiary)] bg-white/10 text-white"
                   : "text-white/70 hover:bg-white/5 hover:text-white"
               )}
             >
-              <item.icon className="h-5 w-5 shrink-0" />
-              {!collapsed && <span>{item.label}</span>}
+              <span className="relative shrink-0">
+                <item.icon className="h-5 w-5" />
+                {showUrgentBadge && collapsed && (
+                  <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-[var(--color-error)] px-1 text-[10px] font-bold leading-none text-white">
+                    {urgentCount > 99 ? "99+" : urgentCount}
+                  </span>
+                )}
+              </span>
+              {!collapsed && <span className="flex-1">{item.label}</span>}
+              {showUrgentBadge && !collapsed && (
+                <span className="inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-[var(--color-error)] px-1.5 text-[10px] font-bold leading-none text-white">
+                  {urgentCount > 99 ? "99+" : urgentCount}
+                </span>
+              )}
             </Link>
           );
 

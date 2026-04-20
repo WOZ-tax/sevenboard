@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { Bell, AlertCircle, AlertTriangle, Info } from "lucide-react";
 import { useMfDashboard, useAlerts } from "@/hooks/use-mf-data";
+import { ActionizeButton } from "@/components/ui/actionize-button";
 
 type Severity = "critical" | "warning" | "info";
 type FilterType = "all" | Severity;
@@ -215,6 +216,10 @@ export default function AlertsPage() {
           {filteredAlerts.map((alert) => {
             const config = severityConfig[alert.severity];
             const Icon = config.icon;
+            const sevMap: Record<
+              Severity,
+              "CRITICAL" | "HIGH" | "MEDIUM" | "LOW"
+            > = { critical: "CRITICAL", warning: "HIGH", info: "MEDIUM" };
 
             return (
               <Card key={alert.id}>
@@ -252,6 +257,20 @@ export default function AlertsPage() {
                       >
                         {alert.resolved ? "対応済み" : "未対応"}
                       </Badge>
+                      {!alert.resolved && (
+                        <ActionizeButton
+                          sourceScreen="ALERTS"
+                          sourceRef={{
+                            alertId: alert.id,
+                            severity: alert.severity,
+                          }}
+                          defaultTitle={alert.title}
+                          defaultDescription={alert.description}
+                          defaultSeverity={sevMap[alert.severity]}
+                          defaultOwnerRole="ADVISOR"
+                          size="sm"
+                        />
+                      )}
                     </div>
                   </div>
                 </CardContent>

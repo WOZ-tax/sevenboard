@@ -462,4 +462,418 @@ export const api = {
     status: (orgId: string) =>
       apiFetch<any>(`/organizations/${orgId}/onboarding/status`),
   },
+
+  // === Actions (§5 共通オブジェクト) ===
+  actions: {
+    list: (
+      orgId: string,
+      params?: {
+        status?: string;
+        ownerUserId?: string;
+        sourceScreen?: string;
+        overdueOnly?: boolean;
+      },
+    ) => {
+      const qs = new URLSearchParams();
+      if (params?.status) qs.set('status', params.status);
+      if (params?.ownerUserId) qs.set('ownerUserId', params.ownerUserId);
+      if (params?.sourceScreen) qs.set('sourceScreen', params.sourceScreen);
+      if (params?.overdueOnly) qs.set('overdueOnly', 'true');
+      const suffix = qs.toString() ? `?${qs}` : '';
+      return apiFetch<any[]>(`/organizations/${orgId}/actions${suffix}`);
+    },
+    summary: (orgId: string, ownerUserId?: string) => {
+      const qs = new URLSearchParams();
+      if (ownerUserId) qs.set('ownerUserId', ownerUserId);
+      const suffix = qs.toString() ? `?${qs}` : '';
+      return apiFetch<{
+        total: number;
+        notStarted: number;
+        inProgress: number;
+        overdue: number;
+      }>(`/organizations/${orgId}/actions/summary${suffix}`);
+    },
+    getById: (orgId: string, actionId: string) =>
+      apiFetch<any>(`/organizations/${orgId}/actions/${actionId}`),
+    create: (
+      orgId: string,
+      data: {
+        title: string;
+        description?: string;
+        sourceScreen: string;
+        sourceRef?: Record<string, unknown>;
+        severity?: string;
+        ownerRole?: string;
+        ownerUserId?: string;
+        dueDate?: string;
+        linkedSlackThreadUrl?: string;
+      },
+    ) =>
+      apiFetch<any>(`/organizations/${orgId}/actions`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+    update: (
+      orgId: string,
+      actionId: string,
+      data: {
+        title?: string;
+        description?: string;
+        severity?: string;
+        ownerRole?: string;
+        ownerUserId?: string | null;
+        dueDate?: string | null;
+        status?: string;
+        linkedSlackThreadUrl?: string | null;
+        note?: string;
+      },
+    ) =>
+      apiFetch<any>(`/organizations/${orgId}/actions/${actionId}`, {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      }),
+    remove: (orgId: string, actionId: string) =>
+      apiFetch<any>(`/organizations/${orgId}/actions/${actionId}`, {
+        method: 'DELETE',
+      }),
+  },
+
+  // === Data Health (§6.1) ===
+  dataHealth: {
+    getStatus: (orgId: string) =>
+      apiFetch<{
+        overall: 'HEALTHY' | 'DEGRADED' | 'UNKNOWN';
+        sources: Array<{
+          source: string;
+          lastSyncAt: string | null;
+          status: string | null;
+          errorMessage: string | null;
+          durationMs: number | null;
+        }>;
+      }>(`/organizations/${orgId}/data-health`),
+    getLogs: (orgId: string, limit?: number) =>
+      apiFetch<any[]>(
+        `/organizations/${orgId}/data-health/logs${limit ? `?limit=${limit}` : ''}`,
+      ),
+  },
+
+  // === Triage (AI司令塔 §2.x) ===
+  triage: {
+    classify: (
+      orgId: string,
+      params?: { fiscalYear?: number; endMonth?: number },
+    ) => {
+      const qs = new URLSearchParams();
+      if (params?.fiscalYear) qs.set("fiscalYear", String(params.fiscalYear));
+      if (params?.endMonth) qs.set("endMonth", String(params.endMonth));
+      const suffix = qs.toString() ? `?${qs}` : "";
+      return apiFetch<{
+        summary: {
+          urgent: number;
+          thisWeek: number;
+          monthly: number;
+          noise: number;
+          total: number;
+          lastRunAt: string;
+        };
+        signals: Array<{
+          id: string;
+          source: "ACTION" | "ALERT" | "DATA_SYNC" | "BUSINESS_EVENT";
+          bucket: "URGENT" | "THIS_WEEK" | "MONTHLY" | "NOISE";
+          title: string;
+          description: string;
+          severity: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFO";
+          agentOwner: "brief" | "sentinel" | "drafter" | "auditor";
+          reason: string;
+          evidenceSource: string;
+          confidence: "HIGH" | "MEDIUM" | "LOW";
+          linkHref?: string;
+          detectedAt: string;
+          refId?: string;
+        }>;
+      }>(`/organizations/${orgId}/triage/classify${suffix}`);
+    },
+  },
+
+  // === Briefing (brief エージェントの朝のダイジェスト) ===
+  briefing: {
+    today: (
+      orgId: string,
+      params?: { fiscalYear?: number; endMonth?: number },
+    ) => {
+      const qs = new URLSearchParams();
+      if (params?.fiscalYear) qs.set("fiscalYear", String(params.fiscalYear));
+      if (params?.endMonth) qs.set("endMonth", String(params.endMonth));
+      const suffix = qs.toString() ? `?${qs}` : "";
+      return apiFetch<{
+        generatedAt: string;
+        greeting: string;
+        headlines: Array<{
+          title: string;
+          body: string;
+          source: "URGENT" | "ALERT" | "ACTION" | "FINANCIAL" | "DATA_HEALTH";
+          severity: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFO";
+          linkHref?: string;
+        }>;
+        fallbackReason?: string;
+      }>(`/organizations/${orgId}/briefing/today${suffix}`);
+    },
+    history: (
+      orgId: string,
+      params?: { limit?: number; days?: number },
+    ) => {
+      const qs = new URLSearchParams();
+      if (params?.limit) qs.set("limit", String(params.limit));
+      if (params?.days) qs.set("days", String(params.days));
+      const suffix = qs.toString() ? `?${qs}` : "";
+      return apiFetch<
+        Array<{
+          id: string;
+          generatedAt: string;
+          greeting: string;
+          headlines: Array<{
+            title: string;
+            body: string;
+            source:
+              | "URGENT"
+              | "ALERT"
+              | "ACTION"
+              | "FINANCIAL"
+              | "DATA_HEALTH";
+            severity: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFO";
+            linkHref?: string;
+          }>;
+          fallbackReason?: string;
+          urgentCount: number;
+          headlineCount: number;
+        }>
+      >(`/organizations/${orgId}/briefing/history${suffix}`);
+    },
+    getPushConfig: (orgId: string) =>
+      apiFetch<{
+        enabled: boolean;
+        hourJst: number;
+        webhookConfigured: boolean;
+      }>(`/organizations/${orgId}/briefing/push-config`),
+    updatePushConfig: (
+      orgId: string,
+      payload: {
+        enabled?: boolean;
+        hourJst?: number;
+        webhookUrl?: string | null;
+      },
+    ) =>
+      apiFetch<{
+        enabled: boolean;
+        hourJst: number;
+        webhookConfigured: boolean;
+      }>(`/organizations/${orgId}/briefing/push-config`, {
+        method: "PATCH",
+        body: JSON.stringify(payload),
+      }),
+    pushTest: (orgId: string) =>
+      apiFetch<{ sent: boolean; reason?: string }>(
+        `/organizations/${orgId}/briefing/push-test`,
+        { method: "POST" },
+      ),
+  },
+
+  // === Notifications (通知センター) ===
+  notifications: {
+    list: (
+      orgId: string,
+      params?: { unreadOnly?: boolean; limit?: number; days?: number },
+    ) => {
+      const qs = new URLSearchParams();
+      if (params?.unreadOnly) qs.set("unreadOnly", "true");
+      if (params?.limit) qs.set("limit", String(params.limit));
+      if (params?.days) qs.set("days", String(params.days));
+      const suffix = qs.toString() ? `?${qs}` : "";
+      return apiFetch<
+        Array<{
+          id: string;
+          type:
+            | "ANOMALY_ALERT"
+            | "CASHFLOW_ALERT"
+            | "SYNC_ERROR"
+            | "AI_COMMENT"
+            | "ADVISOR_COMMENT"
+            | "SYSTEM";
+          title: string;
+          message: string;
+          isRead: boolean;
+          createdAt: string;
+          metadata: Record<string, unknown>;
+          linkHref?: string;
+        }>
+      >(`/organizations/${orgId}/notifications${suffix}`);
+    },
+    unreadCount: (orgId: string) =>
+      apiFetch<{ count: number }>(
+        `/organizations/${orgId}/notifications/unread-count`,
+      ),
+    markRead: (orgId: string, id: string) =>
+      apiFetch<{ id: string; isRead: boolean } | { ok: false }>(
+        `/organizations/${orgId}/notifications/${id}/read`,
+        { method: "PATCH" },
+      ),
+    markAllRead: (orgId: string) =>
+      apiFetch<{ count: number }>(
+        `/organizations/${orgId}/notifications/mark-all-read`,
+        { method: "POST" },
+      ),
+  },
+
+  // === Sentinel (異常検知エージェント) ===
+  sentinel: {
+    signals: (
+      orgId: string,
+      params?: { fiscalYear?: number; endMonth?: number },
+    ) => {
+      const qs = new URLSearchParams();
+      if (params?.fiscalYear) qs.set("fiscalYear", String(params.fiscalYear));
+      if (params?.endMonth) qs.set("endMonth", String(params.endMonth));
+      const suffix = qs.toString() ? `?${qs}` : "";
+      return apiFetch<{
+        generatedAt: string;
+        detections: Array<{
+          id: string;
+          kind:
+            | "CASH_TREND"
+            | "RUNWAY_SHORT"
+            | "DSO_SPIKE"
+            | "SHORT_BORROW_UP";
+          severity: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFO";
+          title: string;
+          body: string;
+          evidence: {
+            source: string;
+            confidence: "HIGH" | "MEDIUM" | "LOW";
+            premise: string;
+          };
+          linkHref?: string;
+        }>;
+        fallbackReason?: string;
+      }>(`/organizations/${orgId}/sentinel/signals${suffix}`);
+    },
+  },
+
+  // === Auditor (品質監査エージェント) ===
+  auditor: {
+    qualityCheck: (orgId: string) =>
+      apiFetch<{
+        generatedAt: string;
+        findings: Array<{
+          id: string;
+          category:
+            | "COVERAGE_GAP"
+            | "RECURRING_FINDING"
+            | "RULE_DECAY"
+            | "DATA_FRESHNESS";
+          severity: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFO";
+          title: string;
+          body: string;
+          evidence: {
+            source: string;
+            confidence: "HIGH" | "MEDIUM" | "LOW";
+            premise: string;
+          };
+          linkHref?: string;
+        }>;
+        fallbackReason?: string;
+      }>(`/organizations/${orgId}/auditor/quality-check`),
+  },
+
+  // === Drafter (月次レポート初稿エージェント) ===
+  drafter: {
+    monthlyDraft: (
+      orgId: string,
+      params?: { fiscalYear?: number; endMonth?: number },
+    ) => {
+      const qs = new URLSearchParams();
+      if (params?.fiscalYear) qs.set("fiscalYear", String(params.fiscalYear));
+      if (params?.endMonth) qs.set("endMonth", String(params.endMonth));
+      const suffix = qs.toString() ? `?${qs}` : "";
+      return apiFetch<{
+        generatedAt: string;
+        kind: "DRAFT";
+        period: { fiscalYear: number | null; endMonth: number | null };
+        sections: Array<{
+          heading: string;
+          body: string;
+          evidence: {
+            source: string;
+            confidence: "HIGH" | "MEDIUM" | "LOW";
+            premise: string;
+          };
+        }>;
+        fallbackReason?: string;
+      }>(`/organizations/${orgId}/drafter/monthly-draft${suffix}`);
+    },
+  },
+
+  // === Copilot (呼び出し型AIペイン) ===
+  copilot: {
+    chat: (
+      orgId: string,
+      payload: {
+        agentKey: "brief" | "sentinel" | "drafter" | "auditor";
+        mode: "observe" | "dialog" | "execute";
+        pathname: string;
+        fiscalYear?: number;
+        endMonth?: number;
+        messages: { role: "user" | "assistant"; content: string }[];
+      },
+    ) =>
+      apiFetch<{
+        reply: string;
+        model: string;
+        toolCalls?: Array<{
+          name: string;
+          input: Record<string, unknown>;
+          ok: boolean;
+          summary: string;
+        }>;
+      }>(
+        `/organizations/${orgId}/copilot/chat`,
+        {
+          method: "POST",
+          body: JSON.stringify(payload),
+        },
+      ),
+  },
+
+  // === Business Events (§6.2) ===
+  businessEvents: {
+    list: (orgId: string, fromDate?: string, toDate?: string) => {
+      const qs = new URLSearchParams();
+      if (fromDate) qs.set('fromDate', fromDate);
+      if (toDate) qs.set('toDate', toDate);
+      const suffix = qs.toString() ? `?${qs}` : '';
+      return apiFetch<any[]>(`/organizations/${orgId}/business-events${suffix}`);
+    },
+    create: (
+      orgId: string,
+      data: {
+        eventDate: string;
+        eventType: string;
+        title: string;
+        note?: string;
+        impactTags?: string[];
+      },
+    ) =>
+      apiFetch<any>(`/organizations/${orgId}/business-events`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+    update: (orgId: string, eventId: string, data: any) =>
+      apiFetch<any>(`/organizations/${orgId}/business-events/${eventId}`, {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      }),
+    remove: (orgId: string, eventId: string) =>
+      apiFetch<any>(`/organizations/${orgId}/business-events/${eventId}`, {
+        method: 'DELETE',
+      }),
+  },
 };

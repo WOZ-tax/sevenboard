@@ -9,8 +9,13 @@ import { Shield, Link2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatManYen } from "@/lib/format";
 import { useMfCashflow } from "@/hooks/use-mf-data";
+import { AgentBanner } from "@/components/agent/agent-banner";
+import { AGENTS } from "@/lib/agent-voice";
+import { CopilotOpenButton } from "@/components/copilot/copilot-open-button";
+import { ActionizeButton } from "@/components/ui/actionize-button";
 
 import { MfEmptyState } from "@/components/ui/mf-empty-state";
+import { SentinelCard } from "@/components/dashboard/sentinel-card";
 
 const alertLevelConfig = {
   SAFE: {
@@ -73,6 +78,32 @@ export default function CashflowPage() {
           </p>
         </div>
 
+        <AgentBanner
+          agent={AGENTS.sentinel}
+          status={
+            runwayData
+              ? runwayData.alertLevel === "CRITICAL" || runwayData.alertLevel === "WARNING"
+                ? "alert"
+                : "ok"
+              : "unknown"
+          }
+          detectionCount={
+            runwayData && (runwayData.alertLevel === "CRITICAL" || runwayData.alertLevel === "WARNING")
+              ? 1
+              : 0
+          }
+          lastUpdatedAt={new Date().toISOString()}
+          actions={
+            <CopilotOpenButton
+              agentKey="sentinel"
+              mode="dialog"
+              seed="現在の資金リスクと、想定される枯渇予兆・推奨アクションをドラフトで整理してください。"
+            />
+          }
+        />
+
+        <SentinelCard />
+
         {isLoading ? (
           <div className="h-24 animate-pulse rounded-lg bg-muted" />
         ) : !runwayData ? (
@@ -115,6 +146,31 @@ export default function CashflowPage() {
                 </span>
                 <span>最終取得: {new Date().toLocaleString("ja-JP")}</span>
               </div>
+              {(runwayData.alertLevel === "CRITICAL" ||
+                runwayData.alertLevel === "WARNING" ||
+                runwayData.alertLevel === "CAUTION") && (
+                <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
+                  <ActionizeButton
+                    sourceScreen="CASHFLOW"
+                    sourceRef={{
+                      alertLevel: runwayData.alertLevel,
+                      runwayMonths: runwayData.months,
+                      kind: "runway",
+                    }}
+                    defaultTitle={`資金繰りリスク対応（ランウェイ${runwayData.months.toFixed(1)}か月）`}
+                    defaultDescription={`ランウェイ警戒レベル: ${config.label}。現預金${formatManYen(runwayData.cashBalance)} / 月次バーンレート${formatManYen(runwayData.monthlyBurnRate)}。対応策（入金前倒し・支出繰延・融資）を検討。`}
+                    defaultSeverity={
+                      runwayData.alertLevel === "CRITICAL"
+                        ? "CRITICAL"
+                        : runwayData.alertLevel === "WARNING"
+                          ? "HIGH"
+                          : "MEDIUM"
+                    }
+                    defaultOwnerRole="EXECUTIVE"
+                    size="sm"
+                  />
+                </div>
+              )}
             </CardContent>
           </Card>
         )}

@@ -32,6 +32,11 @@ import {
   Loader2,
 } from "lucide-react";
 import { MfEmptyState } from "@/components/ui/mf-empty-state";
+import { AgentBanner } from "@/components/agent/agent-banner";
+import { AGENTS } from "@/lib/agent-voice";
+import { CopilotOpenButton } from "@/components/copilot/copilot-open-button";
+import { ActionizeButton } from "@/components/ui/actionize-button";
+import { AuditorCard } from "@/components/dashboard/auditor-card";
 
 type TabKey = "checklist" | "review" | "pl" | "bs" | "cashflow" | "indicators";
 
@@ -145,6 +150,28 @@ export default function MonthlyReviewPage() {
             </div>
           </div>
         </div>
+
+        <AgentBanner
+          agent={AGENTS.auditor}
+          status={
+            currentStatus === "4.納品済"
+              ? "ok"
+              : currentStatus === "0.未作業"
+                ? "idle"
+                : "running"
+          }
+          detectionCount={0}
+          lastUpdatedAt={new Date().toISOString()}
+          actions={
+            <CopilotOpenButton
+              agentKey="auditor"
+              mode="observe"
+              seed="今月のレビュー網羅性と、再発している指摘の傾向を整理してください。"
+            />
+          }
+        />
+
+        <AuditorCard />
 
         {/* KPIサマリーバー */}
         {dashboard.data && (
@@ -604,14 +631,35 @@ function ReviewTab({ orgId, fiscalYear }: { orgId: string; fiscalYear?: number }
         <div className="space-y-4">
           {(crossCheck?.findings || []).length === 0 ? (
             <Card><CardContent className="py-8 text-center text-sm text-muted-foreground">クロスチェック項目はありません</CardContent></Card>
-          ) : (crossCheck.findings.map((f: any, i: number) => (
-            <Card key={i}><CardHeader className="pb-2"><CardTitle className="flex items-center gap-2 text-sm">
-              <Badge className={cn("text-[10px]", f.priority === "高" ? "bg-red-100 text-red-800" : f.priority === "中" ? "bg-yellow-100 text-yellow-800" : "bg-blue-100 text-blue-800")}>{f.priority}</Badge>
-              {f.title}
-            </CardTitle></CardHeader>
-              <CardContent><p className="text-xs text-muted-foreground">{f.interpretation}</p></CardContent>
-            </Card>
-          )))}
+          ) : (crossCheck.findings.map((f: any, i: number) => {
+            const sevMap: Record<string, "CRITICAL" | "HIGH" | "MEDIUM" | "LOW"> = {
+              "高": "HIGH",
+              "中": "MEDIUM",
+              "低": "LOW",
+            };
+            return (
+              <Card key={i}>
+                <CardHeader className="pb-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <CardTitle className="flex items-center gap-2 text-sm">
+                      <Badge className={cn("text-[10px]", f.priority === "高" ? "bg-red-100 text-red-800" : f.priority === "中" ? "bg-yellow-100 text-yellow-800" : "bg-blue-100 text-blue-800")}>{f.priority}</Badge>
+                      {f.title}
+                    </CardTitle>
+                    <ActionizeButton
+                      sourceScreen="MONTHLY_REVIEW"
+                      sourceRef={{ findingIndex: i, priority: f.priority, kind: "cross-check" }}
+                      defaultTitle={f.title}
+                      defaultDescription={f.interpretation}
+                      defaultSeverity={sevMap[f.priority] ?? "MEDIUM"}
+                      defaultOwnerRole="ADVISOR"
+                      size="sm"
+                    />
+                  </div>
+                </CardHeader>
+                <CardContent><p className="text-xs text-muted-foreground">{f.interpretation}</p></CardContent>
+              </Card>
+            );
+          }))}
         </div>
       )}
 
@@ -622,6 +670,11 @@ function ReviewTab({ orgId, fiscalYear }: { orgId: string; fiscalYear?: number }
             <div className="py-8 text-center text-sm text-muted-foreground">指摘事項はありません</div>
           ) : alerts.map((alert: any, i: number) => {
             const config = SEVERITY_CONFIG[alert.severity as keyof typeof SEVERITY_CONFIG] || SEVERITY_CONFIG.LOW;
+            const sevMap: Record<string, "CRITICAL" | "HIGH" | "MEDIUM" | "LOW"> = {
+              HIGH: "HIGH",
+              MEDIUM: "MEDIUM",
+              LOW: "LOW",
+            };
             return (
               <div key={i} className="flex items-start gap-3 px-4 py-3">
                 <Badge className={cn("mt-0.5 shrink-0 border text-[10px]", config.color)}>{config.label}</Badge>
@@ -632,6 +685,15 @@ function ReviewTab({ orgId, fiscalYear }: { orgId: string; fiscalYear?: number }
                   </div>
                   <p className="mt-0.5 text-xs text-muted-foreground">{alert.detail}</p>
                 </div>
+                <ActionizeButton
+                  sourceScreen="MONTHLY_REVIEW"
+                  sourceRef={{ alertIndex: i, category: alert.category, kind: "review-alert" }}
+                  defaultTitle={alert.title}
+                  defaultDescription={alert.detail}
+                  defaultSeverity={sevMap[alert.severity] ?? "MEDIUM"}
+                  defaultOwnerRole="ADVISOR"
+                  size="sm"
+                />
               </div>
             );
           })}

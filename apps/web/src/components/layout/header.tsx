@@ -9,6 +9,7 @@ import { useAuthStore } from "@/lib/auth";
 import { usePeriodStore, getPeriodLabel } from "@/lib/period-store";
 import { useMfOffice } from "@/hooks/use-mf-data";
 import { NotificationDropdown } from "@/components/layout/notification-dropdown";
+import { DataHealthBadge } from "@/components/ui/data-health-badge";
 
 const MONTHS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 
@@ -104,6 +105,7 @@ export function AppHeader() {
         </div>
       </div>
       <div className="flex items-center gap-3">
+        <DataHealthBadge />
         <NotificationDropdown />
         {user && (
           <div className="flex items-center gap-2">
