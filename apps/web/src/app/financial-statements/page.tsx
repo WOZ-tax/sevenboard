@@ -297,16 +297,21 @@ export default function FinancialStatementsPage() {
                 >
                   {simLoading ? "計算中..." : "反映"}
                 </Button>
-                {simResult && (
-                  <div className="flex gap-4 text-sm">
-                    <span className="text-muted-foreground">
-                      利益変動: <span className={cn(getValueColor(simResult.summary.cashImpact))}>{simResult.summary.cashImpact > 0 ? "+" : ""}{formatManYen(simResult.summary.cashImpact)}</span>
-                    </span>
-                    <span className="text-muted-foreground">
-                      現預金影響: <span className={cn(getValueColor(simResult.summary.cashImpact))}>{simResult.summary.cashImpact > 0 ? "+" : ""}{formatManYen(simResult.summary.cashImpact)}</span>
-                    </span>
-                  </div>
-                )}
+                {simResult && (() => {
+                  const profitImpact = simResult.summary.profitImpact ?? simResult.summary.cashImpact;
+                  const cashImpact = simResult.summary.cashImpact;
+                  const fmt = (v: number) => `${v > 0 ? "+" : ""}${formatManYen(v)}`;
+                  return (
+                    <div className="flex gap-4 text-sm">
+                      <span className="text-muted-foreground">
+                        純利益変動: <span className={cn(getValueColor(profitImpact))}>{fmt(profitImpact)}</span>
+                      </span>
+                      <span className="text-muted-foreground">
+                        現預金影響: <span className={cn(getValueColor(cashImpact))}>{fmt(cashImpact)}</span>
+                      </span>
+                    </div>
+                  );
+                })()}
               </div>
             </CardContent>
           </Card>

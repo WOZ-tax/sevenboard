@@ -325,6 +325,7 @@ export class SimulationService {
       summary: {
         beforeProfit: origNetIncome,
         afterProfit: newNetIncome,
+        profitImpact: profitDiff,
         cashImpact: profitDiff,
       },
     };

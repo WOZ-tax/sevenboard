@@ -410,8 +410,11 @@ export interface LinkedStatementsResult {
   };
   cf: CashflowRow[];
   summary: {
+    beforeProfit?: number;
+    afterProfit?: number;
+    profitImpact?: number;
     cashImpact: number;
-    [key: string]: number;
+    [key: string]: number | undefined;
   };
 }
 
