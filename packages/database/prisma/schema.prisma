@@ -24,6 +24,7 @@ model Organization {
   briefPushEnabled     Boolean @default(false) @map("brief_push_enabled")
   briefPushHourJst     Int     @default(8) @map("brief_push_hour_jst") // 0-23
   briefSlackWebhookUrl String? @map("brief_slack_webhook_url")
+  cashflowCertainty    Json?   @map("cashflow_certainty") // Record<category, "CONFIRMED"|"PLANNED"|"ESTIMATED">
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
@@ -51,6 +52,7 @@ model Organization {
   businessEvents     BusinessEvent[]
   briefingSnapshots  BriefingSnapshot[]
   agentRuns          AgentRun[]
+  monthlyReviewApprovals MonthlyReviewApproval[]
 
   @@map("organizations")
 }
@@ -834,4 +836,32 @@ model BriefingSnapshot {
 
   @@index([orgId, generatedAt])
   @@map("briefing_snapshots")
+}
+
+/// 月次レビューの最終承認状態。org × fiscalYear × month で1件。
+/// 顧問が「レビュー済み・顧客に納品OK」を明示する承認ステップ。
+model MonthlyReviewApproval {
+  id         String   @id @default(uuid()) @db.Uuid
+  orgId      String   @map("org_id") @db.Uuid
+  fiscalYear Int      @map("fiscal_year")
+  month      Int      // 1-12 会計年度内の対象月
+  status     MonthlyReviewApprovalStatus @default(DRAFT)
+  approvedBy String?  @map("approved_by") @db.Uuid
+  approvedAt DateTime? @map("approved_at")
+  comment    String?
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [orgId], references: [id])
+
+  @@unique([orgId, fiscalYear, month])
+  @@index([orgId, fiscalYear])
+  @@map("monthly_review_approvals")
+}
+
+enum MonthlyReviewApprovalStatus {
+  DRAFT
+  PENDING
+  APPROVED
+  REJECTED
 }

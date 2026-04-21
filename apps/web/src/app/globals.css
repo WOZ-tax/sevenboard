@@ -198,7 +198,23 @@
   body { background: white !important; }
   /* カードの影を消す */
   .card { box-shadow: none !important; border: 1px solid #d6d3d0 !important; }
+  /* 画面のみ表示要素を印刷時に隠す */
+  .screen-only { display: none !important; }
+  /* 印刷専用要素を印刷時に表示 */
+  .print-only { display: block !important; }
+  /* カードは可能な限り分割しない */
+  .card, [data-print-block] {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+  /* ボタン・入力を非表示 */
+  button, input, select, textarea { display: none !important; }
+  /* タブUI自体を非表示 */
+  [role="tablist"] { display: none !important; }
+  /* 非アクティブな tabpanel も印刷で表示可能にする（コンテンツは hidden 属性で制御） */
+  [role="tabpanel"] { display: block !important; }
 }
+.print-only { display: none; }
 
 @layer base {
   * {

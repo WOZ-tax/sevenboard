@@ -34,6 +34,8 @@ import { SentinelModule } from './sentinel/sentinel.module';
 import { AuditorModule } from './auditor/auditor.module';
 import { DrafterModule } from './drafter/drafter.module';
 import { AgentRunsModule } from './agent-runs/agent-runs.module';
+import { CashflowCertaintyModule } from './cashflow-certainty/cashflow-certainty.module';
+import { MonthlyReviewApprovalModule } from './monthly-review-approval/monthly-review-approval.module';
 
 @Module({
   imports: [
@@ -70,6 +72,8 @@ import { AgentRunsModule } from './agent-runs/agent-runs.module';
     AuditorModule,
     DrafterModule,
     AgentRunsModule,
+    CashflowCertaintyModule,
+    MonthlyReviewApprovalModule,
   ],
   providers: [
     {

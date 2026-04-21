@@ -36,8 +36,17 @@ import {
   AlertCircle,
   Send,
   Clock,
+  Gauge,
+  Plus,
+  Trash2,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import {
+  CERTAINTY_LEVELS,
+  CERTAINTY_LABEL,
+  DEFAULT_CERTAINTY_RULES,
+  type CertaintyLevel,
+} from "@/lib/cashflow-certainty";
 
 interface NotificationSetting {
   id: string;
@@ -342,6 +351,8 @@ export default function SettingsPage() {
 
         <BriefingPushCard orgId={orgId} />
 
+        <CashflowCertaintyCard orgId={orgId} />
+
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2 text-base font-semibold text-[var(--color-text-primary)]">
@@ -619,6 +630,215 @@ function BriefingPushCard({ orgId }: { orgId: string }) {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+function CashflowCertaintyCard({ orgId }: { orgId: string }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ["cashflow-certainty", orgId],
+    queryFn: () => api.cashflowCertainty.get(orgId),
+    enabled: !!orgId,
+    staleTime: 60_000,
+  });
+
+  if (!orgId) return null;
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center gap-2 text-base font-semibold text-[var(--color-text-primary)]">
+          <Gauge className="h-4 w-4" />
+          資金繰り確度設定
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <p className="mb-3 text-xs text-muted-foreground">
+          勘定科目ごとに確度（確定/予定/概算）を設定します。資金繰り表のセル透明度に反映されます。
+        </p>
+        {isLoading ? (
+          <div className="h-24 animate-pulse rounded bg-muted" />
+        ) : (
+          <CashflowCertaintyEditor
+            orgId={orgId}
+            initialRules={data?.rules ?? {}}
+          />
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function buildInitialRows(
+  rules: Record<string, CertaintyLevel>,
+): { key: string; level: CertaintyLevel }[] {
+  const effective = { ...DEFAULT_CERTAINTY_RULES, ...rules };
+  return Object.entries(effective).map(([key, level]) => ({
+    key,
+    level: level as CertaintyLevel,
+  }));
+}
+
+function CashflowCertaintyEditor({
+  orgId,
+  initialRules,
+}: {
+  orgId: string;
+  initialRules: Record<string, CertaintyLevel>;
+}) {
+  const queryClient = useQueryClient();
+  const [rows, setRows] = useState(() => buildInitialRows(initialRules));
+  const [newKey, setNewKey] = useState("");
+  const [newLevel, setNewLevel] = useState<CertaintyLevel>("PLANNED");
+
+  const saveMutation = useMutation({
+    mutationFn: (rules: Record<string, CertaintyLevel>) =>
+      api.cashflowCertainty.update(orgId, rules),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["cashflow-certainty", orgId],
+      });
+    },
+  });
+
+  const updateRow = (
+    index: number,
+    patch: Partial<{ key: string; level: CertaintyLevel }>,
+  ) => {
+    setRows((prev) => prev.map((r, i) => (i === index ? { ...r, ...patch } : r)));
+  };
+
+  const removeRow = (index: number) => {
+    setRows((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const addRow = () => {
+    const key = newKey.trim();
+    if (!key) return;
+    if (rows.some((r) => r.key === key)) return;
+    setRows((prev) => [...prev, { key, level: newLevel }]);
+    setNewKey("");
+  };
+
+  const handleSave = () => {
+    const rules: Record<string, CertaintyLevel> = {};
+    for (const { key, level } of rows) {
+      const trimmed = key.trim();
+      if (trimmed) rules[trimmed] = level;
+    }
+    saveMutation.mutate(rules);
+  };
+
+  const handleReset = () => {
+    setRows(
+      Object.entries(DEFAULT_CERTAINTY_RULES).map(([key, level]) => ({
+        key,
+        level: level as CertaintyLevel,
+      })),
+    );
+  };
+
+  return (
+    <div className="space-y-2">
+      {rows.map((row, i) => (
+        <div
+          key={`${row.key}-${i}`}
+          className="flex items-center gap-2 rounded-md border px-3 py-2"
+        >
+          <Input
+            value={row.key}
+            onChange={(e) => updateRow(i, { key: e.target.value })}
+            className="flex-1"
+            placeholder="勘定科目名"
+          />
+          <select
+            value={row.level}
+            onChange={(e) =>
+              updateRow(i, { level: e.target.value as CertaintyLevel })
+            }
+            className="h-9 rounded border border-[var(--color-border)] bg-white px-2 text-sm"
+          >
+            {CERTAINTY_LEVELS.map((level) => (
+              <option key={level} value={level}>
+                {CERTAINTY_LABEL[level]}
+              </option>
+            ))}
+          </select>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => removeRow(i)}
+            aria-label="削除"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      ))}
+
+      <div className="flex items-center gap-2 rounded-md border border-dashed px-3 py-2">
+        <Input
+          value={newKey}
+          onChange={(e) => setNewKey(e.target.value)}
+          className="flex-1"
+          placeholder="追加する勘定科目名"
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              addRow();
+            }
+          }}
+        />
+        <select
+          value={newLevel}
+          onChange={(e) => setNewLevel(e.target.value as CertaintyLevel)}
+          className="h-9 rounded border border-[var(--color-border)] bg-white px-2 text-sm"
+        >
+          {CERTAINTY_LEVELS.map((level) => (
+            <option key={level} value={level}>
+              {CERTAINTY_LABEL[level]}
+            </option>
+          ))}
+        </select>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={addRow}
+          disabled={!newKey.trim()}
+        >
+          <Plus className="h-3.5 w-3.5" />
+          <span className="ml-1">追加</span>
+        </Button>
+      </div>
+
+      <div className="mt-3 flex items-center justify-end gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleReset}
+          disabled={saveMutation.isPending}
+        >
+          デフォルトに戻す
+        </Button>
+        <Button
+          size="sm"
+          onClick={handleSave}
+          disabled={saveMutation.isPending}
+          className="bg-[var(--color-primary)] text-white hover:bg-[var(--color-primary-hover)]"
+        >
+          {saveMutation.isPending ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : null}
+          <span className="ml-1">保存</span>
+        </Button>
+      </div>
+      {saveMutation.isError && (
+        <p className="text-xs text-red-600">
+          保存に失敗しました: {String(saveMutation.error)}
+        </p>
+      )}
+      {saveMutation.isSuccess && !saveMutation.isPending && (
+        <p className="text-xs text-[var(--color-success)]">保存しました</p>
+      )}
+    </div>
   );
 }
 

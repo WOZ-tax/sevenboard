@@ -200,8 +200,14 @@ export class MfController {
   async runReview(
     @Param('orgId') orgId: string,
     @Query('fiscalYear') fiscalYear?: string,
+    @Query('month') month?: string,
   ) {
     const fy = this.parseFiscalYear(fiscalYear);
-    return this.reviewService.runReview(orgId, fy);
+    const parsedMonth = month ? parseInt(month, 10) : undefined;
+    const targetMonth =
+      parsedMonth && parsedMonth >= 1 && parsedMonth <= 12
+        ? parsedMonth
+        : undefined;
+    return this.reviewService.runReview(orgId, fy, targetMonth);
   }
 }

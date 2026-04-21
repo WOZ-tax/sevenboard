@@ -1,6 +1,8 @@
 // Shared API response + DTO types for apps/web.
 // Covers endpoints outside the Tier-S MF/review scope already living in mf-types.ts.
 
+export type CertaintyLevel = 'CONFIRMED' | 'PLANNED' | 'ESTIMATED';
+
 export interface AuthUser {
   id: string;
   email: string;

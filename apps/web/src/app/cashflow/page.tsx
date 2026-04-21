@@ -3,7 +3,7 @@
 import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { CashflowTable, type CertaintyLevel } from "@/components/cashflow/cashflow-table";
+import { CashflowTable } from "@/components/cashflow/cashflow-table";
 import { CashflowChart } from "@/components/cashflow/cashflow-chart";
 import { Shield, Link2, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -17,8 +17,14 @@ import { Button } from "@/components/ui/button";
 import { MfEmptyState } from "@/components/ui/mf-empty-state";
 import { QueryErrorState } from "@/components/ui/query-error-state";
 import { SentinelCard } from "@/components/dashboard/sentinel-card";
-import { isMfNotConnected } from "@/lib/api";
+import { api, isMfNotConnected } from "@/lib/api";
 import { usePeriodStore, getPeriodLabel } from "@/lib/period-store";
+import { useAuthStore } from "@/lib/auth";
+import { useQuery } from "@tanstack/react-query";
+import {
+  DEFAULT_CERTAINTY_RULES,
+  type CertaintyLevel,
+} from "@/lib/cashflow-certainty";
 
 const alertLevelConfig = {
   SAFE: {
@@ -57,6 +63,15 @@ export default function CashflowPage() {
   const mfCashflow = useMfCashflow();
   const { fiscalYear, month, periods } = usePeriodStore();
   const periodLabel = getPeriodLabel(fiscalYear, month, periods);
+  const user = useAuthStore((s) => s.user);
+  const orgId = user?.orgId || "";
+
+  const certaintyQuery = useQuery({
+    queryKey: ["cashflow-certainty", orgId],
+    queryFn: () => api.cashflowCertainty.get(orgId),
+    enabled: !!orgId,
+    staleTime: 60_000,
+  });
 
   const runwayData = mfCashflow.data?.runway ?? null;
   const mfNotConnected = isMfNotConnected(mfCashflow.error);
@@ -71,15 +86,8 @@ export default function CashflowPage() {
 
   const certaintyLevels: Record<string, CertaintyLevel> | undefined = mfCashflow.data
     ? {
-        売上回収: "confirmed",
-        売上入金: "confirmed",
-        人件費: "planned",
-        家賃: "planned",
-        借入返済: "planned",
-        "その他経費": "estimated",
-        "その他支出": "estimated",
-        設備投資: "estimated",
-        法人税等: "estimated",
+        ...DEFAULT_CERTAINTY_RULES,
+        ...(certaintyQuery.data?.rules ?? {}),
       }
     : undefined;
 

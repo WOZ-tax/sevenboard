@@ -55,6 +55,7 @@ export class ReviewService {
   async runReview(
     orgId: string,
     fiscalYear?: number,
+    targetMonth?: number,
   ): Promise<ReviewResult> {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-review-'));
 
@@ -68,9 +69,15 @@ export class ReviewService {
       ) || office?.accounting_periods?.[0];
       const fyStartDate = period?.start_date || `${targetFy || new Date().getFullYear()}-01-01`;
 
-      // kintone進捗から分析対象期間を決定（入力済 or 納品済の月まで）
-      let lastCompletedMonth = 12; // デフォルト: 通期
-      if (mfCode) {
+      // 分析対象月の決定:
+      // 1. targetMonth(UI指定)があれば最優先
+      // 2. なければ kintone 進捗から「入力済/納品済」の最終月を使用
+      // 3. いずれもなければ通期(12か月)
+      let lastCompletedMonth = 12;
+      if (targetMonth && targetMonth >= 1 && targetMonth <= 12) {
+        lastCompletedMonth = targetMonth;
+        this.logger.log(`Review targetMonth override: ${targetMonth}`);
+      } else if (mfCode) {
         const progress = await this.kintoneApi.getByMfOfficeCode(
           mfCode,
           String(targetFy),
@@ -86,7 +93,7 @@ export class ReviewService {
           }
           if (lastCompletedMonth === 0) {
             this.logger.warn(`No completed months in kintone for ${mfCode}`);
-            lastCompletedMonth = 12; // フォールバック
+            lastCompletedMonth = 12;
           }
         }
       }

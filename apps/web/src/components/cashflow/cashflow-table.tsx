@@ -10,32 +10,14 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { formatManYen } from "@/lib/format";
+import {
+  CERTAINTY_LEGEND,
+  CERTAINTY_OPACITY,
+  DEFAULT_CERTAINTY_RULES,
+  type CertaintyLevel,
+} from "@/lib/cashflow-certainty";
 
-export type CertaintyLevel = "confirmed" | "planned" | "estimated";
-
-const defaultCertainty: Record<string, CertaintyLevel> = {
-  "売上回収": "confirmed",
-  "売上入金": "confirmed",
-  "人件費": "planned",
-  "家賃": "planned",
-  "借入返済": "planned",
-  "その他経費": "estimated",
-  "その他支出": "estimated",
-  "設備投資": "estimated",
-  "法人税等": "estimated",
-};
-
-const certaintyOpacity: Record<CertaintyLevel, string> = {
-  confirmed: "opacity-100",
-  planned: "opacity-70",
-  estimated: "opacity-40",
-};
-
-const certaintyLegend: { level: CertaintyLevel; label: string; color: string }[] = [
-  { level: "confirmed", label: "確定", color: "bg-blue-500" },
-  { level: "planned", label: "予定", color: "bg-amber-500" },
-  { level: "estimated", label: "概算", color: "bg-gray-400" },
-];
+export type { CertaintyLevel };
 
 interface CashflowRow {
   category: string;
@@ -69,13 +51,13 @@ export function CashflowTable({
   const getCertainty = (category: string): CertaintyLevel | undefined => {
     const trimmed = category.trim();
     if (certaintyLevels?.[trimmed]) return certaintyLevels[trimmed];
-    return defaultCertainty[trimmed];
+    return DEFAULT_CERTAINTY_RULES[trimmed];
   };
 
   return (
     <div className="overflow-x-auto">
       <div className="mb-3 flex items-center gap-4">
-        {certaintyLegend.map(({ level, label, color }) => (
+        {CERTAINTY_LEGEND.map(({ level, label, color }) => (
           <span key={level} className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <span className={cn("inline-block h-2.5 w-2.5 rounded-sm", color)} />
             {label}
@@ -132,7 +114,7 @@ export function CashflowTable({
                         value !== null &&
                         value > 0 &&
                         "text-[var(--color-positive)]",
-                      certainty && !row.isHeader && !row.isTotal && !row.isDiff && certaintyOpacity[certainty]
+                      certainty && !row.isHeader && !row.isTotal && !row.isDiff && CERTAINTY_OPACITY[certainty]
                     )}
                   >
                     {value !== null ? formatManYen(value) : ""}

@@ -29,6 +29,7 @@ import {
   ChevronRight,
   Play,
   Loader2,
+  Printer,
 } from "lucide-react";
 import { MfEmptyState } from "@/components/ui/mf-empty-state";
 import { QueryErrorState } from "@/components/ui/query-error-state";
@@ -38,6 +39,7 @@ import { AGENTS } from "@/lib/agent-voice";
 import { CopilotOpenButton } from "@/components/copilot/copilot-open-button";
 import { ActionizeButton } from "@/components/ui/actionize-button";
 import { AuditorCard } from "@/components/dashboard/auditor-card";
+import { ApprovalCard } from "@/components/monthly-review/approval-card";
 import type {
   KintoneMonthlyProgress,
   ReviewAlert,
@@ -143,8 +145,20 @@ export default function MonthlyReviewPage() {
   return (
     <DashboardShell>
       <div className="space-y-6">
+        {/* 印刷専用ヘッダー */}
+        <div className="print-only" data-print-block>
+          <h1 className="text-xl font-bold">月次レビュー報告書</h1>
+          <div className="mt-1 text-sm">
+            {office.data?.name || "—"} — {periodLabel}
+          </div>
+          <div className="mt-0.5 text-xs text-gray-600">
+            出力日: {new Date().toLocaleDateString("ja-JP")}
+          </div>
+          <hr className="mt-2" />
+        </div>
+
         {/* ヘッダー */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between screen-only">
           <div>
             <h1 className="text-xl font-bold text-[var(--color-text-primary)]">
               月次レビュー
@@ -182,30 +196,48 @@ export default function MonthlyReviewPage() {
                 </Button>
               )}
             </div>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 gap-1 text-xs"
+              onClick={() => window.print()}
+              aria-label="このタブをPDFとして出力"
+            >
+              <Printer className="h-3 w-3" />
+              PDF出力
+            </Button>
           </div>
         </div>
 
-        <AgentBanner
-          agent={AGENTS.auditor}
-          status={
-            currentStatus === "4.納品済"
-              ? "ok"
-              : currentStatus === "0.未作業"
-                ? "idle"
-                : "running"
-          }
-          detectionCount={0}
-          lastUpdatedAt={new Date().toISOString()}
-          actions={
-            <CopilotOpenButton
-              agentKey="auditor"
-              mode="observe"
-              seed="今月のレビュー網羅性と、再発している指摘の傾向を整理してください。"
-            />
-          }
-        />
+        <div className="screen-only">
+          <AgentBanner
+            agent={AGENTS.auditor}
+            status={
+              currentStatus === "4.納品済"
+                ? "ok"
+                : currentStatus === "0.未作業"
+                  ? "idle"
+                  : "running"
+            }
+            detectionCount={0}
+            lastUpdatedAt={new Date().toISOString()}
+            actions={
+              <CopilotOpenButton
+                agentKey="auditor"
+                mode="observe"
+                seed="今月のレビュー網羅性と、再発している指摘の傾向を整理してください。"
+              />
+            }
+          />
+        </div>
 
-        <AuditorCard />
+        <div className="screen-only">
+          <AuditorCard />
+        </div>
+
+        {user?.orgId && fiscalYear && (
+          <ApprovalCard orgId={user.orgId} fiscalYear={fiscalYear} month={currentMonth} />
+        )}
 
         {/* KPIサマリーバー */}
         {dashboard.data && (
@@ -277,7 +309,11 @@ export default function MonthlyReviewPage() {
 
         {activeTab === "review" && (
           <div role="tabpanel" id="monthly-panel-review" aria-labelledby="monthly-tab-review">
-            <ReviewTab orgId={user?.orgId || ""} fiscalYear={fiscalYear} />
+            <ReviewTab
+              orgId={user?.orgId || ""}
+              fiscalYear={fiscalYear}
+              month={month}
+            />
           </div>
         )}
 
@@ -475,10 +511,18 @@ const SEVERITY_CONFIG = {
   LOW: { label: "LOW", color: "bg-blue-100 text-blue-800 border-blue-300" },
 };
 
-function ReviewTab({ orgId, fiscalYear }: { orgId: string; fiscalYear?: number }) {
+function ReviewTab({
+  orgId,
+  fiscalYear,
+  month,
+}: {
+  orgId: string;
+  fiscalYear?: number;
+  month?: number;
+}) {
   const reviewQuery = useQuery({
-    queryKey: ["review", orgId, fiscalYear],
-    queryFn: () => api.review.run(orgId, fiscalYear),
+    queryKey: ["review", orgId, fiscalYear, month],
+    queryFn: () => api.review.run(orgId, fiscalYear, month),
     enabled: false,
     staleTime: 30 * 60 * 1000,
   });

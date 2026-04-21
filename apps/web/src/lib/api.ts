@@ -24,6 +24,7 @@ import type {
   CalendarEvent,
   CashFlowCategory,
   CashFlowEntry,
+  CertaintyLevel,
   Comment as AiComment,
   CreateAccountInput,
   CreateDepartmentInput,
@@ -105,6 +106,21 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
 
 export function isMfNotConnected(err: unknown): boolean {
   return (err as { statusCode?: number })?.statusCode === 503;
+}
+
+export type MonthlyReviewApprovalStatus = 'DRAFT' | 'PENDING' | 'APPROVED' | 'REJECTED';
+
+export interface MonthlyReviewApprovalRecord {
+  id: string;
+  orgId: string;
+  fiscalYear: number;
+  month: number;
+  status: MonthlyReviewApprovalStatus;
+  approvedBy: string | null;
+  approvedAt: string | null;
+  comment: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export const api = {
@@ -485,9 +501,62 @@ export const api = {
 
   // === Review (経理レビュー) ===
   review: {
-    run: (orgId: string, fiscalYear?: number) =>
-      apiFetch<ReviewResult>(
-        `/organizations/${orgId}/mf/review${fiscalYear ? `?fiscalYear=${fiscalYear}` : ''}`,
+    run: (orgId: string, fiscalYear?: number, month?: number) => {
+      const params = new URLSearchParams();
+      if (fiscalYear) params.set('fiscalYear', String(fiscalYear));
+      if (month) params.set('month', String(month));
+      const qs = params.toString();
+      return apiFetch<ReviewResult>(
+        `/organizations/${orgId}/mf/review${qs ? `?${qs}` : ''}`,
+      );
+    },
+  },
+
+  // === Monthly review approval (月次レビュー承認) ===
+  monthlyReviewApproval: {
+    list: (orgId: string, fiscalYear: number) =>
+      apiFetch<{ records: MonthlyReviewApprovalRecord[] }>(
+        `/organizations/${orgId}/monthly-review-approvals?fiscalYear=${fiscalYear}`,
+      ),
+    get: (orgId: string, fiscalYear: number, month: number) =>
+      apiFetch<{ record: MonthlyReviewApprovalRecord | null }>(
+        `/organizations/${orgId}/monthly-review-approvals/current?fiscalYear=${fiscalYear}&month=${month}`,
+      ),
+    submit: (orgId: string, fiscalYear: number, month: number, comment?: string) =>
+      apiFetch<{ record: MonthlyReviewApprovalRecord }>(
+        `/organizations/${orgId}/monthly-review-approvals/submit`,
+        { method: 'POST', body: JSON.stringify({ fiscalYear, month, comment }) },
+      ),
+    approve: (orgId: string, fiscalYear: number, month: number, comment?: string) =>
+      apiFetch<{ record: MonthlyReviewApprovalRecord }>(
+        `/organizations/${orgId}/monthly-review-approvals/approve`,
+        { method: 'POST', body: JSON.stringify({ fiscalYear, month, comment }) },
+      ),
+    reject: (orgId: string, fiscalYear: number, month: number, comment?: string) =>
+      apiFetch<{ record: MonthlyReviewApprovalRecord }>(
+        `/organizations/${orgId}/monthly-review-approvals/reject`,
+        { method: 'POST', body: JSON.stringify({ fiscalYear, month, comment }) },
+      ),
+    reset: (orgId: string, fiscalYear: number, month: number) =>
+      apiFetch<{ record: MonthlyReviewApprovalRecord | null }>(
+        `/organizations/${orgId}/monthly-review-approvals/reset`,
+        { method: 'POST', body: JSON.stringify({ fiscalYear, month }) },
+      ),
+  },
+
+  // === Cashflow certainty (確度ルール) ===
+  cashflowCertainty: {
+    get: (orgId: string) =>
+      apiFetch<{ rules: Record<string, CertaintyLevel> }>(
+        `/organizations/${orgId}/cashflow-certainty`,
+      ),
+    update: (orgId: string, rules: Record<string, CertaintyLevel>) =>
+      apiFetch<{ rules: Record<string, CertaintyLevel> }>(
+        `/organizations/${orgId}/cashflow-certainty`,
+        {
+          method: 'PUT',
+          body: JSON.stringify({ rules }),
+        },
       ),
   },
 
