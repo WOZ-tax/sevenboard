@@ -9,6 +9,8 @@ import { cn } from "@/lib/utils";
 import { Landmark, Bot, TrendingUp, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { PrintButton } from "@/components/ui/print-button";
 import { useAiFundingReport } from "@/hooks/use-mf-data";
+import { isMfNotConnected } from "@/lib/api";
+import { MfEmptyState } from "@/components/ui/mf-empty-state";
 
 // --- モックデータ ---
 const mockFundingReport = {
@@ -60,10 +62,11 @@ const recStyle: Record<string, string> = {
 };
 
 export default function FundingReportPage() {
-  const { data: apiData, refetch, isFetching } = useAiFundingReport();
+  const { data: apiData, refetch, isFetching, error } = useAiFundingReport();
   const [generated, setGenerated] = useState(false);
+  const mfNotConnected = isMfNotConnected(error);
 
-  const report: FundingReport | null = generated
+  const report: FundingReport | null = generated && !mfNotConnected
     ? apiData || mockFundingReport
     : null;
 
@@ -92,7 +95,7 @@ export default function FundingReportPage() {
         </div>
 
         {/* Generate Button */}
-        {!generated && (
+        {!generated && !mfNotConnected && (
           <Button
             className="gap-2 bg-[var(--color-primary)] text-white hover:bg-[var(--color-primary-hover)]"
             onClick={handleGenerate}
@@ -101,6 +104,8 @@ export default function FundingReportPage() {
             レポートを生成
           </Button>
         )}
+
+        {mfNotConnected && <MfEmptyState />}
 
         {/* Loading */}
         {generated && isFetching && !report && (

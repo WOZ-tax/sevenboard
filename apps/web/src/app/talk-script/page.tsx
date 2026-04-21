@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Mic, Bot, Copy, Check, ChevronDown, ChevronRight } from "lucide-react";
 import { useAiTalkScript } from "@/hooks/use-mf-data";
+import { isMfNotConnected } from "@/lib/api";
+import { MfEmptyState } from "@/components/ui/mf-empty-state";
 
 // --- モックデータ ---
 const mockTalkScript = {
@@ -131,10 +133,11 @@ function QaAccordion({
 }
 
 export default function TalkScriptPage() {
-  const { data: apiData, refetch, isFetching } = useAiTalkScript();
+  const { data: apiData, refetch, isFetching, error } = useAiTalkScript();
   const [generated, setGenerated] = useState(false);
+  const mfNotConnected = isMfNotConnected(error);
 
-  const script: TalkScript | null = generated
+  const script: TalkScript | null = generated && !mfNotConnected
     ? apiData || mockTalkScript
     : null;
 
@@ -160,7 +163,7 @@ export default function TalkScriptPage() {
         </div>
 
         {/* Generate Button */}
-        {!generated && (
+        {!generated && !mfNotConnected && (
           <Button
             className="gap-2 bg-[var(--color-primary)] text-white hover:bg-[var(--color-primary-hover)]"
             onClick={handleGenerate}
@@ -169,6 +172,8 @@ export default function TalkScriptPage() {
             原稿を生成
           </Button>
         )}
+
+        {mfNotConnected && <MfEmptyState />}
 
         {/* Loading */}
         {generated && isFetching && !script && (
