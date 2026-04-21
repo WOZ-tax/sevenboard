@@ -1,6 +1,6 @@
 import {
   Injectable,
-  UnauthorizedException,
+  ServiceUnavailableException,
   InternalServerErrorException,
   Logger,
 } from '@nestjs/common';
@@ -52,7 +52,7 @@ export class MfApiService {
     });
 
     if (!integration?.accessToken) {
-      throw new UnauthorizedException(
+      throw new ServiceUnavailableException(
         'MoneyForward not connected. Please connect from Settings.',
       );
     }
@@ -74,7 +74,7 @@ export class MfApiService {
     refreshToken: string | null,
   ): Promise<string> {
     if (!refreshToken) {
-      throw new UnauthorizedException('MF refresh token not available');
+      throw new ServiceUnavailableException('MF refresh token not available');
     }
 
     try {
@@ -115,7 +115,7 @@ export class MfApiService {
       return newAccessToken;
     } catch (err) {
       this.logger.error('MF token refresh failed', err);
-      throw new UnauthorizedException('MF token refresh failed');
+      throw new ServiceUnavailableException('MF token refresh failed');
     }
   }
 
