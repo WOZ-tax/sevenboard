@@ -17,7 +17,7 @@ import { cn } from "@/lib/utils";
 import { formatManYen, getValueColor } from "@/lib/format";
 import { FileText, FlaskConical } from "lucide-react";
 import { PrintButton } from "@/components/ui/print-button";
-import { useMfPL, useMfBS, useMfCashflow } from "@/hooks/use-mf-data";
+import { useMfPL, useMfBS, useMfCashflow, useMfOffice } from "@/hooks/use-mf-data";
 import { usePeriodStore, getPeriodLabel } from "@/lib/period-store";
 import { api } from "@/lib/api";
 import type { LinkedStatementsInput, LinkedStatementsResult } from "@/lib/api-types";
@@ -134,6 +134,7 @@ export default function FinancialStatementsPage() {
   const mfPL = useMfPL();
   const mfBS = useMfBS();
   const mfCF = useMfCashflow();
+  const office = useMfOffice();
   const { fiscalYear, month, periods } = usePeriodStore();
   const periodLabel = getPeriodLabel(fiscalYear, month, periods);
 
@@ -204,7 +205,19 @@ export default function FinancialStatementsPage() {
   return (
     <DashboardShell>
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
+        {/* 印刷専用ヘッダー */}
+        <div className="print-only" data-print-block>
+          <h1 className="text-xl font-bold">財務諸表</h1>
+          <div className="mt-1 text-sm">
+            {office.data?.name || "—"} — {periodLabel || "期間未指定"}
+          </div>
+          <div className="mt-0.5 text-xs text-gray-600">
+            出力日: {new Date().toLocaleDateString("ja-JP")}
+          </div>
+          <hr className="mt-2" />
+        </div>
+
+        <div className="flex items-center justify-between screen-only">
           <div className="flex items-center gap-3">
             <FileText className="h-6 w-6 text-[var(--color-tertiary)]" />
             <div>
@@ -238,7 +251,7 @@ export default function FinancialStatementsPage() {
 
         {/* シミュレーション入力パネル */}
         {simMode && (
-          <Card className="border-[var(--color-tertiary)]/50 bg-[var(--color-tertiary)]/5">
+          <Card className="screen-only border-[var(--color-tertiary)]/50 bg-[var(--color-tertiary)]/5">
             <CardHeader className="pb-2">
               <CardTitle className="flex items-center gap-2 text-base font-semibold text-[var(--color-text-primary)]">
                 <FlaskConical className="h-5 w-5 text-[var(--color-tertiary)]" />
@@ -299,7 +312,7 @@ export default function FinancialStatementsPage() {
           </Card>
         )}
 
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between screen-only">
           <div className="flex overflow-hidden rounded-md border border-input">
             {tabs.map((tab) => (
               <Button
