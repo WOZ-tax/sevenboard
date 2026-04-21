@@ -6,9 +6,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Mic, Bot, Copy, Check, ChevronDown, ChevronRight } from "lucide-react";
-import { useAiTalkScript } from "@/hooks/use-mf-data";
+import { useAiTalkScript, useMfOffice } from "@/hooks/use-mf-data";
 import { isMfNotConnected } from "@/lib/api";
 import { MfEmptyState } from "@/components/ui/mf-empty-state";
+import { PrintButton } from "@/components/ui/print-button";
+import { usePeriodStore, getPeriodLabel } from "@/lib/period-store";
 
 // --- モックデータ ---
 const mockTalkScript = {
@@ -81,7 +83,7 @@ function CopyButton({ text, label }: { text: string; label?: string }) {
     <Button
       variant="ghost"
       size="sm"
-      className="h-7 gap-1 px-2 text-xs text-muted-foreground hover:text-[var(--color-text-primary)]"
+      className="screen-only h-7 gap-1 px-2 text-xs text-muted-foreground hover:text-[var(--color-text-primary)]"
       onClick={handleCopy}
     >
       {copied ? (
@@ -106,7 +108,7 @@ function QaAccordion({
   return (
     <div className="mt-3">
       <button
-        className="flex items-center gap-1 text-xs font-medium text-[var(--color-text-primary)] hover:underline"
+        className="screen-only flex items-center gap-1 text-xs font-medium text-[var(--color-text-primary)] hover:underline"
         onClick={() => setOpen(!open)}
       >
         {open ? (
@@ -116,18 +118,16 @@ function QaAccordion({
         )}
         想定Q&A
       </button>
-      {open && (
-        <div className="mt-2 space-y-2 pl-5">
-          {qa.map((item, i) => (
-            <div key={i}>
-              <p className="text-sm font-semibold text-[var(--color-text-primary)]">
-                Q: {item.q}
-              </p>
-              <p className="text-sm text-muted-foreground">A: {item.a}</p>
-            </div>
-          ))}
-        </div>
-      )}
+      <div className={`mt-2 space-y-2 pl-5 ${open ? "" : "print-only"}`}>
+        {qa.map((item, i) => (
+          <div key={i}>
+            <p className="text-sm font-semibold text-[var(--color-text-primary)]">
+              Q: {item.q}
+            </p>
+            <p className="text-sm text-muted-foreground">A: {item.a}</p>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -136,6 +136,9 @@ export default function TalkScriptPage() {
   const { data: apiData, refetch, isFetching, error } = useAiTalkScript();
   const [generated, setGenerated] = useState(false);
   const mfNotConnected = isMfNotConnected(error);
+  const office = useMfOffice();
+  const { fiscalYear, month, periods } = usePeriodStore();
+  const periodLabel = getPeriodLabel(fiscalYear, month, periods);
 
   const script: TalkScriptView | null = generated && !mfNotConnected
     ? (apiData as unknown as TalkScriptView | undefined) ?? mockTalkScript
@@ -149,23 +152,37 @@ export default function TalkScriptPage() {
   return (
     <DashboardShell>
       <div className="space-y-6">
+        {/* Print-only header */}
+        <div className="print-only mb-4">
+          <h1 className="text-xl font-bold">トークスクリプト</h1>
+          <p className="text-sm">事業所: {office.data?.name || "—"}</p>
+          <p className="text-sm">対象期間: {periodLabel}</p>
+          <p className="text-sm">出力日: {new Date().toLocaleDateString("ja-JP")}</p>
+          {script?.generatedAt && (
+            <p className="text-sm">AI生成日時: {script.generatedAt}</p>
+          )}
+        </div>
+
         {/* Header */}
-        <div className="flex items-center gap-3">
-          <Mic className="h-6 w-6 text-[var(--color-tertiary)]" />
-          <div>
-            <h1 className="text-xl font-bold text-[var(--color-text-primary)]">
-              トークスクリプト
-            </h1>
-            <p className="text-sm text-muted-foreground">
-              月次報告用の話す原稿
-            </p>
+        <div className="screen-only flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <Mic className="h-6 w-6 text-[var(--color-tertiary)]" />
+            <div>
+              <h1 className="text-xl font-bold text-[var(--color-text-primary)]">
+                トークスクリプト
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                月次報告用の話す原稿
+              </p>
+            </div>
           </div>
+          {script && <PrintButton />}
         </div>
 
         {/* Generate Button */}
         {!generated && !mfNotConnected && (
           <Button
-            className="gap-2 bg-[var(--color-primary)] text-white hover:bg-[var(--color-primary-hover)]"
+            className="screen-only gap-2 bg-[var(--color-primary)] text-white hover:bg-[var(--color-primary-hover)]"
             onClick={handleGenerate}
           >
             <Mic className="h-4 w-4" />
@@ -194,7 +211,7 @@ export default function TalkScriptPage() {
         {script && (
           <>
             {/* Full Copy Button */}
-            <div className="flex justify-end">
+            <div className="screen-only flex justify-end">
               <CopyButton
                 text={buildPlainText(script)}
                 label="全文コピー"
@@ -262,7 +279,7 @@ export default function TalkScriptPage() {
             </p>
 
             {/* Regenerate */}
-            <div className="flex justify-end">
+            <div className="screen-only flex justify-end">
               <Button
                 className="gap-2 bg-[var(--color-primary)] text-white hover:bg-[var(--color-primary-hover)]"
                 onClick={() => refetch()}
