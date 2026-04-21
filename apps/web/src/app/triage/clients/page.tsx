@@ -4,16 +4,16 @@ import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth";
+import type { KintoneMonthlyProgress } from "@/lib/mf-types";
 import {
   Users,
   Search,
-  AlertTriangle,
   ChevronRight,
   Loader2,
 } from "lucide-react";
@@ -77,7 +77,7 @@ export default function TriagePage() {
   });
 
   // クライアント選択→org切替→月次レビューへ
-  const handleSelectClient = useCallback(async (record: any) => {
+  const handleSelectClient = useCallback(async (record: KintoneMonthlyProgress) => {
     if (switchingClient) return;
 
     // MF事業者番号でorgを特定
@@ -85,7 +85,7 @@ export default function TriagePage() {
     const orgs = orgsQuery.data || [];
     // orgのcodeフィールドとMF事業者番号をマッチ（将来的にはDB紐付け）
     // 現状はデモ用: 最初のorgに切替
-    const targetOrg = orgs.find((o: any) => o.code === mfCode) || orgs[0];
+    const targetOrg = orgs.find((o) => o.code === mfCode) || orgs[0];
 
     if (!targetOrg) {
       // ADVISORでない場合 or orgが見つからない → 月次レビューにそのまま遷移
@@ -114,19 +114,19 @@ export default function TriagePage() {
   // ステータスフィルタ
   const filtered = statusFilter === "all"
     ? records
-    : records.filter((r: any) => {
+    : records.filter((r) => {
         const latest = getLatestStatus(r.monthlyStatus);
         return latest.status === statusFilter;
       });
 
   // 集計
   const totalCount = records.length;
-  const completedAll = records.filter((r: any) => getCompletedCount(r.monthlyStatus) >= 12).length;
-  const inProgress = records.filter((r: any) => {
+  const completedAll = records.filter((r) => getCompletedCount(r.monthlyStatus) >= 12).length;
+  const inProgress = records.filter((r) => {
     const latest = getLatestStatus(r.monthlyStatus);
     return latest.status.startsWith("1.") || latest.status.startsWith("2.") || latest.status.startsWith("3.");
   }).length;
-  const notStarted = records.filter((r: any) => {
+  const notStarted = records.filter((r) => {
     const latest = getLatestStatus(r.monthlyStatus);
     return latest.status.startsWith("0.");
   }).length;
@@ -241,7 +241,7 @@ export default function TriagePage() {
         ) : (
           <div className="space-y-2">
             {filtered
-              .sort((a: any, b: any) => {
+              .sort((a, b) => {
                 // 遅れている順にソート（未作業で月が進んでいるほど上）
                 const aLatest = getLatestStatus(a.monthlyStatus);
                 const bLatest = getLatestStatus(b.monthlyStatus);
@@ -249,7 +249,7 @@ export default function TriagePage() {
                 const bPriority = (STATUS_CONFIG[bLatest.status]?.priority ?? 0) * 100 - bLatest.month;
                 return bPriority - aPriority;
               })
-              .map((record: any, i: number) => {
+              .map((record, i) => {
                 const latest = getLatestStatus(record.monthlyStatus);
                 const completed = getCompletedCount(record.monthlyStatus);
                 const statusConfig = STATUS_CONFIG[latest.status] || STATUS_CONFIG["0.未作業"];

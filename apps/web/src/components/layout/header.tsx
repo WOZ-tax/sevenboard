@@ -2,11 +2,11 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { LogOut, Calendar, ChevronDown } from "lucide-react";
+import { LogOut, Calendar } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from "@/lib/auth";
-import { usePeriodStore, getPeriodLabel } from "@/lib/period-store";
+import { usePeriodStore } from "@/lib/period-store";
 import { useMfOffice } from "@/hooks/use-mf-data";
 import { NotificationDropdown } from "@/components/layout/notification-dropdown";
 import { DataHealthBadge } from "@/components/ui/data-health-badge";
@@ -41,8 +41,6 @@ export function AppHeader() {
         .join("")
         .slice(0, 2)
     : "U";
-
-  const periodLabel = getPeriodLabel(fiscalYear, month, periods);
 
   // 会計年度の開始月を取得（期間セレクタの月リスト用）
   const currentPeriod = periods.find((p) => p.fiscal_year === fiscalYear) || periods[0];

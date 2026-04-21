@@ -49,9 +49,9 @@ const mockTalkScript = {
   generatedAt: "2026-04-05 09:00",
 };
 
-type TalkScript = typeof mockTalkScript;
+type TalkScriptView = typeof mockTalkScript;
 
-function buildPlainText(script: TalkScript): string {
+function buildPlainText(script: TalkScriptView): string {
   const parts: string[] = [];
   parts.push(`【オープニング】\n${script.opening}\n`);
   for (const sec of script.sections) {
@@ -137,8 +137,8 @@ export default function TalkScriptPage() {
   const [generated, setGenerated] = useState(false);
   const mfNotConnected = isMfNotConnected(error);
 
-  const script: TalkScript | null = generated && !mfNotConnected
-    ? apiData || mockTalkScript
+  const script: TalkScriptView | null = generated && !mfNotConnected
+    ? (apiData as unknown as TalkScriptView | undefined) ?? mockTalkScript
     : null;
 
   const handleGenerate = async () => {

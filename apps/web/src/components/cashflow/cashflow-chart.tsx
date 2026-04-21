@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useIsClient } from "@/hooks/use-is-client";
 import {
   AreaChart,
   Area,
@@ -21,11 +21,7 @@ interface CashflowChartProps {
 }
 
 export function CashflowChart({ months: propMonths, cashBalances }: CashflowChartProps = {}) {
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  const mounted = useIsClient();
 
   const chartData = propMonths && cashBalances
     ? propMonths.map((m, i) => ({ month: m, actual: cashBalances[i] ?? null, forecast: null }))

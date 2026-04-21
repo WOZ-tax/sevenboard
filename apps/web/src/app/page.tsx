@@ -22,7 +22,6 @@ import { ActionizeButton } from "@/components/ui/actionize-button";
 import { BriefingCard } from "@/components/dashboard/briefing-card";
 import { AgentActivityCard } from "@/components/dashboard/agent-activity-card";
 import { cn } from "@/lib/utils";
-import { formatManYen } from "@/lib/format";
 import {
   useMfDashboard,
   useMfPLTransition,
@@ -33,6 +32,7 @@ import { usePeriodStore, getPeriodLabel } from "@/lib/period-store";
 import { MfEmptyState } from "@/components/ui/mf-empty-state";
 import { QueryErrorState } from "@/components/ui/query-error-state";
 import { isMfNotConnected } from "@/lib/api";
+import type { DashboardSummary, AiSummaryHighlight, AiSummarySection, AlertItem } from "@/lib/mf-types";
 
 const alertLevelConfig = {
   critical: {
@@ -58,7 +58,7 @@ const alertLevelConfig = {
   },
 };
 
-function buildKpis(data: any) {
+function buildKpis(data: DashboardSummary) {
   const revenue = data.revenue ?? 0;
   const opProfit = data.operatingProfit ?? 0;
   const cashBalance = data.cashBalance ?? 0;
@@ -110,18 +110,21 @@ function buildKpis(data: any) {
 
 export default function DashboardPage() {
   const dashboard = useMfDashboard();
-  const plTransition = useMfPLTransition();
-  const aiSummaryQuery = useAiSummary();
-  const alertsQuery = useAlerts();
   const { fiscalYear, month, periods } = usePeriodStore();
+
+  const isLoading = dashboard.isLoading;
+  const mfNotConnected = isMfNotConnected(dashboard.error);
+  const isError = dashboard.isError && !mfNotConnected;
+  const canQueryDependents = !mfNotConnected && !isError;
+
+  const plTransition = useMfPLTransition({ enabled: canQueryDependents });
+  const aiSummaryQuery = useAiSummary({ enabled: canQueryDependents });
+  const alertsQuery = useAlerts({ enabled: canQueryDependents });
 
   const kpis = dashboard.data ? buildKpis(dashboard.data) : null;
 
   const periodLabel = getPeriodLabel(fiscalYear, month, periods);
 
-  const isLoading = dashboard.isLoading;
-  const mfNotConnected = isMfNotConnected(dashboard.error);
-  const isError = dashboard.isError && !mfNotConnected;
   const hasNoData = !isLoading && (mfNotConnected || (!dashboard.isError && !dashboard.data));
 
   return (
@@ -174,6 +177,8 @@ export default function DashboardPage() {
           </>
         ) : null}
 
+        {canQueryDependents && (
+          <>
         <RevenueChart mfData={plTransition.data} />
 
         <Card>
@@ -201,7 +206,7 @@ export default function DashboardPage() {
                 {aiSummaryQuery.data?.sections &&
                   aiSummaryQuery.data.sections.length > 0 && (
                     <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                      {aiSummaryQuery.data.sections.map((s: any, i: number) => (
+                      {aiSummaryQuery.data.sections.map((s: AiSummarySection, i: number) => (
                         <div key={i} className="rounded-lg border border-[var(--color-border)] bg-muted/20 p-3">
                           <h4 className="text-xs font-semibold text-[var(--color-text-primary)]">
                             {s.title}
@@ -216,7 +221,7 @@ export default function DashboardPage() {
                 {aiSummaryQuery.data?.highlights &&
                   aiSummaryQuery.data.highlights.length > 0 && (
                     <div className="mt-3 flex flex-wrap gap-1.5">
-                      {aiSummaryQuery.data.highlights.map((h: any, i: number) => (
+                      {aiSummaryQuery.data.highlights.map((h: AiSummaryHighlight, i: number) => (
                         <Badge
                           key={i}
                           variant="secondary"
@@ -260,7 +265,7 @@ export default function DashboardPage() {
                 ))}
               </div>
             ) : alertsQuery.data && alertsQuery.data.length > 0 ? (
-              alertsQuery.data.map((alert: any) => {
+              alertsQuery.data.map((alert: AlertItem) => {
                 const level = alert.level || alert.severity || "info";
                 const config = alertLevelConfig[level as keyof typeof alertLevelConfig] || alertLevelConfig.info;
                 const Icon = config.icon;
@@ -315,6 +320,8 @@ export default function DashboardPage() {
             )}
           </CardContent>
         </Card>
+          </>
+        )}
       </div>
     </DashboardShell>
   );

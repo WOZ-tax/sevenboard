@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/table";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth";
+import { useIsClient } from "@/hooks/use-is-client";
 import { cn } from "@/lib/utils";
 
 interface OrgItem {
@@ -114,12 +115,12 @@ function sortOrganizations(
 
 export default function SelectOrgPage() {
   const router = useRouter();
-  const { isAuthenticated, user, switchOrg, hydrate } = useAuthStore();
+  const { isAuthenticated, user, switchOrg } = useAuthStore();
   const [orgs, setOrgs] = useState<OrgItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [switching, setSwitching] = useState(false);
-  const [hydrated, setHydrated] = useState(false);
+  const hydrated = useIsClient();
   const [query, setQuery] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("recent");
   const [page, setPage] = useState(1);
@@ -128,11 +129,6 @@ export default function SelectOrgPage() {
 
   const deferredQuery = useDeferredValue(query.trim().toLowerCase());
   const canSwitchOrg = user?.role === "ADVISOR";
-
-  useEffect(() => {
-    hydrate();
-    setHydrated(true);
-  }, [hydrate]);
 
   useEffect(() => {
     if (!hydrated) return;

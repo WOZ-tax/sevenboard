@@ -1,19 +1,34 @@
 import { create } from 'zustand';
+import type { AuthUser } from './api-types';
 
 interface AuthState {
   token: string | null;
-  user: { id: string; email: string; name: string; role: string; orgId: string | null } | null;
+  user: AuthUser | null;
   isAuthenticated: boolean;
-  login: (token: string, user: any) => void;
+  login: (token: string, user: AuthUser) => void;
   logout: () => void;
-  hydrate: () => void;
-  switchOrg: (token: string, user: any) => void;
+  switchOrg: (token: string, user: AuthUser) => void;
+}
+
+function loadInitial(): Pick<AuthState, 'token' | 'user' | 'isAuthenticated'> {
+  if (typeof window === 'undefined') {
+    return { token: null, user: null, isAuthenticated: false };
+  }
+  const token = window.localStorage.getItem('token');
+  const userStr = window.localStorage.getItem('user');
+  if (!token || !userStr) {
+    return { token: null, user: null, isAuthenticated: false };
+  }
+  try {
+    const user = JSON.parse(userStr) as AuthUser;
+    return { token, user, isAuthenticated: true };
+  } catch {
+    return { token: null, user: null, isAuthenticated: false };
+  }
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
-  token: null,
-  user: null,
-  isAuthenticated: false,
+  ...loadInitial(),
   login: (token, user) => {
     localStorage.setItem('token', token);
     localStorage.setItem('user', JSON.stringify(user));
@@ -28,18 +43,5 @@ export const useAuthStore = create<AuthState>((set) => ({
     localStorage.setItem('token', token);
     localStorage.setItem('user', JSON.stringify(user));
     set({ token, user, isAuthenticated: true });
-  },
-  hydrate: () => {
-    if (typeof window === 'undefined') return;
-    const token = localStorage.getItem('token');
-    const userStr = localStorage.getItem('user');
-    if (token && userStr) {
-      try {
-        const user = JSON.parse(userStr);
-        set({ token, user, isAuthenticated: true });
-      } catch {
-        set({ token: null, user: null, isAuthenticated: false });
-      }
-    }
   },
 }));

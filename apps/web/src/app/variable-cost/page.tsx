@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback } from "react";
+import { useIsClient } from "@/hooks/use-is-client";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -79,12 +80,8 @@ function VariableCostSkeleton() {
 export default function VariableCostPage() {
   const [selectedMonth, setSelectedMonth] = useState("3月");
   const [viewMode, setViewMode] = useState<"monthly" | "cumulative">("monthly");
-  const [mounted, setMounted] = useState(false);
+  const mounted = useIsClient();
   const vcQuery = useVariableCost();
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
 
   // APIデータが取れたらモックを上書き、エラー時はモックフォールバック
   const sourceData: {

@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { CashflowTable, type CertaintyLevel } from "@/components/cashflow/cashflow-table";
 import { CashflowChart } from "@/components/cashflow/cashflow-chart";
-import { Shield, Link2 } from "lucide-react";
+import { Shield, Link2, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatManYen } from "@/lib/format";
 import { useMfCashflow } from "@/hooks/use-mf-data";
@@ -13,43 +13,62 @@ import { AgentBanner } from "@/components/agent/agent-banner";
 import { AGENTS } from "@/lib/agent-voice";
 import { CopilotOpenButton } from "@/components/copilot/copilot-open-button";
 import { ActionizeButton } from "@/components/ui/actionize-button";
-
+import { Button } from "@/components/ui/button";
 import { MfEmptyState } from "@/components/ui/mf-empty-state";
+import { QueryErrorState } from "@/components/ui/query-error-state";
 import { SentinelCard } from "@/components/dashboard/sentinel-card";
+import { isMfNotConnected } from "@/lib/api";
+import { usePeriodStore, getPeriodLabel } from "@/lib/period-store";
 
 const alertLevelConfig = {
   SAFE: {
+    card: "border-l-green-500",
     color: "bg-green-100 text-green-700 border-green-300",
     dot: "bg-green-500",
     label: "安全",
+    description: "ランウェイ12か月以上。現時点で資金繰りに大きな懸念はありません。",
   },
   CAUTION: {
+    card: "border-l-yellow-500",
     color: "bg-yellow-100 text-yellow-700 border-yellow-300",
     dot: "bg-yellow-500",
     label: "警戒",
+    description: "ランウェイ6〜12か月。キャッシュイン施策と支出抑制の検討を推奨します。",
   },
   WARNING: {
+    card: "border-l-orange-500",
     color: "bg-orange-100 text-orange-700 border-orange-300",
     dot: "bg-orange-500",
     label: "注意",
+    description: "ランウェイ3〜6か月。早期の入金前倒し・支出繰延・融資検討が必要です。",
   },
   CRITICAL: {
+    card: "border-l-red-500",
     color: "bg-red-100 text-red-700 border-red-300",
     dot: "bg-red-500",
     label: "危険",
+    description: "ランウェイ3か月未満。緊急の資金調達策を直ちに実行してください。",
   },
-};
+} as const;
+
+type AlertLevelKey = keyof typeof alertLevelConfig;
 
 export default function CashflowPage() {
   const mfCashflow = useMfCashflow();
+  const { fiscalYear, month, periods } = usePeriodStore();
+  const periodLabel = getPeriodLabel(fiscalYear, month, periods);
 
   const runwayData = mfCashflow.data?.runway ?? null;
+  const mfNotConnected = isMfNotConnected(mfCashflow.error);
+  const isError = mfCashflow.isError && !mfNotConnected;
+  const isLoading = mfCashflow.isLoading;
 
-  const config = runwayData
-    ? alertLevelConfig[runwayData.alertLevel as keyof typeof alertLevelConfig] || alertLevelConfig.SAFE
-    : alertLevelConfig.SAFE;
+  const alertKey: AlertLevelKey =
+    runwayData && runwayData.alertLevel in alertLevelConfig
+      ? (runwayData.alertLevel as AlertLevelKey)
+      : "SAFE";
+  const config = alertLevelConfig[alertKey];
 
-  // MFデータが取れている場合、売上系をconfirmedに上書き
   const certaintyLevels: Record<string, CertaintyLevel> | undefined = mfCashflow.data
     ? {
         売上回収: "confirmed",
@@ -64,35 +83,53 @@ export default function CashflowPage() {
       }
     : undefined;
 
-  const isLoading = mfCashflow.isLoading;
+  const bannerStatus = mfNotConnected
+    ? "idle"
+    : isError
+      ? "alert"
+      : runwayData
+        ? runwayData.alertLevel === "CRITICAL" || runwayData.alertLevel === "WARNING"
+          ? "alert"
+          : "ok"
+        : "unknown";
+
+  const lastFetchedAt = mfCashflow.dataUpdatedAt
+    ? new Date(mfCashflow.dataUpdatedAt).toLocaleString("ja-JP")
+    : null;
 
   return (
     <DashboardShell>
       <div className="space-y-6">
-        <div>
-          <h1 className="text-xl font-bold text-[var(--color-text-primary)]">
-            資金繰り
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            資金繰り表
-          </p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-xl font-bold text-[var(--color-text-primary)]">
+              資金繰り
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              {periodLabel ? `${periodLabel} ` : ""}月次推移と資金残高予測
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5 text-xs"
+            onClick={() => mfCashflow.refetch()}
+            disabled={mfCashflow.isFetching}
+          >
+            <RefreshCw className={cn("h-3.5 w-3.5", mfCashflow.isFetching && "animate-spin")} />
+            再取得
+          </Button>
         </div>
 
         <AgentBanner
           agent={AGENTS.sentinel}
-          status={
-            runwayData
-              ? runwayData.alertLevel === "CRITICAL" || runwayData.alertLevel === "WARNING"
-                ? "alert"
-                : "ok"
-              : "unknown"
-          }
+          status={bannerStatus}
           detectionCount={
             runwayData && (runwayData.alertLevel === "CRITICAL" || runwayData.alertLevel === "WARNING")
               ? 1
               : 0
           }
-          lastUpdatedAt={new Date().toISOString()}
+          lastUpdatedAt={mfCashflow.dataUpdatedAt ? new Date(mfCashflow.dataUpdatedAt).toISOString() : new Date().toISOString()}
           actions={
             <CopilotOpenButton
               agentKey="sentinel"
@@ -106,10 +143,18 @@ export default function CashflowPage() {
 
         {isLoading ? (
           <div className="h-24 animate-pulse rounded-lg bg-muted" />
-        ) : !runwayData ? (
+        ) : mfNotConnected ? (
           <MfEmptyState />
+        ) : isError ? (
+          <QueryErrorState onRetry={() => mfCashflow.refetch()} />
+        ) : !runwayData ? (
+          <Card>
+            <CardContent className="py-8 text-center text-sm text-muted-foreground">
+              資金繰りデータが取得できませんでした。MF推移表の期間設定を確認してください。
+            </CardContent>
+          </Card>
         ) : (
-          <Card className="border-l-4 border-l-green-500">
+          <Card className={cn("border-l-4", config.card)}>
             <CardContent className="p-5">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
@@ -139,12 +184,15 @@ export default function CashflowPage() {
                   </div>
                 </div>
               </div>
+              <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+                {config.description}
+              </p>
               <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
                 <span className="flex items-center gap-1">
                   <Link2 className="h-3 w-3" />
                   MFクラウド連携
                 </span>
-                <span>最終取得: {new Date().toLocaleString("ja-JP")}</span>
+                {lastFetchedAt && <span>最終取得: {lastFetchedAt}</span>}
               </div>
               {(runwayData.alertLevel === "CRITICAL" ||
                 runwayData.alertLevel === "WARNING" ||
@@ -175,33 +223,37 @@ export default function CashflowPage() {
           </Card>
         )}
 
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base font-semibold text-[var(--color-text-primary)]">
-              月次資金繰り表
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {isLoading ? (
-              <div className="space-y-2">
-                {Array.from({ length: 8 }).map((_, i) => (
-                  <div key={i} className="h-8 animate-pulse rounded bg-muted" />
-                ))}
-              </div>
-            ) : (
-              <CashflowTable
-                months={mfCashflow.data?.months}
-                rows={mfCashflow.data?.rows}
-                certaintyLevels={certaintyLevels}
-              />
-            )}
-          </CardContent>
-        </Card>
+        {!mfNotConnected && !isError && (
+          <>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base font-semibold text-[var(--color-text-primary)]">
+                  月次資金繰り表
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {isLoading ? (
+                  <div className="space-y-2">
+                    {Array.from({ length: 8 }).map((_, i) => (
+                      <div key={i} className="h-8 animate-pulse rounded bg-muted" />
+                    ))}
+                  </div>
+                ) : (
+                  <CashflowTable
+                    months={mfCashflow.data?.months}
+                    rows={mfCashflow.data?.rows}
+                    certaintyLevels={certaintyLevels}
+                  />
+                )}
+              </CardContent>
+            </Card>
 
-        <CashflowChart
-          months={mfCashflow.data?.months}
-          cashBalances={mfCashflow.data?.cashBalances}
-        />
+            <CashflowChart
+              months={mfCashflow.data?.months}
+              cashBalances={mfCashflow.data?.cashBalances}
+            />
+          </>
+        )}
       </div>
     </DashboardShell>
   );

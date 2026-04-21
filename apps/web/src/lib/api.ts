@@ -1,3 +1,64 @@
+import type {
+  AiSummaryResponse,
+  AlertItem,
+  BSStatement,
+  CashflowData,
+  DashboardSummary,
+  FinancialIndicators,
+  KintoneMonthlyProgress,
+  PLStatement,
+  PlTransitionPoint,
+  ReviewResult,
+} from './mf-types';
+import type {
+  AccountMaster,
+  Action,
+  ActualEntry,
+  AdvisorOrgListItem,
+  AuthUser,
+  BudgetEntry,
+  BudgetEntryInput,
+  BudgetScenario,
+  BudgetVersion,
+  BusinessEvent,
+  CalendarEvent,
+  CashFlowCategory,
+  CashFlowEntry,
+  Comment as AiComment,
+  CreateAccountInput,
+  CreateDepartmentInput,
+  CreateUserInput,
+  DataSyncLog,
+  DeletedResult,
+  DepartmentMaster,
+  FiscalYear,
+  FundingReport,
+  LinkedStatementsInput,
+  LinkedStatementsResult,
+  LoanSimulationInput,
+  LoanSimulationResult,
+  MfAccountsResponse,
+  MfJournalsResponse,
+  MfOffice,
+  OnboardingStartResult,
+  OnboardingStatus,
+  Organization,
+  PlRow,
+  RunwayStatus,
+  SyncRunResult,
+  SyncStatusResult,
+  TalkScript,
+  UpdateAccountInput,
+  UpdateBusinessEventInput,
+  UpdateCalendarEventInput,
+  UpdateDepartmentInput,
+  UpdateUserInput,
+  UserSummary,
+  VariableCostReport,
+  VarianceRow,
+  WhatIfResult,
+} from './api-types';
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
 function getCsrfToken(): string | null {
@@ -49,7 +110,7 @@ export function isMfNotConnected(err: unknown): boolean {
 export const api = {
   // Auth
   login: (email: string, password: string) =>
-    apiFetch<{ accessToken: string; user: any }>('/auth/login', {
+    apiFetch<{ accessToken: string; user: AuthUser }>('/auth/login', {
       method: 'POST',
       body: JSON.stringify({ email, password }),
     }),
@@ -62,17 +123,17 @@ export const api = {
 
   // Switch org (ADVISOR)
   switchOrg: (orgId: string) =>
-    apiFetch<{ accessToken: string; user: any }>('/auth/switch-org', {
+    apiFetch<{ accessToken: string; user: AuthUser }>('/auth/switch-org', {
       method: 'POST',
       body: JSON.stringify({ orgId }),
     }),
 
   // Organizations
   getOrganization: (orgId: string) =>
-    apiFetch<any>(`/organizations/${orgId}`),
+    apiFetch<Organization>(`/organizations/${orgId}`),
 
   getFiscalYears: (orgId: string) =>
-    apiFetch<any[]>(`/organizations/${orgId}/fiscal-years`),
+    apiFetch<FiscalYear[]>(`/organizations/${orgId}/fiscal-years`),
 
   // Reports
   getVariance: (
@@ -88,7 +149,7 @@ export const api = {
       ...(params.startMonth ? { startMonth: params.startMonth } : {}),
       ...(params.endMonth ? { endMonth: params.endMonth } : {}),
     });
-    return apiFetch<any>(`/organizations/${orgId}/reports/variance?${query.toString()}`);
+    return apiFetch<VarianceRow[]>(`/organizations/${orgId}/reports/variance?${query.toString()}`);
   },
 
   getPL: (
@@ -103,59 +164,59 @@ export const api = {
       ...(params?.endMonth ? { endMonth: params.endMonth } : {}),
     });
     const suffix = query.toString() ? `?${query.toString()}` : "";
-    return apiFetch<any>(`/organizations/${orgId}/reports/pl${suffix}`);
+    return apiFetch<PlRow[]>(`/organizations/${orgId}/reports/pl${suffix}`);
   },
 
   getVariableCost: (orgId: string, month?: string) =>
-    apiFetch<any>(`/organizations/${orgId}/reports/variable-cost${month ? `?month=${month}` : ''}`),
+    apiFetch<VariableCostReport>(`/organizations/${orgId}/reports/variable-cost${month ? `?month=${month}` : ''}`),
 
   // Budgets
   getBudgetVersions: (fyId: string) =>
-    apiFetch<any>(`/fiscal-years/${fyId}/budget-versions`),
+    apiFetch<BudgetVersion[]>(`/fiscal-years/${fyId}/budget-versions`),
 
   getBudgetEntries: (bvId: string) =>
-    apiFetch<any>(`/budget-versions/${bvId}/entries`),
+    apiFetch<BudgetEntry[]>(`/budget-versions/${bvId}/entries`),
 
-  updateBudgetEntries: (bvId: string, entries: any[]) =>
-    apiFetch<any>(`/budget-versions/${bvId}/entries`, {
+  updateBudgetEntries: (bvId: string, entries: BudgetEntryInput[]) =>
+    apiFetch<BudgetEntry[]>(`/budget-versions/${bvId}/entries`, {
       method: 'PUT',
       body: JSON.stringify({ entries }),
     }),
 
   // Actuals
   getActuals: (orgId: string, month?: string) =>
-    apiFetch<any>(`/organizations/${orgId}/actuals${month ? `?month=${month}` : ''}`),
+    apiFetch<ActualEntry[]>(`/organizations/${orgId}/actuals${month ? `?month=${month}` : ''}`),
 
   // Cashflow
   getCashflowActual: (orgId: string) =>
-    apiFetch<any>(`/organizations/${orgId}/cashflow/actual`),
+    apiFetch<CashFlowEntry[]>(`/organizations/${orgId}/cashflow/actual`),
 
   getRunway: (orgId: string) =>
-    apiFetch<any>(`/organizations/${orgId}/cashflow/runway`),
+    apiFetch<RunwayStatus>(`/organizations/${orgId}/cashflow/runway`),
 
   getCashflowCategories: (orgId: string) =>
-    apiFetch<any>(`/organizations/${orgId}/cashflow/categories`),
+    apiFetch<CashFlowCategory[]>(`/organizations/${orgId}/cashflow/categories`),
 
   // === Calendar ===
   calendar: {
     getEvents: (orgId: string, year: number, month: number) =>
-      apiFetch<any[]>(`/organizations/${orgId}/calendar?year=${year}&month=${month}`),
+      apiFetch<CalendarEvent[]>(`/organizations/${orgId}/calendar?year=${year}&month=${month}`),
     createEvent: (orgId: string, data: { title: string; date: string; type?: string; description?: string }) =>
-      apiFetch<any>(`/organizations/${orgId}/calendar`, { method: 'POST', body: JSON.stringify(data) }),
-    updateEvent: (orgId: string, eventId: string, data: any) =>
-      apiFetch<any>(`/organizations/${orgId}/calendar/${eventId}`, { method: 'PUT', body: JSON.stringify(data) }),
+      apiFetch<CalendarEvent>(`/organizations/${orgId}/calendar`, { method: 'POST', body: JSON.stringify(data) }),
+    updateEvent: (orgId: string, eventId: string, data: UpdateCalendarEventInput) =>
+      apiFetch<CalendarEvent>(`/organizations/${orgId}/calendar/${eventId}`, { method: 'PUT', body: JSON.stringify(data) }),
     deleteEvent: (orgId: string, eventId: string) =>
-      apiFetch<any>(`/organizations/${orgId}/calendar/${eventId}`, { method: 'DELETE' }),
+      apiFetch<DeletedResult>(`/organizations/${orgId}/calendar/${eventId}`, { method: 'DELETE' }),
   },
 
   // === Comments ===
   comments: {
     getAll: (orgId: string, month?: string) =>
-      apiFetch<any[]>(
+      apiFetch<AiComment[]>(
         `/organizations/${orgId}/comments${month ? `?month=${month}` : ''}`,
       ),
     create: (orgId: string, data: { content: string; month?: string; cellRef?: string; priority?: string }) =>
-      apiFetch<any>(`/organizations/${orgId}/comments`, {
+      apiFetch<AiComment>(`/organizations/${orgId}/comments`, {
         method: 'POST',
         body: JSON.stringify(data),
       }),
@@ -164,12 +225,12 @@ export const api = {
       commentId: string,
       data: { status: string; content?: string; rejectReason?: string },
     ) =>
-      apiFetch<any>(`/organizations/${orgId}/comments/${commentId}/status`, {
+      apiFetch<AiComment>(`/organizations/${orgId}/comments/${commentId}/status`, {
         method: 'PATCH',
         body: JSON.stringify(data),
       }),
     remove: (orgId: string, commentId: string) =>
-      apiFetch<any>(`/organizations/${orgId}/comments/${commentId}`, {
+      apiFetch<DeletedResult>(`/organizations/${orgId}/comments/${commentId}`, {
         method: 'DELETE',
       }),
   },
@@ -192,7 +253,7 @@ export const api = {
       if (params.sortBy) qs.set('sortBy', params.sortBy);
       if (params.order) qs.set('order', params.order);
       return apiFetch<{
-        data: any[];
+        data: AdvisorOrgListItem[];
         total: number;
         page: number;
         limit: number;
@@ -206,7 +267,7 @@ export const api = {
         alertCount: number;
         pendingComments: number;
       }>('/advisor/summary'),
-    getRecent: () => apiFetch<any[]>('/advisor/recent'),
+    getRecent: () => apiFetch<Organization[]>('/advisor/recent'),
   },
 
   // === AI ===
@@ -216,14 +277,14 @@ export const api = {
       if (fiscalYear) qs.set('fiscalYear', String(fiscalYear));
       if (month) qs.set('endMonth', String(month));
       const suffix = qs.toString() ? `?${qs}` : '';
-      return apiFetch<{ summary: string; sections?: { title: string; content: string }[]; highlights: { type: string; text: string }[]; generatedAt: string }>(
+      return apiFetch<AiSummaryResponse>(
         `/organizations/${orgId}/ai/summary${suffix}`,
       );
     },
     getTalkScript: (orgId: string, fiscalYear?: number) =>
-      apiFetch<any>(`/organizations/${orgId}/ai/talk-script${fiscalYear ? `?fiscalYear=${fiscalYear}` : ''}`),
+      apiFetch<TalkScript>(`/organizations/${orgId}/ai/talk-script${fiscalYear ? `?fiscalYear=${fiscalYear}` : ''}`),
     getBudgetScenarios: (orgId: string, fiscalYear?: number) =>
-      apiFetch<any>(`/organizations/${orgId}/ai/budget-scenarios${fiscalYear ? `?fiscalYear=${fiscalYear}` : ''}`),
+      apiFetch<BudgetScenario[]>(`/organizations/${orgId}/ai/budget-scenarios${fiscalYear ? `?fiscalYear=${fiscalYear}` : ''}`),
     generateBudgetScenarios: (orgId: string, params: {
       fiscalYear?: number;
       baseGrowthRate?: number;
@@ -233,12 +294,12 @@ export const api = {
       costReductionRate?: number;
       notes?: string;
     }) =>
-      apiFetch<any>(`/organizations/${orgId}/ai/budget-scenarios`, {
+      apiFetch<BudgetScenario[]>(`/organizations/${orgId}/ai/budget-scenarios`, {
         method: 'POST',
         body: JSON.stringify(params),
       }),
     getFundingReport: (orgId: string, fiscalYear?: number) =>
-      apiFetch<any>(`/organizations/${orgId}/ai/funding-report${fiscalYear ? `?fiscalYear=${fiscalYear}` : ''}`),
+      apiFetch<FundingReport>(`/organizations/${orgId}/ai/funding-report${fiscalYear ? `?fiscalYear=${fiscalYear}` : ''}`),
   },
 
   // === MF OAuth ===
@@ -273,51 +334,51 @@ export const api = {
   // === Masters (マスタ管理) ===
   masters: {
     getAccounts: (orgId: string) =>
-      apiFetch<any[]>(`/organizations/${orgId}/masters/accounts`),
-    createAccount: (orgId: string, data: any) =>
-      apiFetch<any>(`/organizations/${orgId}/masters/accounts`, {
+      apiFetch<AccountMaster[]>(`/organizations/${orgId}/masters/accounts`),
+    createAccount: (orgId: string, data: CreateAccountInput) =>
+      apiFetch<AccountMaster>(`/organizations/${orgId}/masters/accounts`, {
         method: 'POST',
         body: JSON.stringify(data),
       }),
-    updateAccount: (orgId: string, id: string, data: any) =>
-      apiFetch<any>(`/organizations/${orgId}/masters/accounts/${id}`, {
+    updateAccount: (orgId: string, id: string, data: UpdateAccountInput) =>
+      apiFetch<AccountMaster>(`/organizations/${orgId}/masters/accounts/${id}`, {
         method: 'PUT',
         body: JSON.stringify(data),
       }),
     deleteAccount: (orgId: string, id: string) =>
-      apiFetch<any>(`/organizations/${orgId}/masters/accounts/${id}`, {
+      apiFetch<AccountMaster>(`/organizations/${orgId}/masters/accounts/${id}`, {
         method: 'DELETE',
       }),
     getDepartments: (orgId: string) =>
-      apiFetch<any[]>(`/organizations/${orgId}/masters/departments`),
-    createDepartment: (orgId: string, data: any) =>
-      apiFetch<any>(`/organizations/${orgId}/masters/departments`, {
+      apiFetch<DepartmentMaster[]>(`/organizations/${orgId}/masters/departments`),
+    createDepartment: (orgId: string, data: CreateDepartmentInput) =>
+      apiFetch<DepartmentMaster>(`/organizations/${orgId}/masters/departments`, {
         method: 'POST',
         body: JSON.stringify(data),
       }),
-    updateDepartment: (orgId: string, id: string, data: any) =>
-      apiFetch<any>(`/organizations/${orgId}/masters/departments/${id}`, {
+    updateDepartment: (orgId: string, id: string, data: UpdateDepartmentInput) =>
+      apiFetch<DepartmentMaster>(`/organizations/${orgId}/masters/departments/${id}`, {
         method: 'PUT',
         body: JSON.stringify(data),
       }),
     deleteDepartment: (orgId: string, id: string) =>
-      apiFetch<any>(`/organizations/${orgId}/masters/departments/${id}`, {
+      apiFetch<DepartmentMaster>(`/organizations/${orgId}/masters/departments/${id}`, {
         method: 'DELETE',
       }),
     getUsers: (orgId: string) =>
-      apiFetch<any[]>(`/organizations/${orgId}/masters/users`),
-    createUser: (orgId: string, data: any) =>
-      apiFetch<any>(`/organizations/${orgId}/masters/users`, {
+      apiFetch<UserSummary[]>(`/organizations/${orgId}/masters/users`),
+    createUser: (orgId: string, data: CreateUserInput) =>
+      apiFetch<UserSummary>(`/organizations/${orgId}/masters/users`, {
         method: 'POST',
         body: JSON.stringify(data),
       }),
-    updateUser: (orgId: string, id: string, data: any) =>
-      apiFetch<any>(`/organizations/${orgId}/masters/users/${id}`, {
+    updateUser: (orgId: string, id: string, data: UpdateUserInput) =>
+      apiFetch<UserSummary>(`/organizations/${orgId}/masters/users/${id}`, {
         method: 'PUT',
         body: JSON.stringify(data),
       }),
     deleteUser: (orgId: string, id: string) =>
-      apiFetch<any>(`/organizations/${orgId}/masters/users/${id}`, {
+      apiFetch<UserSummary>(`/organizations/${orgId}/masters/users/${id}`, {
         method: 'DELETE',
       }),
   },
@@ -325,14 +386,14 @@ export const api = {
   // === MF (MoneyForward連携) ===
   mf: {
     getOffice: (orgId: string) =>
-      apiFetch<any>(`/organizations/${orgId}/mf/office`),
+      apiFetch<MfOffice>(`/organizations/${orgId}/mf/office`),
 
     getDashboard: (orgId: string, fiscalYear?: number, month?: number) => {
       const qs = new URLSearchParams();
       if (fiscalYear) qs.set('fiscalYear', String(fiscalYear));
       if (month) qs.set('endMonth', String(month));
       const suffix = qs.toString() ? `?${qs}` : '';
-      return apiFetch<any>(`/organizations/${orgId}/mf/dashboard${suffix}`);
+      return apiFetch<DashboardSummary>(`/organizations/${orgId}/mf/dashboard${suffix}`);
     },
 
     getPL: (orgId: string, fiscalYear?: number, month?: number) => {
@@ -340,7 +401,7 @@ export const api = {
       if (fiscalYear) qs.set('fiscalYear', String(fiscalYear));
       if (month) qs.set('endMonth', String(month));
       const suffix = qs.toString() ? `?${qs}` : '';
-      return apiFetch<any>(`/organizations/${orgId}/mf/financial-statements/pl${suffix}`);
+      return apiFetch<PLStatement>(`/organizations/${orgId}/mf/financial-statements/pl${suffix}`);
     },
 
     getBS: (orgId: string, fiscalYear?: number, month?: number) => {
@@ -348,21 +409,21 @@ export const api = {
       if (fiscalYear) qs.set('fiscalYear', String(fiscalYear));
       if (month) qs.set('endMonth', String(month));
       const suffix = qs.toString() ? `?${qs}` : '';
-      return apiFetch<any>(`/organizations/${orgId}/mf/financial-statements/bs${suffix}`);
+      return apiFetch<BSStatement>(`/organizations/${orgId}/mf/financial-statements/bs${suffix}`);
     },
 
     getCashflow: (orgId: string, fiscalYear?: number) =>
-      apiFetch<any>(
+      apiFetch<CashflowData>(
         `/organizations/${orgId}/mf/cashflow${fiscalYear ? `?fiscalYear=${fiscalYear}` : ''}`,
       ),
 
     getPLTransition: (orgId: string, fiscalYear?: number) =>
-      apiFetch<any>(
+      apiFetch<PlTransitionPoint[]>(
         `/organizations/${orgId}/mf/pl-transition${fiscalYear ? `?fiscalYear=${fiscalYear}` : ''}`,
       ),
 
     getAccounts: (orgId: string) =>
-      apiFetch<any>(`/organizations/${orgId}/mf/accounts`),
+      apiFetch<MfAccountsResponse>(`/organizations/${orgId}/mf/accounts`),
 
     getAccountTransition: (orgId: string, accountName: string, fiscalYear?: number) =>
       apiFetch<{ month: string; amount: number }[]>(
@@ -375,7 +436,7 @@ export const api = {
       if (params?.endDate) qs.set('endDate', params.endDate);
       if (params?.accountName) qs.set('accountName', params.accountName);
       const suffix = qs.toString() ? `?${qs.toString()}` : '';
-      return apiFetch<any>(`/organizations/${orgId}/mf/journals${suffix}`);
+      return apiFetch<MfJournalsResponse>(`/organizations/${orgId}/mf/journals${suffix}`);
     },
 
     getFinancialIndicators: (orgId: string, fiscalYear?: number, month?: number) => {
@@ -383,7 +444,7 @@ export const api = {
       if (fiscalYear) qs.set('fiscalYear', String(fiscalYear));
       if (month) qs.set('endMonth', String(month));
       const suffix = qs.toString() ? `?${qs}` : '';
-      return apiFetch<any>(`/organizations/${orgId}/mf/financial-indicators${suffix}`);
+      return apiFetch<FinancialIndicators>(`/organizations/${orgId}/mf/financial-indicators${suffix}`);
     },
   },
 
@@ -394,7 +455,7 @@ export const api = {
       if (fiscalYear) qs.set('fiscalYear', String(fiscalYear));
       if (month) qs.set('endMonth', String(month));
       const suffix = qs.toString() ? `?${qs}` : '';
-      return apiFetch<any[]>(`/organizations/${orgId}/alerts${suffix}`);
+      return apiFetch<AlertItem[]>(`/organizations/${orgId}/alerts${suffix}`);
     },
   },
 
@@ -406,17 +467,17 @@ export const api = {
       newHires?: number;
       additionalInvestment?: number;
     }) =>
-      apiFetch<any>(`/organizations/${orgId}/simulation/what-if`, {
+      apiFetch<WhatIfResult>(`/organizations/${orgId}/simulation/what-if`, {
         method: 'POST',
         body: JSON.stringify(dto),
       }),
-    loan: (orgId: string, params: any) =>
-      apiFetch<any>(`/organizations/${orgId}/simulation/loan`, {
+    loan: (orgId: string, params: LoanSimulationInput) =>
+      apiFetch<LoanSimulationResult>(`/organizations/${orgId}/simulation/loan`, {
         method: 'POST',
         body: JSON.stringify(params),
       }),
-    linkedStatements: (orgId: string, params: any) =>
-      apiFetch<any>(`/organizations/${orgId}/simulation/linked-statements`, {
+    linkedStatements: (orgId: string, params: LinkedStatementsInput) =>
+      apiFetch<LinkedStatementsResult>(`/organizations/${orgId}/simulation/linked-statements`, {
         method: 'POST',
         body: JSON.stringify(params),
       }),
@@ -425,7 +486,7 @@ export const api = {
   // === Review (経理レビュー) ===
   review: {
     run: (orgId: string, fiscalYear?: number) =>
-      apiFetch<any>(
+      apiFetch<ReviewResult>(
         `/organizations/${orgId}/mf/review${fiscalYear ? `?fiscalYear=${fiscalYear}` : ''}`,
       ),
   },
@@ -438,10 +499,10 @@ export const api = {
       if (search) qs.set('search', search);
       if (assignee) qs.set('assignee', assignee);
       const suffix = qs.toString() ? `?${qs}` : '';
-      return apiFetch<any[]>(`/kintone/monthly-progress${suffix}`);
+      return apiFetch<KintoneMonthlyProgress[]>(`/kintone/monthly-progress${suffix}`);
     },
     getByMfCode: (mfCode: string, fiscalYear?: string) =>
-      apiFetch<any>(
+      apiFetch<KintoneMonthlyProgress>(
         `/kintone/monthly-progress/by-mf/${mfCode}${fiscalYear ? `?fiscalYear=${fiscalYear}` : ''}`,
       ),
     updateStatus: (recordId: string, month: number, status: string) =>
@@ -454,19 +515,19 @@ export const api = {
   // === Sync ===
   sync: {
     run: (orgId: string) =>
-      apiFetch<any>(`/organizations/${orgId}/sync/run`, { method: 'POST' }),
+      apiFetch<SyncRunResult>(`/organizations/${orgId}/sync/run`, { method: 'POST' }),
     status: (orgId: string) =>
-      apiFetch<any>(`/organizations/${orgId}/sync/status`),
+      apiFetch<SyncStatusResult>(`/organizations/${orgId}/sync/status`),
   },
 
   // === Onboarding ===
   onboarding: {
     start: (orgId: string) =>
-      apiFetch<any>(`/organizations/${orgId}/onboarding/start`, {
+      apiFetch<OnboardingStartResult>(`/organizations/${orgId}/onboarding/start`, {
         method: 'POST',
       }),
     status: (orgId: string) =>
-      apiFetch<any>(`/organizations/${orgId}/onboarding/status`),
+      apiFetch<OnboardingStatus>(`/organizations/${orgId}/onboarding/status`),
   },
 
   // === Actions (§5 共通オブジェクト) ===
@@ -486,7 +547,7 @@ export const api = {
       if (params?.sourceScreen) qs.set('sourceScreen', params.sourceScreen);
       if (params?.overdueOnly) qs.set('overdueOnly', 'true');
       const suffix = qs.toString() ? `?${qs}` : '';
-      return apiFetch<any[]>(`/organizations/${orgId}/actions${suffix}`);
+      return apiFetch<Action[]>(`/organizations/${orgId}/actions${suffix}`);
     },
     summary: (orgId: string, ownerUserId?: string) => {
       const qs = new URLSearchParams();
@@ -500,7 +561,7 @@ export const api = {
       }>(`/organizations/${orgId}/actions/summary${suffix}`);
     },
     getById: (orgId: string, actionId: string) =>
-      apiFetch<any>(`/organizations/${orgId}/actions/${actionId}`),
+      apiFetch<Action>(`/organizations/${orgId}/actions/${actionId}`),
     create: (
       orgId: string,
       data: {
@@ -515,7 +576,7 @@ export const api = {
         linkedSlackThreadUrl?: string;
       },
     ) =>
-      apiFetch<any>(`/organizations/${orgId}/actions`, {
+      apiFetch<Action>(`/organizations/${orgId}/actions`, {
         method: 'POST',
         body: JSON.stringify(data),
       }),
@@ -534,12 +595,12 @@ export const api = {
         note?: string;
       },
     ) =>
-      apiFetch<any>(`/organizations/${orgId}/actions/${actionId}`, {
+      apiFetch<Action>(`/organizations/${orgId}/actions/${actionId}`, {
         method: 'PATCH',
         body: JSON.stringify(data),
       }),
     remove: (orgId: string, actionId: string) =>
-      apiFetch<any>(`/organizations/${orgId}/actions/${actionId}`, {
+      apiFetch<DeletedResult>(`/organizations/${orgId}/actions/${actionId}`, {
         method: 'DELETE',
       }),
   },
@@ -558,7 +619,7 @@ export const api = {
         }>;
       }>(`/organizations/${orgId}/data-health`),
     getLogs: (orgId: string, limit?: number) =>
-      apiFetch<any[]>(
+      apiFetch<DataSyncLog[]>(
         `/organizations/${orgId}/data-health/logs${limit ? `?limit=${limit}` : ''}`,
       ),
   },
@@ -906,7 +967,7 @@ export const api = {
       if (fromDate) qs.set('fromDate', fromDate);
       if (toDate) qs.set('toDate', toDate);
       const suffix = qs.toString() ? `?${qs}` : '';
-      return apiFetch<any[]>(`/organizations/${orgId}/business-events${suffix}`);
+      return apiFetch<BusinessEvent[]>(`/organizations/${orgId}/business-events${suffix}`);
     },
     create: (
       orgId: string,
@@ -918,17 +979,17 @@ export const api = {
         impactTags?: string[];
       },
     ) =>
-      apiFetch<any>(`/organizations/${orgId}/business-events`, {
+      apiFetch<BusinessEvent>(`/organizations/${orgId}/business-events`, {
         method: 'POST',
         body: JSON.stringify(data),
       }),
-    update: (orgId: string, eventId: string, data: any) =>
-      apiFetch<any>(`/organizations/${orgId}/business-events/${eventId}`, {
+    update: (orgId: string, eventId: string, data: UpdateBusinessEventInput) =>
+      apiFetch<BusinessEvent>(`/organizations/${orgId}/business-events/${eventId}`, {
         method: 'PATCH',
         body: JSON.stringify(data),
       }),
     remove: (orgId: string, eventId: string) =>
-      apiFetch<any>(`/organizations/${orgId}/business-events/${eventId}`, {
+      apiFetch<DeletedResult>(`/organizations/${orgId}/business-events/${eventId}`, {
         method: 'DELETE',
       }),
   },

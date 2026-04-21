@@ -18,7 +18,7 @@ import {
   useMfFinancialIndicators,
   useMfOffice,
 } from "@/hooks/use-mf-data";
-import { formatManYen, getValueColor } from "@/lib/format";
+import { formatManYen } from "@/lib/format";
 import {
   ClipboardCheck,
   FileText,
@@ -26,17 +26,30 @@ import {
   Wallet,
   Gauge,
   AlertTriangle,
-  Bot,
   ChevronRight,
   Play,
   Loader2,
 } from "lucide-react";
 import { MfEmptyState } from "@/components/ui/mf-empty-state";
+import { QueryErrorState } from "@/components/ui/query-error-state";
+import { isMfNotConnected } from "@/lib/api";
 import { AgentBanner } from "@/components/agent/agent-banner";
 import { AGENTS } from "@/lib/agent-voice";
 import { CopilotOpenButton } from "@/components/copilot/copilot-open-button";
 import { ActionizeButton } from "@/components/ui/actionize-button";
 import { AuditorCard } from "@/components/dashboard/auditor-card";
+import type {
+  KintoneMonthlyProgress,
+  ReviewAlert,
+  ReviewBsRatio,
+  ReviewCrossFinding,
+  ReviewJournalDuplicate,
+  ReviewJournalPersonal,
+  ReviewPlMonthlyRow,
+  ReviewPlSgaBreakdown,
+  ReviewTaxInv80Entry,
+  ReviewTaxMismatch,
+} from "@/lib/mf-types";
 
 type TabKey = "checklist" | "review" | "pl" | "bs" | "cashflow" | "indicators";
 
@@ -78,10 +91,31 @@ export default function MonthlyReviewPage() {
 
   const office = useMfOffice();
   const dashboard = useMfDashboard();
-  const mfPL = useMfPL();
-  const mfBS = useMfBS();
-  const mfCF = useMfCashflow();
-  const indicators = useMfFinancialIndicators();
+  const mfPL = useMfPL({ enabled: activeTab === "pl" });
+  const mfBS = useMfBS({ enabled: activeTab === "bs" });
+  const mfCF = useMfCashflow({ enabled: activeTab === "cashflow" });
+  const indicators = useMfFinancialIndicators({ enabled: activeTab === "indicators" });
+
+  const mfPLError = isMfNotConnected(mfPL.error)
+    ? "disconnected"
+    : mfPL.isError
+      ? "error"
+      : null;
+  const mfBSError = isMfNotConnected(mfBS.error)
+    ? "disconnected"
+    : mfBS.isError
+      ? "error"
+      : null;
+  const mfCFError = isMfNotConnected(mfCF.error)
+    ? "disconnected"
+    : mfCF.isError
+      ? "error"
+      : null;
+  const indicatorsError = isMfNotConnected(indicators.error)
+    ? "disconnected"
+    : indicators.isError
+      ? "error"
+      : null;
 
   // kintone月次進捗をMF事業者番号で取得
   const mfCode = office.data?.code || "";
@@ -191,16 +225,26 @@ export default function MonthlyReviewPage() {
         )}
 
         {/* タブ */}
-        <div className="flex gap-1 overflow-x-auto border-b border-[var(--color-border)]">
+        <div
+          role="tablist"
+          aria-label="月次レビューの表示セクション"
+          className="flex gap-1 overflow-x-auto border-b border-[var(--color-border)]"
+        >
           {tabs.map((tab) => {
             const Icon = tab.icon;
+            const selected = activeTab === tab.key;
             return (
               <button
                 key={tab.key}
+                role="tab"
+                id={`monthly-tab-${tab.key}`}
+                aria-selected={selected}
+                aria-controls={`monthly-panel-${tab.key}`}
+                tabIndex={selected ? 0 : -1}
                 onClick={() => setActiveTab(tab.key)}
                 className={cn(
                   "flex items-center gap-1.5 whitespace-nowrap border-b-2 px-4 py-2.5 text-sm font-medium transition-colors",
-                  activeTab === tab.key
+                  selected
                     ? "border-[var(--color-primary)] text-[var(--color-primary)]"
                     : "border-transparent text-muted-foreground hover:text-[var(--color-text-primary)]"
                 )}
@@ -214,95 +258,133 @@ export default function MonthlyReviewPage() {
 
         {/* タブコンテンツ */}
         {activeTab === "checklist" && (
-          <ChecklistTab
-            progress={kintoneProgress.data}
-            isLoading={kintoneProgress.isLoading}
-            onUpdateStatus={(m, status) => {
-              if (kintoneProgress.data) {
-                updateStatus.mutate({
-                  recordId: kintoneProgress.data.recordId,
-                  month: m,
-                  status,
-                });
-              }
-            }}
-          />
+          <div role="tabpanel" id="monthly-panel-checklist" aria-labelledby="monthly-tab-checklist">
+            <ChecklistTab
+              progress={kintoneProgress.data}
+              isLoading={kintoneProgress.isLoading}
+              onUpdateStatus={(m, status) => {
+                if (kintoneProgress.data) {
+                  updateStatus.mutate({
+                    recordId: kintoneProgress.data.recordId,
+                    month: m,
+                    status,
+                  });
+                }
+              }}
+            />
+          </div>
         )}
 
         {activeTab === "review" && (
-          <ReviewTab orgId={user?.orgId || ""} fiscalYear={fiscalYear} />
+          <div role="tabpanel" id="monthly-panel-review" aria-labelledby="monthly-tab-review">
+            <ReviewTab orgId={user?.orgId || ""} fiscalYear={fiscalYear} />
+          </div>
         )}
 
         {activeTab === "pl" && (
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base">損益計算書（P/L）</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {mfPL.isLoading ? (
-                <div className="space-y-2">{Array.from({ length: 8 }).map((_, i) => <div key={i} className="h-8 animate-pulse rounded bg-muted" />)}</div>
-              ) : !mfPL.data ? (
-                <MfEmptyState />
-              ) : (
-                <SimpleTable rows={mfPL.data} />
-              )}
-            </CardContent>
-          </Card>
-        )}
-
-        {activeTab === "bs" && (
-          <div className="space-y-4">
+          <div role="tabpanel" id="monthly-panel-pl" aria-labelledby="monthly-tab-pl">
             <Card>
-              <CardHeader className="pb-2"><CardTitle className="text-base">資産の部</CardTitle></CardHeader>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">損益計算書（P/L）</CardTitle>
+              </CardHeader>
               <CardContent>
-                {mfBS.isLoading ? <div className="h-32 animate-pulse rounded bg-muted" /> : !mfBS.data?.assets ? <MfEmptyState /> : <SimpleTable rows={mfBS.data.assets} />}
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2"><CardTitle className="text-base">負債・純資産の部</CardTitle></CardHeader>
-              <CardContent>
-                {!mfBS.data?.liabilitiesEquity ? null : <SimpleTable rows={mfBS.data.liabilitiesEquity} />}
+                {mfPL.isLoading ? (
+                  <div className="space-y-2">{Array.from({ length: 8 }).map((_, i) => <div key={i} className="h-8 animate-pulse rounded bg-muted" />)}</div>
+                ) : mfPLError === "disconnected" ? (
+                  <MfEmptyState />
+                ) : mfPLError === "error" ? (
+                  <QueryErrorState onRetry={() => mfPL.refetch()} />
+                ) : !mfPL.data || mfPL.data.length === 0 ? (
+                  <p className="py-6 text-center text-sm text-muted-foreground">データがありません</p>
+                ) : (
+                  <SimpleTable rows={mfPL.data} />
+                )}
               </CardContent>
             </Card>
           </div>
         )}
 
+        {activeTab === "bs" && (
+          <div role="tabpanel" id="monthly-panel-bs" aria-labelledby="monthly-tab-bs" className="space-y-4">
+            {mfBSError === "disconnected" ? (
+              <MfEmptyState />
+            ) : mfBSError === "error" ? (
+              <QueryErrorState onRetry={() => mfBS.refetch()} />
+            ) : (
+              <>
+                <Card>
+                  <CardHeader className="pb-2"><CardTitle className="text-base">資産の部</CardTitle></CardHeader>
+                  <CardContent>
+                    {mfBS.isLoading ? <div className="h-32 animate-pulse rounded bg-muted" /> : !mfBS.data?.assets ? <p className="py-6 text-center text-sm text-muted-foreground">データがありません</p> : <SimpleTable rows={mfBS.data.assets} />}
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader className="pb-2"><CardTitle className="text-base">負債・純資産の部</CardTitle></CardHeader>
+                  <CardContent>
+                    {!mfBS.data?.liabilitiesEquity ? null : <SimpleTable rows={mfBS.data.liabilitiesEquity} />}
+                  </CardContent>
+                </Card>
+              </>
+            )}
+          </div>
+        )}
+
         {activeTab === "cashflow" && (
-          <Card>
-            <CardHeader className="pb-2"><CardTitle className="text-base">資金繰り</CardTitle></CardHeader>
-            <CardContent>
-              {mfCF.isLoading ? <div className="h-32 animate-pulse rounded bg-muted" /> : !mfCF.data ? <MfEmptyState /> : (
-                <p className="text-sm text-muted-foreground">
-                  ランウェイ: {mfCF.data.runway?.months}ヶ月 / 現預金: {formatManYen(mfCF.data.runway?.cashBalance || 0)} / 月次バーン: {formatManYen(mfCF.data.runway?.monthlyBurnRate || 0)}
-                </p>
-              )}
-            </CardContent>
-          </Card>
+          <div role="tabpanel" id="monthly-panel-cashflow" aria-labelledby="monthly-tab-cashflow">
+            <Card>
+              <CardHeader className="pb-2"><CardTitle className="text-base">資金繰り</CardTitle></CardHeader>
+              <CardContent>
+                {mfCF.isLoading ? (
+                  <div className="h-32 animate-pulse rounded bg-muted" />
+                ) : mfCFError === "disconnected" ? (
+                  <MfEmptyState />
+                ) : mfCFError === "error" ? (
+                  <QueryErrorState onRetry={() => mfCF.refetch()} />
+                ) : !mfCF.data ? (
+                  <p className="py-6 text-center text-sm text-muted-foreground">資金繰りデータがありません</p>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    ランウェイ: {mfCF.data.runway?.months}ヶ月 / 現預金: {formatManYen(mfCF.data.runway?.cashBalance || 0)} / 月次バーン: {formatManYen(mfCF.data.runway?.monthlyBurnRate || 0)}
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          </div>
         )}
 
         {activeTab === "indicators" && (
-          <Card>
-            <CardHeader className="pb-2"><CardTitle className="text-base">財務指標</CardTitle></CardHeader>
-            <CardContent>
-              {indicators.isLoading ? <div className="h-32 animate-pulse rounded bg-muted" /> : !indicators.data ? <MfEmptyState /> : (
-                <div className="grid grid-cols-3 gap-4">
-                  {[
-                    { label: "流動比率", value: `${indicators.data.currentRatio?.toFixed(1)}%` },
-                    { label: "自己資本比率", value: `${indicators.data.equityRatio?.toFixed(1)}%` },
-                    { label: "売上総利益率", value: `${indicators.data.grossProfitMargin?.toFixed(1)}%` },
-                    { label: "営業利益率", value: `${indicators.data.operatingProfitMargin?.toFixed(1)}%` },
-                    { label: "ROA", value: `${indicators.data.roa?.toFixed(1)}%` },
-                    { label: "総資産回転率", value: `${indicators.data.totalAssetTurnover?.toFixed(2)}回` },
-                  ].map((ind) => (
-                    <div key={ind.label} className="rounded-lg border p-3">
-                      <div className="text-xs text-muted-foreground">{ind.label}</div>
-                      <div className="text-lg font-bold">{ind.value}</div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+          <div role="tabpanel" id="monthly-panel-indicators" aria-labelledby="monthly-tab-indicators">
+            <Card>
+              <CardHeader className="pb-2"><CardTitle className="text-base">財務指標</CardTitle></CardHeader>
+              <CardContent>
+                {indicators.isLoading ? (
+                  <div className="h-32 animate-pulse rounded bg-muted" />
+                ) : indicatorsError === "disconnected" ? (
+                  <MfEmptyState />
+                ) : indicatorsError === "error" ? (
+                  <QueryErrorState onRetry={() => indicators.refetch()} />
+                ) : !indicators.data ? (
+                  <p className="py-6 text-center text-sm text-muted-foreground">データがありません</p>
+                ) : (
+                  <div className="grid grid-cols-3 gap-4">
+                    {[
+                      { label: "流動比率", value: `${indicators.data.currentRatio?.toFixed(1)}%` },
+                      { label: "自己資本比率", value: `${indicators.data.equityRatio?.toFixed(1)}%` },
+                      { label: "売上総利益率", value: `${indicators.data.grossProfitMargin?.toFixed(1)}%` },
+                      { label: "営業利益率", value: `${indicators.data.operatingProfitMargin?.toFixed(1)}%` },
+                      { label: "ROA", value: `${indicators.data.roa?.toFixed(1)}%` },
+                      { label: "総資産回転率", value: `${indicators.data.totalAssetTurnover?.toFixed(2)}回` },
+                    ].map((ind) => (
+                      <div key={ind.label} className="rounded-lg border p-3">
+                        <div className="text-xs text-muted-foreground">{ind.label}</div>
+                        <div className="text-lg font-bold">{ind.value}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
         )}
       </div>
     </DashboardShell>
@@ -314,7 +396,7 @@ function ChecklistTab({
   isLoading,
   onUpdateStatus,
 }: {
-  progress: any;
+  progress: KintoneMonthlyProgress | undefined;
   isLoading: boolean;
   onUpdateStatus: (month: number, status: string) => void;
 }) {
@@ -437,6 +519,7 @@ function ReviewTab({ orgId, fiscalYear }: { orgId: string; fiscalYear?: number }
   }
 
   const d = reviewQuery.data;
+  if (!d) return null;
   const { pl, bs, tax, journal, crossCheck, alerts, summary } = d;
   const fmt = (n: number | undefined) => (n ?? 0).toLocaleString();
   const sections = [
@@ -452,13 +535,27 @@ function ReviewTab({ orgId, fiscalYear }: { orgId: string; fiscalYear?: number }
   return (
     <div className="space-y-4">
       {/* セクションナビ */}
-      <div className="flex gap-1 overflow-x-auto">
-        {sections.map((s) => (
-          <button key={s.key} onClick={() => setSection(s.key)}
-            className={cn("whitespace-nowrap rounded-full border px-3 py-1 text-xs font-medium",
-              section === s.key ? "border-[var(--color-primary)] bg-[var(--color-primary)]/10 text-[var(--color-primary)]" : "border-input text-muted-foreground hover:bg-muted/50"
-            )}>{s.label}</button>
-        ))}
+      <div role="tablist" aria-label="経理レビューのセクション" className="flex gap-1 overflow-x-auto">
+        {sections.map((s) => {
+          const selected = section === s.key;
+          return (
+            <button
+              key={s.key}
+              role="tab"
+              aria-selected={selected}
+              tabIndex={selected ? 0 : -1}
+              onClick={() => setSection(s.key)}
+              className={cn(
+                "whitespace-nowrap rounded-full border px-3 py-1 text-xs font-medium",
+                selected
+                  ? "border-[var(--color-primary)] bg-[var(--color-primary)]/10 text-[var(--color-primary)]"
+                  : "border-input text-muted-foreground hover:bg-muted/50",
+              )}
+            >
+              {s.label}
+            </button>
+          );
+        })}
       </div>
 
       {/* サマリー */}
@@ -487,12 +584,12 @@ function ReviewTab({ orgId, fiscalYear }: { orgId: string; fiscalYear?: number }
           </Card>
           {(pl?.interpretations || []).length > 0 && (
             <Card><CardHeader className="pb-2"><CardTitle className="text-sm">PL解釈</CardTitle></CardHeader>
-              <CardContent className="space-y-1">{pl.interpretations.map((t: string, i: number) => <p key={i} className="text-xs text-muted-foreground">{t}</p>)}</CardContent>
+              <CardContent className="space-y-1">{(pl.interpretations ?? []).map((t: string, i: number) => <p key={i} className="text-xs text-muted-foreground">{t}</p>)}</CardContent>
             </Card>
           )}
           {(bs?.stagnant_interpretations || []).length > 0 && (
             <Card><CardHeader className="pb-2"><CardTitle className="text-sm">滞留勘定</CardTitle></CardHeader>
-              <CardContent className="space-y-1">{bs.stagnant_interpretations.map((t: string, i: number) => <p key={i} className="text-xs text-muted-foreground">{t}</p>)}</CardContent>
+              <CardContent className="space-y-1">{(bs.stagnant_interpretations ?? []).map((t: string, i: number) => <p key={i} className="text-xs text-muted-foreground">{t}</p>)}</CardContent>
             </Card>
           )}
           <div className="text-right text-xs text-muted-foreground">分析日時: {d.analyzedAt ? new Date(d.analyzedAt).toLocaleString("ja-JP") : "—"}</div>
@@ -505,7 +602,7 @@ function ReviewTab({ orgId, fiscalYear }: { orgId: string; fiscalYear?: number }
           <Card><CardHeader className="pb-2"><CardTitle className="text-sm">月次推移</CardTitle></CardHeader>
             <CardContent><div className="overflow-x-auto"><table className="w-full text-xs">
               <thead><tr className="border-b">{["月", "売上高", "販管費", "販管費率", "営業利益", "経常利益"].map((h) => <th key={h} className="py-1.5 text-right font-semibold first:text-left">{h}</th>)}</tr></thead>
-              <tbody>{(pl?.monthly_table || []).map((m: any, i: number) => (
+              <tbody>{(pl?.monthly_table || []).map((m: ReviewPlMonthlyRow, i: number) => (
                 <tr key={i} className={cn("border-b", m.operating < 0 && "bg-red-50")}>
                   <td className="py-1.5 font-medium">{m.month}</td>
                   <td className="py-1.5 text-right tabular-nums">{fmt(m.sales)}</td>
@@ -520,7 +617,7 @@ function ReviewTab({ orgId, fiscalYear }: { orgId: string; fiscalYear?: number }
           <Card><CardHeader className="pb-2"><CardTitle className="text-sm">販管費構成 Top10</CardTitle></CardHeader>
             <CardContent><div className="overflow-x-auto"><table className="w-full text-xs">
               <thead><tr className="border-b"><th className="py-1.5 text-left font-semibold">勘定科目</th><th className="py-1.5 text-right font-semibold">合計</th></tr></thead>
-              <tbody>{(pl?.sga_breakdown || []).map((s: any, i: number) => (
+              <tbody>{(pl?.sga_breakdown || []).map((s: ReviewPlSgaBreakdown, i: number) => (
                 <tr key={i} className="border-b"><td className="py-1.5">{s.account}</td><td className="py-1.5 text-right tabular-nums">{fmt(s.total)}</td></tr>
               ))}</tbody>
             </table></div></CardContent>
@@ -534,7 +631,7 @@ function ReviewTab({ orgId, fiscalYear }: { orgId: string; fiscalYear?: number }
           <Card><CardHeader className="pb-2"><CardTitle className="text-sm">財務比率推移</CardTitle></CardHeader>
             <CardContent><div className="overflow-x-auto"><table className="w-full text-xs">
               <thead><tr className="border-b">{["月", "流動比率", "自己資本比率"].map((h) => <th key={h} className="py-1.5 text-right font-semibold first:text-left">{h}</th>)}</tr></thead>
-              <tbody>{(bs?.ratios || []).map((r: any, i: number) => (
+              <tbody>{(bs?.ratios || []).map((r: ReviewBsRatio, i: number) => (
                 <tr key={i} className="border-b">
                   <td className="py-1.5 font-medium">{r.month}</td>
                   <td className={cn("py-1.5 text-right tabular-nums", r.current_ratio < 100 && "text-red-600")}>{r.current_ratio}%</td>
@@ -544,12 +641,12 @@ function ReviewTab({ orgId, fiscalYear }: { orgId: string; fiscalYear?: number }
             </table></div></CardContent>
           </Card>
           {(bs?.negatives || []).length > 0 && (
-            <Card><CardHeader className="pb-2"><CardTitle className="text-sm">マイナス残高 ({bs.negatives.length}件)</CardTitle></CardHeader>
+            <Card><CardHeader className="pb-2"><CardTitle className="text-sm">マイナス残高 ({bs.negatives?.length ?? 0}件)</CardTitle></CardHeader>
               <CardContent><div className="space-y-1">{(bs?.neg_interpretations || []).map((t: string, i: number) => <p key={i} className="text-xs text-muted-foreground">{t}</p>)}</div></CardContent>
             </Card>
           )}
           {(bs?.stagnant || []).length > 0 && (
-            <Card><CardHeader className="pb-2"><CardTitle className="text-sm">滞留勘定 ({bs.stagnant.length}件)</CardTitle></CardHeader>
+            <Card><CardHeader className="pb-2"><CardTitle className="text-sm">滞留勘定 ({bs.stagnant?.length ?? 0}件)</CardTitle></CardHeader>
               <CardContent><div className="space-y-1">{(bs?.stagnant_interpretations || []).map((t: string, i: number) => <p key={i} className="text-xs text-muted-foreground">{t}</p>)}</div></CardContent>
             </Card>
           )}
@@ -568,17 +665,17 @@ function ReviewTab({ orgId, fiscalYear }: { orgId: string; fiscalYear?: number }
             <Card><CardHeader className="pb-2"><CardTitle className="text-sm">税区分不整合</CardTitle></CardHeader>
               <CardContent><div className="overflow-x-auto"><table className="w-full text-xs">
                 <thead><tr className="border-b">{["日付", "No", "科目", "実際", "期待", "摘要"].map((h) => <th key={h} className="py-1.5 text-left font-semibold">{h}</th>)}</tr></thead>
-                <tbody>{tax.mismatches.slice(0, 20).map((m: any, i: number) => (
+                <tbody>{(tax.mismatches ?? []).slice(0, 20).map((m: ReviewTaxMismatch, i: number) => (
                   <tr key={i} className="border-b"><td className="py-1">{m.date}</td><td className="py-1">{m.no}</td><td className="py-1">{m.account}</td><td className="py-1 text-red-600">{m.actual_tax}</td><td className="py-1 text-green-600">{m.expected_tax}</td><td className="py-1 text-muted-foreground truncate max-w-[200px]">{m.memo}</td></tr>
                 ))}</tbody>
               </table></div></CardContent>
             </Card>
           )}
           {(tax?.inv_80_entries || []).length > 0 && (
-            <Card><CardHeader className="pb-2"><CardTitle className="text-sm">インボイス80%控除 ({tax.inv_80_entries.length}件)</CardTitle></CardHeader>
+            <Card><CardHeader className="pb-2"><CardTitle className="text-sm">インボイス80%控除 ({tax.inv_80_entries?.length ?? 0}件)</CardTitle></CardHeader>
               <CardContent><div className="overflow-x-auto"><table className="w-full text-xs">
                 <thead><tr className="border-b">{["日付", "科目", "金額", "税額(満額)", "否認額", "摘要"].map((h) => <th key={h} className="py-1.5 text-left font-semibold">{h}</th>)}</tr></thead>
-                <tbody>{tax.inv_80_entries.slice(0, 20).map((e: any, i: number) => (
+                <tbody>{(tax.inv_80_entries ?? []).slice(0, 20).map((e: ReviewTaxInv80Entry, i: number) => (
                   <tr key={i} className="border-b"><td className="py-1">{e.date}</td><td className="py-1">{e.account}</td><td className="py-1 text-right tabular-nums">{fmt(e.amount)}</td><td className="py-1 text-right tabular-nums">{fmt(e.tax_full)}</td><td className="py-1 text-right tabular-nums text-red-600">{fmt(e.denied)}</td><td className="py-1 text-muted-foreground truncate max-w-[200px]">{e.memo}</td></tr>
                 ))}</tbody>
               </table></div></CardContent>
@@ -600,7 +697,7 @@ function ReviewTab({ orgId, fiscalYear }: { orgId: string; fiscalYear?: number }
             <Card><CardHeader className="pb-2"><CardTitle className="text-sm">重複仕訳</CardTitle></CardHeader>
               <CardContent><div className="overflow-x-auto"><table className="w-full text-xs">
                 <thead><tr className="border-b">{["日付", "仕訳No", "借方", "金額", "摘要", "件数"].map((h) => <th key={h} className="py-1.5 text-left font-semibold">{h}</th>)}</tr></thead>
-                <tbody>{journal.duplicates.slice(0, 10).map((d: any, i: number) => (
+                <tbody>{(journal.duplicates ?? []).slice(0, 10).map((d: ReviewJournalDuplicate, i: number) => (
                   <tr key={i} className="border-b"><td className="py-1">{d.date}</td><td className="py-1 text-muted-foreground">{(d.nos || []).join(', ')}</td><td className="py-1">{d.dr_acct}</td><td className="py-1 text-right tabular-nums">{fmt(d.dr_amt)}</td><td className="py-1 text-muted-foreground">{d.memo}</td><td className="py-1 text-red-600 font-bold">{d.count}</td></tr>
                 ))}</tbody>
               </table></div></CardContent>
@@ -608,7 +705,7 @@ function ReviewTab({ orgId, fiscalYear }: { orgId: string; fiscalYear?: number }
           )}
           {(journal?.personal || []).length > 0 && (
             <Card><CardHeader className="pb-2"><CardTitle className="text-sm">私的支出の可能性</CardTitle></CardHeader>
-              <CardContent><div className="space-y-1">{journal.personal.slice(0, 10).map((p: any, i: number) => (
+              <CardContent><div className="space-y-1">{(journal.personal ?? []).slice(0, 10).map((p: ReviewJournalPersonal, i: number) => (
                 <p key={i} className="text-xs text-muted-foreground">{p.date} {p.dr_acct} {fmt(p.dr_amt)}円 — {p.memo}</p>
               ))}</div></CardContent>
             </Card>
@@ -631,7 +728,7 @@ function ReviewTab({ orgId, fiscalYear }: { orgId: string; fiscalYear?: number }
         <div className="space-y-4">
           {(crossCheck?.findings || []).length === 0 ? (
             <Card><CardContent className="py-8 text-center text-sm text-muted-foreground">クロスチェック項目はありません</CardContent></Card>
-          ) : (crossCheck.findings.map((f: any, i: number) => {
+          ) : ((crossCheck?.findings ?? []).map((f: ReviewCrossFinding, i: number) => {
             const sevMap: Record<string, "CRITICAL" | "HIGH" | "MEDIUM" | "LOW"> = {
               "高": "HIGH",
               "中": "MEDIUM",
@@ -668,7 +765,7 @@ function ReviewTab({ orgId, fiscalYear }: { orgId: string; fiscalYear?: number }
         <Card><CardContent className="divide-y p-0">
           {(alerts || []).length === 0 ? (
             <div className="py-8 text-center text-sm text-muted-foreground">指摘事項はありません</div>
-          ) : alerts.map((alert: any, i: number) => {
+          ) : alerts.map((alert: ReviewAlert, i: number) => {
             const config = SEVERITY_CONFIG[alert.severity as keyof typeof SEVERITY_CONFIG] || SEVERITY_CONFIG.LOW;
             const sevMap: Record<string, "CRITICAL" | "HIGH" | "MEDIUM" | "LOW"> = {
               HIGH: "HIGH",

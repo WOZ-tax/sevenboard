@@ -36,6 +36,32 @@ function formatYen(value: number): string {
   return value.toLocaleString();
 }
 
+interface JournalRow {
+  id: string;
+  date: string;
+  debit: string;
+  credit: string;
+  amount: number;
+  description: string;
+}
+
+interface RawJournalDetail {
+  debit_account_name?: string;
+  credit_account_name?: string;
+  account_item_name?: string;
+  amount?: number;
+  description?: string;
+}
+
+interface RawJournal {
+  id?: string;
+  date?: string;
+  recognized_at?: string;
+  amount?: number;
+  description?: string;
+  details?: RawJournalDetail[];
+}
+
 // 月名→月番号マップ（年度期間推定用）
 const MONTH_MAP: Record<string, { month: number; offset: number }> = {
   "4月": { month: 4, offset: 0 },
@@ -106,7 +132,7 @@ function DrilldownContent() {
 
   const journalList = useMemo(() => {
     if (journals.data?.journals && journals.data.journals.length > 0) {
-      return journals.data.journals.map((j: any, idx: number) => ({
+      return (journals.data.journals as RawJournal[]).map((j, idx): JournalRow => ({
         id: j.id || String(idx),
         date: j.date || j.recognized_at || "",
         debit: j.details?.[0]?.debit_account_name || j.details?.[0]?.account_item_name || "",
@@ -153,7 +179,7 @@ function DrilldownContent() {
     if (debouncedSearch) {
       const q = debouncedSearch.toLowerCase();
       list = list.filter(
-        (j: any) =>
+        (j) =>
           (j.description && j.description.toLowerCase().includes(q)) ||
           (j.debit && j.debit.toLowerCase().includes(q)) ||
           (j.credit && j.credit.toLowerCase().includes(q))
@@ -162,10 +188,10 @@ function DrilldownContent() {
     const min = amountMin !== "" ? Number(amountMin) : null;
     const max = amountMax !== "" ? Number(amountMax) : null;
     if (min !== null && !isNaN(min)) {
-      list = list.filter((j: any) => j.amount >= min);
+      list = list.filter((j) => j.amount >= min);
     }
     if (max !== null && !isNaN(max)) {
-      list = list.filter((j: any) => j.amount <= max);
+      list = list.filter((j) => j.amount <= max);
     }
     return list;
   }, [journalList, debouncedSearch, amountMin, amountMax]);
@@ -182,7 +208,7 @@ function DrilldownContent() {
     const header = "日付,科目,金額,摘要\n";
     const rows = filteredJournals
       .map(
-        (r: any) =>
+        (r) =>
           `${csvEscape(r.date || "")},${csvEscape(r.debit || r.credit || "")},${r.amount},${csvEscape(r.description || "")}`
       )
       .join("\n");
@@ -257,8 +283,9 @@ function DrilldownContent() {
                     fill="var(--color-primary)"
                     radius={[4, 4, 0, 0]}
                     cursor="pointer"
-                    onClick={(data: any) => {
-                      if (data?.month) setSelectedMonth(data.month);
+                    onClick={(data) => {
+                      const payload = data as { month?: string } | undefined;
+                      if (payload?.month) setSelectedMonth(payload.month);
                     }}
                   />
                 </BarChart>
@@ -396,7 +423,7 @@ function DrilldownContent() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredJournals.map((j: any) => (
+                    {filteredJournals.map((j) => (
                       <TableRow key={j.id}>
                         <TableCell className="text-sm">{j.date}</TableCell>
                         <TableCell className="text-sm">{j.debit}</TableCell>

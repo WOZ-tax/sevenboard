@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from "@/lib/auth";
+import { useIsClient } from "@/hooks/use-is-client";
 
 export default function AdvisorLayout({
   children,
@@ -12,13 +13,8 @@ export default function AdvisorLayout({
   children: React.ReactNode;
 }) {
   const router = useRouter();
-  const { isAuthenticated, user, logout, hydrate } = useAuthStore();
-  const [hydrated, setHydrated] = useState(false);
-
-  useEffect(() => {
-    hydrate();
-    setHydrated(true);
-  }, [hydrate]);
+  const { isAuthenticated, user, logout } = useAuthStore();
+  const hydrated = useIsClient();
 
   useEffect(() => {
     if (!hydrated) return;

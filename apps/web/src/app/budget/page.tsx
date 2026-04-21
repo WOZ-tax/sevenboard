@@ -20,6 +20,7 @@ import {
   useNormalizedBudgetRows,
   useUpdateBudgetEntries,
 } from "@/hooks/use-business-data";
+import type { BudgetEntry } from "@/lib/api-types";
 import { Badge } from "@/components/ui/badge";
 import { Save, Loader2, Check } from "lucide-react";
 
@@ -64,7 +65,7 @@ type BudgetUiRow = {
   jan: number;
   feb: number;
   mar: number;
-  sourceEntries?: any[];
+  sourceEntries?: BudgetEntry[];
 };
 
 const months: { key: MonthKey; label: string; monthValue: string }[] = [
@@ -101,7 +102,7 @@ export default function BudgetPage() {
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const updateMutation = useUpdateBudgetEntries(activeBudgetVersion?.id ?? null);
 
-  const isTotal = (_category: string) => false;
+  const isTotal = (): boolean => false;
 
   const getNextMonth = (m: MonthKey): MonthKey | null =>
     monthOrder[monthOrder.indexOf(m) + 1] || null;
@@ -109,18 +110,22 @@ export default function BudgetPage() {
     monthOrder[monthOrder.indexOf(m) - 1] || null;
   const getNextEditableRow = useCallback(
     (currentId: string, direction: number): string | null => {
-      const editableRows = data.filter((r) => !isTotal(r.category));
+      const editableRows = data.filter(() => !isTotal());
       const idx = editableRows.findIndex((r) => r.id === currentId);
       return editableRows[idx + direction]?.id || null;
     },
     [data]
   );
 
+  const seededVersionIdRef = useRef<string | null>(null);
   useEffect(() => {
-    if (apiRows.length > 0) {
+    const currentId = activeBudgetVersion?.id ?? null;
+    if (currentId !== seededVersionIdRef.current && apiRows.length > 0) {
+      seededVersionIdRef.current = currentId;
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- Seed local editable rows when the budget version changes; local edits are preserved across refetches of the same version.
       setData(apiRows);
     }
-  }, [apiRows]);
+  }, [apiRows, activeBudgetVersion]);
 
   const startEditing = (rowId: string, month: MonthKey) => {
     const row = data.find((r) => r.id === rowId);
@@ -151,8 +156,7 @@ export default function BudgetPage() {
         const calendarYear = monthNum <= 3 ? fiscalYear + 1 : fiscalYear;
 
         const existing = row.sourceEntries?.find(
-          (entry: any) =>
-            new Date(entry.month).getMonth() + 1 === monthNum
+          (entry) => new Date(entry.month).getMonth() + 1 === monthNum,
         );
 
         return {
@@ -400,7 +404,7 @@ export default function BudgetPage() {
                 </TableHeader>
                 <TableBody>
                   {data.map((row) => {
-                    const total = isTotal(row.category);
+                    const total = isTotal();
 
                     return (
                       <TableRow

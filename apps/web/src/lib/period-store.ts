@@ -41,7 +41,6 @@ export function getPeriodLabel(
 ): string {
   if (!fiscalYear && periods.length > 0) {
     const latest = periods[0];
-    const endMonth = new Date(latest.end_date).getMonth() + 1;
     return `${latest.fiscal_year}年度`;
   }
   if (fiscalYear && month) {

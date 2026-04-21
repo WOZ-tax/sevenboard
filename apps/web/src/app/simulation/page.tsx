@@ -29,6 +29,7 @@ import {
   ReferenceLine,
 } from "recharts";
 import { useWhatIfSimulation } from "@/hooks/use-mf-data";
+import type { WhatIfResult } from "@/lib/api-types";
 
 function formatYen(value: number): string {
   const absVal = Math.abs(value);
@@ -65,7 +66,7 @@ function localSimulate(params: {
   costChangePercent: number;
   newHires: number;
   additionalInvestment: number;
-}) {
+}): WhatIfResult {
   const before = {
     revenue: 500_000_000,
     operatingProfit: 50_000_000,

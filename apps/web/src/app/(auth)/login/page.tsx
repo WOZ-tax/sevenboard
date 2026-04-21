@@ -7,22 +7,13 @@ import { Label } from "@/components/ui/label";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
-import { z } from "zod";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth";
 
-const loginSchema = z.object({
-  email: z
-    .string()
-    .min(1, "メールアドレスを入力してください")
-    .email("有効なメールアドレスを入力してください"),
-  password: z
-    .string()
-    .min(1, "パスワードを入力してください")
-    .min(8, "パスワードは8文字以上で入力してください"),
-});
-
-type LoginFormData = z.infer<typeof loginSchema>;
+interface LoginFormData {
+  email: string;
+  password: string;
+}
 
 const DEMO_USERS = [
   {

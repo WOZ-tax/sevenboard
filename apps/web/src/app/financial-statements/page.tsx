@@ -20,6 +20,7 @@ import { PrintButton } from "@/components/ui/print-button";
 import { useMfPL, useMfBS, useMfCashflow } from "@/hooks/use-mf-data";
 import { usePeriodStore, getPeriodLabel } from "@/lib/period-store";
 import { api } from "@/lib/api";
+import type { LinkedStatementsInput, LinkedStatementsResult } from "@/lib/api-types";
 import { useAuthStore } from "@/lib/auth";
 
 type UnitKey = "yen" | "thousand" | "million";
@@ -56,7 +57,7 @@ function FinancialTable({
   periodLabels,
   unit = "yen",
 }: {
-  rows: { category: string; current: number; prior: number; isTotal?: boolean; isHeader?: boolean }[];
+  rows: { category: string; current: number; prior?: number; isTotal?: boolean; isHeader?: boolean }[];
   periodLabels: [string, string];
   unit?: UnitKey;
 }) {
@@ -84,7 +85,8 @@ function FinancialTable({
               );
             }
 
-            const variance = row.current - row.prior;
+            const prior = row.prior ?? 0;
+            const variance = row.current - prior;
 
             return (
               <TableRow key={index} className={cn(row.isTotal && "bg-muted/50 font-semibold")}>
@@ -92,7 +94,7 @@ function FinancialTable({
                   {row.category}
                 </TableCell>
                 <TableCell className="text-right text-sm">{fmt(row.current)}</TableCell>
-                <TableCell className="text-right text-sm">{fmt(row.prior)}</TableCell>
+                <TableCell className="text-right text-sm">{fmt(prior)}</TableCell>
                 <TableCell className={cn("text-right text-sm", getValueColor(variance))}>
                   {variance > 0 ? "+" : ""}
                   {fmt(variance)}
@@ -124,7 +126,7 @@ export default function FinancialStatementsPage() {
   const [revenueOverride, setRevenueOverride] = useState("");
   const [cogsOverride, setCogsOverride] = useState("");
   const [sgaOverride, setSgaOverride] = useState("");
-  const [simResult, setSimResult] = useState<any>(null);
+  const [simResult, setSimResult] = useState<LinkedStatementsResult | null>(null);
 
   const user = useAuthStore((s) => s.user);
   const orgId = user?.orgId || "";
@@ -147,7 +149,7 @@ export default function FinancialStatementsPage() {
     if (!orgId) return;
     setSimLoading(true);
     try {
-      const params: any = {};
+      const params: LinkedStatementsInput = {};
       if (revenueOverride) params.revenueOverride = Number(revenueOverride);
       if (cogsOverride) params.cogsOverride = Number(cogsOverride);
       if (sgaOverride) params.sgaOverride = Number(sgaOverride);
@@ -378,7 +380,7 @@ export default function FinancialStatementsPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              {mfCF.isLoading ? <TableSkeleton /> : displayCfData ? <FinancialTable rows={displayCfData} periodLabels={simMode && simResult ? ["シミュレーション", "実績"] : ["当期", "前期"]} unit={unit} /> : <MfEmptyState title="CF データなし" />}
+              {mfCF.isLoading ? <TableSkeleton /> : displayCfData ? <FinancialTable rows={displayCfData.map((r) => ({ category: r.category, current: r.values?.[0] ?? 0, prior: r.values?.[1] ?? 0, isTotal: r.isTotal, isHeader: r.isHeader }))} periodLabels={simMode && simResult ? ["シミュレーション", "実績"] : ["当期", "前期"]} unit={unit} /> : <MfEmptyState title="CF データなし" />}
             </CardContent>
           </Card>
         )}

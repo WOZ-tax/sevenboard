@@ -254,7 +254,7 @@ export default function BusinessEventsPage() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ eventId, data }: { eventId: string; data: any }) =>
+    mutationFn: ({ eventId, data }: { eventId: string; data: Parameters<typeof api.businessEvents.update>[2] }) =>
       api.businessEvents.update(orgId, eventId, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["business-events"] });

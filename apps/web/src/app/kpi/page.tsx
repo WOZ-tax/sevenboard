@@ -12,6 +12,7 @@ import {
   Repeat,
 } from "lucide-react";
 import { useMfDashboard } from "@/hooks/use-mf-data";
+import type { DashboardSummary } from "@/lib/mf-types";
 
 import { MfEmptyState } from "@/components/ui/mf-empty-state";
 
@@ -24,7 +25,7 @@ interface KpiCardData {
   format: KpiFormat;
 }
 
-function buildKpiCards(data: any): KpiCardData[] {
+function buildKpiCards(data: DashboardSummary): KpiCardData[] {
   const revenue = data.revenue ?? 0;
   const opProfit = data.operatingProfit ?? 0;
   const cashBalance = data.cashBalance ?? 0;

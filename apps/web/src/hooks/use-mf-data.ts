@@ -5,6 +5,16 @@ import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth";
 import { usePeriodStore } from "@/lib/period-store";
+import type {
+  CashflowData,
+  DashboardSummary,
+  PLStatement,
+  BSStatement,
+  FinancialIndicators,
+  PlTransitionPoint,
+  AiSummaryResponse,
+  AlertItem,
+} from "@/lib/mf-types";
 
 function useOrgId() {
   const user = useAuthStore((s) => s.user);
@@ -20,84 +30,107 @@ function useGlobalPeriod() {
   return { fiscalYear, month };
 }
 
+interface QueryOptions {
+  enabled?: boolean;
+}
+
 /**
  * P-1: ログイン後に主要MFデータを一括プリフェッチ
- * DashboardShell で呼び出すことで、画面遷移前にキャッシュを温める
+ * 実クエリと同じキー (orgId, fiscalYear, [month]) でキャッシュを温める
  */
 export function usePrefetchMfData() {
   const orgId = useOrgId();
+  const { fiscalYear, month } = useGlobalPeriod();
   const queryClient = useQueryClient();
 
   useEffect(() => {
     if (!orgId) return;
-    // ログイン後に主要データを一括プリフェッチ
-    queryClient.prefetchQuery({ queryKey: ["mf", "dashboard", orgId], queryFn: () => api.mf.getDashboard(orgId), staleTime: 5 * 60 * 1000 });
-    queryClient.prefetchQuery({ queryKey: ["mf", "pl", orgId], queryFn: () => api.mf.getPL(orgId), staleTime: 5 * 60 * 1000 });
-    queryClient.prefetchQuery({ queryKey: ["mf", "bs", orgId], queryFn: () => api.mf.getBS(orgId), staleTime: 5 * 60 * 1000 });
-    queryClient.prefetchQuery({ queryKey: ["mf", "cashflow", orgId], queryFn: () => api.mf.getCashflow(orgId), staleTime: 5 * 60 * 1000 });
-  }, [orgId, queryClient]);
+    queryClient.prefetchQuery({
+      queryKey: ["mf", "dashboard", orgId, fiscalYear, month],
+      queryFn: () => api.mf.getDashboard(orgId, fiscalYear, month),
+      staleTime: 5 * 60 * 1000,
+    });
+    queryClient.prefetchQuery({
+      queryKey: ["mf", "pl", orgId, fiscalYear, month],
+      queryFn: () => api.mf.getPL(orgId, fiscalYear, month),
+      staleTime: 5 * 60 * 1000,
+    });
+    queryClient.prefetchQuery({
+      queryKey: ["mf", "bs", orgId, fiscalYear, month],
+      queryFn: () => api.mf.getBS(orgId, fiscalYear, month),
+      staleTime: 5 * 60 * 1000,
+    });
+    queryClient.prefetchQuery({
+      queryKey: ["mf", "cashflow", orgId, fiscalYear],
+      queryFn: () => api.mf.getCashflow(orgId, fiscalYear),
+      staleTime: 5 * 60 * 1000,
+    });
+  }, [orgId, fiscalYear, month, queryClient]);
 }
 
-export function useMfDashboard() {
-  const orgId = useOrgId();
-  return useQuery({
-    queryKey: ["mf", "dashboard", orgId],
-    queryFn: () => api.mf.getDashboard(orgId),
-    enabled: !!orgId,
-    staleTime: 5 * 60 * 1000,
-  });
-}
-
-export function useMfPL() {
-  const orgId = useOrgId();
-  return useQuery({
-    queryKey: ["mf", "pl", orgId],
-    queryFn: () => api.mf.getPL(orgId),
-    enabled: !!orgId,
-    staleTime: 5 * 60 * 1000,
-  });
-}
-
-export function useMfBS() {
-  const orgId = useOrgId();
-  return useQuery({
-    queryKey: ["mf", "bs", orgId],
-    queryFn: () => api.mf.getBS(orgId),
-    enabled: !!orgId,
-    staleTime: 5 * 60 * 1000,
-  });
-}
-
-export function useMfCashflow() {
-  const orgId = useOrgId();
-  const { fiscalYear } = useGlobalPeriod();
-  return useQuery({
-    queryKey: ["mf", "cashflow", orgId, fiscalYear],
-    queryFn: () => api.mf.getCashflow(orgId, fiscalYear),
-    enabled: !!orgId,
-    staleTime: 5 * 60 * 1000,
-  });
-}
-
-export function useMfPLTransition() {
-  const orgId = useOrgId();
-  const { fiscalYear } = useGlobalPeriod();
-  return useQuery({
-    queryKey: ["mf", "pl-transition", orgId, fiscalYear],
-    queryFn: () => api.mf.getPLTransition(orgId, fiscalYear),
-    enabled: !!orgId,
-    staleTime: 5 * 60 * 1000,
-  });
-}
-
-export function useAiSummary() {
+export function useMfDashboard(options?: QueryOptions) {
   const orgId = useOrgId();
   const { fiscalYear, month } = useGlobalPeriod();
-  return useQuery({
+  return useQuery<DashboardSummary>({
+    queryKey: ["mf", "dashboard", orgId, fiscalYear, month],
+    queryFn: () => api.mf.getDashboard(orgId, fiscalYear, month),
+    enabled: !!orgId && (options?.enabled ?? true),
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useMfPL(options?: QueryOptions) {
+  const orgId = useOrgId();
+  const { fiscalYear, month } = useGlobalPeriod();
+  return useQuery<PLStatement>({
+    queryKey: ["mf", "pl", orgId, fiscalYear, month],
+    queryFn: () => api.mf.getPL(orgId, fiscalYear, month),
+    enabled: !!orgId && (options?.enabled ?? true),
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useMfBS(options?: QueryOptions) {
+  const orgId = useOrgId();
+  const { fiscalYear, month } = useGlobalPeriod();
+  return useQuery<BSStatement>({
+    queryKey: ["mf", "bs", orgId, fiscalYear, month],
+    queryFn: () => api.mf.getBS(orgId, fiscalYear, month),
+    enabled: !!orgId && (options?.enabled ?? true),
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useMfCashflow(options?: QueryOptions) {
+  const orgId = useOrgId();
+  const { fiscalYear } = useGlobalPeriod();
+  return useQuery<CashflowData>({
+    queryKey: ["mf", "cashflow", orgId, fiscalYear],
+    queryFn: () => api.mf.getCashflow(orgId, fiscalYear),
+    enabled: !!orgId && (options?.enabled ?? true),
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useMfPLTransition(options?: QueryOptions) {
+  const orgId = useOrgId();
+  const { fiscalYear } = useGlobalPeriod();
+  return useQuery<PlTransitionPoint[]>({
+    queryKey: ["mf", "pl-transition", orgId, fiscalYear],
+    queryFn: () => api.mf.getPLTransition(orgId, fiscalYear),
+    enabled: !!orgId && (options?.enabled ?? true),
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useAiSummary(options?: QueryOptions) {
+  const orgId = useOrgId();
+  const { fiscalYear, month } = useGlobalPeriod();
+  return useQuery<AiSummaryResponse>({
     queryKey: ["ai", "summary", orgId, fiscalYear, month],
     queryFn: () => api.ai.getSummary(orgId, fiscalYear, month),
-    enabled: !!orgId,
-    staleTime: 30 * 60 * 1000, // 30分キャッシュ（AI生成はコストがかかるため）
+    enabled: !!orgId && (options?.enabled ?? true),
+    staleTime: 30 * 60 * 1000,
   });
 }
 
@@ -171,23 +204,24 @@ export function useMfJournals(params?: { startDate?: string; endDate?: string; a
   });
 }
 
-export function useMfFinancialIndicators() {
+export function useMfFinancialIndicators(options?: QueryOptions) {
   const orgId = useOrgId();
-  return useQuery({
-    queryKey: ["mf", "financial-indicators", orgId],
-    queryFn: () => api.mf.getFinancialIndicators(orgId),
-    enabled: !!orgId,
+  const { fiscalYear, month } = useGlobalPeriod();
+  return useQuery<FinancialIndicators>({
+    queryKey: ["mf", "financial-indicators", orgId, fiscalYear, month],
+    queryFn: () => api.mf.getFinancialIndicators(orgId, fiscalYear, month),
+    enabled: !!orgId && (options?.enabled ?? true),
     staleTime: 5 * 60 * 1000,
   });
 }
 
-export function useAlerts() {
+export function useAlerts(options?: QueryOptions) {
   const orgId = useOrgId();
   const { fiscalYear, month } = useGlobalPeriod();
-  return useQuery({
+  return useQuery<AlertItem[]>({
     queryKey: ["alerts", orgId, fiscalYear, month],
     queryFn: () => api.alerts.getAll(orgId, fiscalYear, month),
-    enabled: !!orgId,
+    enabled: !!orgId && (options?.enabled ?? true),
     staleTime: 5 * 60 * 1000,
   });
 }

@@ -1,6 +1,5 @@
 "use client";
 
-import type { LucideIcon } from "lucide-react";
 import { Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { AgentIdentity } from "@/lib/agent-voice";

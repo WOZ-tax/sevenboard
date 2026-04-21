@@ -243,6 +243,19 @@ export default function SettingsPage() {
     queryClient.invalidateQueries({ queryKey: ["integrations", orgId] });
   }, [queryClient, orgId]);
 
+  const connectMutation = useMutation({
+    mutationFn: (provider: string) => api.integrations.connect(orgId, provider),
+    onMutate: (provider) => setConnectingProviders((prev) => new Set(prev).add(provider)),
+    onSettled: (_data, _err, provider) => {
+      setConnectingProviders((prev) => {
+        const next = new Set(prev);
+        next.delete(provider);
+        return next;
+      });
+      invalidate();
+    },
+  });
+
   // MF_CLOUD の場合は OAuth フローを使う
   const handleConnect = useCallback(async (provider: string) => {
     if (provider === "MF_CLOUD") {
@@ -260,20 +273,7 @@ export default function SettingsPage() {
       return;
     }
     connectMutation.mutate(provider);
-  }, [orgId]);
-
-  const connectMutation = useMutation({
-    mutationFn: (provider: string) => api.integrations.connect(orgId, provider),
-    onMutate: (provider) => setConnectingProviders((prev) => new Set(prev).add(provider)),
-    onSettled: (_data, _err, provider) => {
-      setConnectingProviders((prev) => {
-        const next = new Set(prev);
-        next.delete(provider);
-        return next;
-      });
-      invalidate();
-    },
-  });
+  }, [orgId, connectMutation]);
 
   const disconnectMutation = useMutation({
     mutationFn: (provider: string) => api.integrations.disconnect(orgId, provider),
@@ -330,9 +330,9 @@ export default function SettingsPage() {
               <div className="h-12 animate-pulse rounded bg-muted" />
             ) : mfOffice.data ? (
               <div className="grid gap-4 sm:grid-cols-3">
-                <div><div className="text-xs text-muted-foreground">会社名</div><div className="mt-1 text-sm font-medium text-[var(--color-text-primary)]">{mfOffice.data.display_name || mfOffice.data.name || "—"}</div></div>
-                <div><div className="text-xs text-muted-foreground">事業年度開始</div><div className="mt-1 text-sm font-medium text-[var(--color-text-primary)]">{mfOffice.data.accounting_periods?.[0]?.start_month ? `${mfOffice.data.accounting_periods[0].start_month}月` : "—"}</div></div>
-                <div><div className="text-xs text-muted-foreground">業種</div><div className="mt-1 text-sm font-medium text-[var(--color-text-primary)]">{mfOffice.data.industry_class || "—"}</div></div>
+                <div><div className="text-xs text-muted-foreground">会社名</div><div className="mt-1 text-sm font-medium text-[var(--color-text-primary)]">{mfOffice.data.name || "—"}</div></div>
+                <div><div className="text-xs text-muted-foreground">事業年度開始</div><div className="mt-1 text-sm font-medium text-[var(--color-text-primary)]">{mfOffice.data.accounting_periods?.[0]?.start_date ? mfOffice.data.accounting_periods[0].start_date : "—"}</div></div>
+                <div><div className="text-xs text-muted-foreground">区分</div><div className="mt-1 text-sm font-medium text-[var(--color-text-primary)]">{mfOffice.data.type || "—"}</div></div>
               </div>
             ) : (
               <p className="text-sm text-muted-foreground">MFクラウド会計を接続すると会社情報が表示されます</p>
@@ -445,17 +445,8 @@ function BriefingPushCard({ orgId }: { orgId: string }) {
     staleTime: 30_000,
   });
 
-  const [enabled, setEnabled] = useState(false);
-  const [hour, setHour] = useState(8);
   const [webhookUrl, setWebhookUrl] = useState("");
   const [testResult, setTestResult] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (data) {
-      setEnabled(data.enabled);
-      setHour(data.hourJst);
-    }
-  }, [data]);
 
   const saveMutation = useMutation({
     mutationFn: (payload: {
@@ -470,6 +461,11 @@ function BriefingPushCard({ orgId }: { orgId: string }) {
       setWebhookUrl("");
     },
   });
+
+  // 楽観的UI: mutation中はvariablesを優先表示、それ以外はサーバー値
+  const pendingVars = saveMutation.isPending ? saveMutation.variables : undefined;
+  const enabled = pendingVars?.enabled ?? data?.enabled ?? false;
+  const hour = pendingVars?.hourJst ?? data?.hourJst ?? 8;
 
   const testMutation = useMutation({
     mutationFn: () => api.briefing.pushTest(orgId),
@@ -520,9 +516,7 @@ function BriefingPushCard({ orgId }: { orgId: string }) {
                   !data?.webhookConfigured && !enabled && "opacity-50",
                 )}
                 onClick={() => {
-                  const next = !enabled;
-                  setEnabled(next);
-                  saveMutation.mutate({ enabled: next });
+                  saveMutation.mutate({ enabled: !enabled });
                 }}
               >
                 <span
@@ -542,9 +536,7 @@ function BriefingPushCard({ orgId }: { orgId: string }) {
               <select
                 value={hour}
                 onChange={(e) => {
-                  const v = Number(e.target.value);
-                  setHour(v);
-                  saveMutation.mutate({ hourJst: v });
+                  saveMutation.mutate({ hourJst: Number(e.target.value) });
                 }}
                 className="ml-auto h-8 rounded border border-[var(--color-border)] bg-white px-2 text-sm"
               >
@@ -631,15 +623,7 @@ function BriefingPushCard({ orgId }: { orgId: string }) {
 }
 
 function MenuVisibilitySettings() {
-  const { isHidden, toggle, hydrate } = useSidebarConfig();
-  const [hydrated, setHydrated] = useState(false);
-
-  useEffect(() => {
-    hydrate();
-    setHydrated(true);
-  }, []);
-
-  if (!hydrated) return null;
+  const { isHidden, toggle } = useSidebarConfig();
 
   return (
     <Card>

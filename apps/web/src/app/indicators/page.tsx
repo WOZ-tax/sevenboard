@@ -1,15 +1,17 @@
 "use client";
 
-import { useMemo } from "react";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { Gauge, Shield, TrendingUp, Zap } from "lucide-react";
 import { useMfFinancialIndicators } from "@/hooks/use-mf-data";
+import type { FinancialIndicators } from "@/lib/mf-types";
+
+type IndicatorKey = keyof FinancialIndicators;
 
 interface IndicatorDef {
-  key: string;
+  key: IndicatorKey;
   label: string;
   unit: string;
   good: number;
@@ -154,7 +156,7 @@ export default function IndicatorsPage() {
               <IndicatorCard
                 key={def.key}
                 def={def}
-                value={(data as any)[def.key] || 0}
+                value={data[def.key] || 0}
               />
             ))}
           </div>
@@ -173,7 +175,7 @@ export default function IndicatorsPage() {
               <IndicatorCard
                 key={def.key}
                 def={def}
-                value={(data as any)[def.key] || 0}
+                value={data[def.key] || 0}
               />
             ))}
           </div>
@@ -192,7 +194,7 @@ export default function IndicatorsPage() {
               <IndicatorCard
                 key={def.key}
                 def={def}
-                value={(data as any)[def.key] || 0}
+                value={data[def.key] || 0}
               />
             ))}
           </div>

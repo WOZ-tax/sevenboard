@@ -1,6 +1,17 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState } from "react";
+
+interface CommentView {
+  id: string;
+  content: string;
+  status: string;
+  priority?: string;
+  reviewer?: { id: string; name: string; role: string } | null;
+  createdAt: string;
+  cellRef?: string | null;
+  rejectReason?: string | null;
+}
 import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -153,16 +164,16 @@ export default function CommentsPage() {
     },
   });
 
-  const handleInsertAiSummary = useCallback(() => {
+  const handleInsertAiSummary = () => {
     if (aiData?.summary) {
       setNewComment((prev) => (prev ? prev + "\n" + aiData.summary : aiData.summary));
     }
-  }, [aiData]);
+  };
 
-  const handleSubmit = useCallback(() => {
+  const handleSubmit = () => {
     if (!newComment.trim()) return;
     createMutation.mutate({ content: newComment.trim(), month: selectedMonth, priority: newPriority });
-  }, [newComment, selectedMonth, newPriority, createMutation]);
+  };
 
   return (
     <DashboardShell>
@@ -267,9 +278,9 @@ export default function CommentsPage() {
                 </CardContent>
               </Card>
             ) : (
-              comments.map((comment: any) => {
+              (comments as CommentView[]).map((comment) => {
                 const config = statusConfig[comment.status] || statusConfig.PENDING;
-                const pConfig = priorityConfig[comment.priority] || priorityConfig.MEDIUM;
+                const pConfig = priorityConfig[comment.priority ?? "MEDIUM"] || priorityConfig.MEDIUM;
                 const isEditing = editingId === comment.id;
                 const isRejecting = rejectingId === comment.id;
 

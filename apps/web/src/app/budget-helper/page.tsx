@@ -16,7 +16,6 @@ import {
   ChevronUp,
   RotateCcw,
 } from "lucide-react";
-import { useAiBudgetScenarios } from "@/hooks/use-mf-data";
 
 // --- モック ---
 const mockScenarios = [
@@ -180,9 +179,6 @@ export default function BudgetHelperPage() {
   const [params, setParams] = useState<ScenarioParams>(defaultParams);
   const [showParams, setShowParams] = useState(true);
   const [scenarios, setScenarios] = useState<Scenario[] | null>(null);
-
-  // GET版（パラメータなしのデフォルト生成）
-  const defaultQuery = useAiBudgetScenarios();
 
   // POST版（パラメータ付き生成）
   const generateMutation = useMutation({

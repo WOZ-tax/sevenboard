@@ -4,6 +4,31 @@ import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth";
+import type {
+  BudgetEntry,
+  BudgetEntryInput,
+  VarianceRow,
+} from "@/lib/api-types";
+
+type MonthKey =
+  | "apr" | "may" | "jun" | "jul" | "aug" | "sep"
+  | "oct" | "nov" | "dec" | "jan" | "feb" | "mar";
+
+export interface NormalizedBudgetRow extends Record<MonthKey, number> {
+  id: string;
+  accountId: string;
+  category: string;
+  sourceEntries: BudgetEntry[];
+}
+
+export interface NormalizedVarianceRow {
+  category: string;
+  budget: number;
+  actual: number;
+  variance: number;
+  ratio: number;
+  priorYear?: number;
+}
 
 function useOrgId() {
   const user = useAuthStore((s) => s.user);
@@ -27,7 +52,7 @@ export function useBudgetContext() {
 
   const budgetEntriesQuery = useQuery({
     queryKey: ["budget-entries", activeBudgetVersion?.id],
-    queryFn: () => api.getBudgetEntries(activeBudgetVersion.id),
+    queryFn: () => api.getBudgetEntries(activeBudgetVersion!.id),
     enabled: !!activeBudgetVersion?.id,
     staleTime: 60 * 1000,
   });
@@ -36,7 +61,7 @@ export function useBudgetContext() {
     queryKey: ["variance", orgId, activeBudgetVersion?.id],
     queryFn: () =>
       api.getVariance(orgId, {
-        budgetVersionId: activeBudgetVersion.id,
+        budgetVersionId: activeBudgetVersion!.id,
       }),
     enabled: !!orgId && !!activeBudgetVersion?.id,
     staleTime: 60 * 1000,
@@ -56,7 +81,7 @@ export function useUpdateBudgetEntries(budgetVersionId: string | null) {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (entries: any[]) =>
+    mutationFn: (entries: BudgetEntryInput[]) =>
       api.updateBudgetEntries(budgetVersionId as string, entries),
     onSuccess: () => {
       queryClient.invalidateQueries({
@@ -69,12 +94,13 @@ export function useUpdateBudgetEntries(budgetVersionId: string | null) {
   });
 }
 
-export function useNormalizedBudgetRows(entries: any[] | undefined) {
+export function useNormalizedBudgetRows(
+  entries: BudgetEntry[] | undefined,
+): NormalizedBudgetRow[] {
   return useMemo(() => {
     if (!entries?.length) return [];
 
-    const monthKeys = ["apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec", "jan", "feb", "mar"] as const;
-    const monthMap: Record<number, (typeof monthKeys)[number]> = {
+    const monthMap: Record<number, MonthKey> = {
       4: "apr",
       5: "may",
       6: "jun",
@@ -89,7 +115,7 @@ export function useNormalizedBudgetRows(entries: any[] | undefined) {
       3: "mar",
     };
 
-    const grouped = new Map<string, any>();
+    const grouped = new Map<string, NormalizedBudgetRow>();
 
     for (const entry of entries) {
       const key = entry.accountId;
@@ -118,7 +144,7 @@ export function useNormalizedBudgetRows(entries: any[] | undefined) {
         });
       }
 
-      const row = grouped.get(key);
+      const row = grouped.get(key)!;
       row[targetMonth] = Number(entry.amount);
       row.sourceEntries.push(entry);
     }
@@ -127,11 +153,13 @@ export function useNormalizedBudgetRows(entries: any[] | undefined) {
   }, [entries]);
 }
 
-export function useNormalizedVarianceRows(rows: any[] | undefined) {
+export function useNormalizedVarianceRows(
+  rows: VarianceRow[] | undefined,
+): NormalizedVarianceRow[] {
   return useMemo(() => {
     if (!rows?.length) return [];
 
-    const grouped = new Map<string, any>();
+    const grouped = new Map<string, NormalizedVarianceRow>();
 
     for (const row of rows) {
       const key = row.accountId;
@@ -145,7 +173,7 @@ export function useNormalizedVarianceRows(rows: any[] | undefined) {
         });
       }
 
-      const current = grouped.get(key);
+      const current = grouped.get(key)!;
       current.budget += Number(row.budgetAmount);
       current.actual += Number(row.actualAmount);
       current.variance += Number(row.varianceAmount);

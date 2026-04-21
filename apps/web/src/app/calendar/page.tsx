@@ -21,6 +21,7 @@ import {
 import { useAuthStore } from "@/lib/auth";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import type { UpdateCalendarEventInput } from "@/lib/api-types";
 
 /* ---------- types ---------- */
 
@@ -156,7 +157,7 @@ export default function CalendarPage() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ eventId, data }: { eventId: string; data: any }) =>
+    mutationFn: ({ eventId, data }: { eventId: string; data: UpdateCalendarEventInput }) =>
       api.calendar.updateEvent(orgId, eventId, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["calendar-events"] });

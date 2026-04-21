@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useIsClient } from "@/hooks/use-is-client";
 import {
   LineChart,
   Line,
@@ -27,12 +27,8 @@ interface RevenueChartProps {
 }
 
 export function RevenueChart({ mfData }: RevenueChartProps = {}) {
-  const [mounted, setMounted] = useState(false);
+  const mounted = useIsClient();
   const selectedMonth = usePeriodStore((s) => s.month);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
 
   // 選択月がある場合のみマーカー表示
   const monthMarker = selectedMonth ? `${selectedMonth}月` : null;

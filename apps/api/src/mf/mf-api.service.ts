@@ -2,6 +2,7 @@ import {
   Injectable,
   ServiceUnavailableException,
   InternalServerErrorException,
+  BadGatewayException,
   Logger,
 } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
@@ -73,8 +74,11 @@ export class MfApiService {
     orgId: string,
     refreshToken: string | null,
   ): Promise<string> {
+    // refresh token missing → integration is effectively disconnected; user must reconnect.
     if (!refreshToken) {
-      throw new ServiceUnavailableException('MF refresh token not available');
+      throw new ServiceUnavailableException(
+        'MoneyForward reconnect required. Please reconnect from Settings.',
+      );
     }
 
     try {
@@ -113,9 +117,28 @@ export class MfApiService {
       });
 
       return newAccessToken;
-    } catch (err) {
-      this.logger.error('MF token refresh failed', err);
-      throw new ServiceUnavailableException('MF token refresh failed');
+    } catch (err: any) {
+      const status = err?.response?.status;
+      const errorCode = err?.response?.data?.error;
+      this.logger.error(
+        `MF token refresh failed: status=${status} error=${errorCode}`,
+        err?.response?.data || err?.message,
+      );
+
+      // invalid_grant / unauthorized_client / 400 → refresh token is dead, reconnect needed
+      if (
+        status === 400 ||
+        status === 401 ||
+        errorCode === 'invalid_grant' ||
+        errorCode === 'unauthorized_client'
+      ) {
+        throw new ServiceUnavailableException(
+          'MoneyForward reconnect required. Please reconnect from Settings.',
+        );
+      }
+
+      // transient upstream failure (network, 5xx) → retryable
+      throw new BadGatewayException('MF token refresh temporarily failed');
     }
   }
 

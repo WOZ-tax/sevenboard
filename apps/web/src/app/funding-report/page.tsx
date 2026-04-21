@@ -48,7 +48,7 @@ const mockFundingReport = {
   generatedAt: "2026-04-05 09:00",
 };
 
-type FundingReport = typeof mockFundingReport;
+type FundingReportView = typeof mockFundingReport;
 
 function formatManYen(value: number): string {
   const man = Math.round(value / 10000);
@@ -66,8 +66,8 @@ export default function FundingReportPage() {
   const [generated, setGenerated] = useState(false);
   const mfNotConnected = isMfNotConnected(error);
 
-  const report: FundingReport | null = generated && !mfNotConnected
-    ? apiData || mockFundingReport
+  const report: FundingReportView | null = generated && !mfNotConnected
+    ? (apiData as unknown as FundingReportView | undefined) ?? mockFundingReport
     : null;
 
   const handleGenerate = async () => {

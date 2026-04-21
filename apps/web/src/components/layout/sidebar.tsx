@@ -33,7 +33,7 @@ import {
   History,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuthStore } from "@/lib/auth";
 import { useSidebarConfig } from "@/lib/sidebar-config";
@@ -79,10 +79,8 @@ export { menuItems };
 export function AppSidebar() {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
-  const { isHidden, hydrate } = useSidebarConfig();
+  const { isHidden } = useSidebarConfig();
   const orgId = useAuthStore((s) => s.user?.orgId || "");
-
-  useEffect(() => { hydrate(); }, [hydrate]);
 
   const { data: triageData } = useQuery({
     queryKey: ["triage", orgId],

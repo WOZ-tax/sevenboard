@@ -58,6 +58,8 @@ interface LoanResult {
   };
 }
 
+type RepaymentType = "EQUAL_INSTALLMENT" | "EQUAL_PRINCIPAL" | "BULLET";
+
 interface LoanScenario {
   id: string;
   name: string;
@@ -65,7 +67,7 @@ interface LoanScenario {
   interestRate: string;
   termMonths: string;
   graceMonths: string;
-  repaymentType: string;
+  repaymentType: RepaymentType;
   result: LoanResult | null;
   loading: boolean;
 }
@@ -346,7 +348,9 @@ export default function LoanPage() {
                       value={scenario.repaymentType}
                       onValueChange={(v) =>
                         v &&
-                        updateScenario(scenario.id, { repaymentType: v })
+                        updateScenario(scenario.id, {
+                          repaymentType: v as RepaymentType,
+                        })
                       }
                     >
                       <SelectTrigger>

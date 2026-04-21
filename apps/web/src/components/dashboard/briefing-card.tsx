@@ -23,7 +23,6 @@ import { ActionizeButton } from "@/components/ui/actionize-button";
 import { CopilotOpenButton } from "@/components/copilot/copilot-open-button";
 
 type BriefSeverity = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFO";
-type BriefSource = "URGENT" | "ALERT" | "ACTION" | "FINANCIAL" | "DATA_HEALTH";
 
 const severityToActionSeverity: Record<
   BriefSeverity,

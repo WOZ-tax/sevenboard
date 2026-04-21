@@ -137,7 +137,7 @@ export default function AlertsPage() {
   const allAlerts = useMemo(() => {
     // APIアラートがある場合はそちらを使う
     if (apiAlerts.data && apiAlerts.data.length > 0) {
-      return apiAlerts.data.map((a: any, i: number) => ({
+      return apiAlerts.data.map((a, i) => ({
         id: a.id || String(i),
         severity: a.severity as Severity,
         title: a.title,

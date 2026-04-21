@@ -69,6 +69,7 @@ export function CopilotPane() {
 
   useEffect(() => {
     if (open && seed) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- Consume one-shot seed signal from external callers (CopilotOpenButton). The seed is a cross-component event, not owned state.
       setDraft(seed);
       consumeSeed();
     }

@@ -289,7 +289,8 @@ function SourceCard({ source }: { source: SourceStatus }) {
   const label = sourceLabels[source.source] ?? source.source;
   const description = sourceDescriptions[source.source] ?? "";
   const isStale = source.lastSyncAt
-    ? Date.now() - new Date(source.lastSyncAt).getTime() > 24 * 60 * 60_000
+    ? // eslint-disable-next-line react-hooks/purity -- Staleness is a time-dependent visual indicator (24h boundary); recomputing on re-render is intentional and the exact value is not business-critical.
+      Date.now() - new Date(source.lastSyncAt).getTime() > 24 * 60 * 60_000
     : false;
 
   return (
