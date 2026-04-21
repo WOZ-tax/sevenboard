@@ -91,6 +91,20 @@ export default function AgentRunsPage() {
 
   const items = data?.items ?? [];
 
+  const stats = (() => {
+    const total = items.length;
+    if (total === 0) return null;
+    const success = items.filter((r) => r.status === "SUCCESS").length;
+    const fallback = items.filter((r) => r.status === "FALLBACK").length;
+    const failed = items.filter((r) => r.status === "FAILED").length;
+    const durs = items
+      .map((r) => r.durationMs)
+      .filter((d): d is number => typeof d === "number" && d > 0);
+    const avgMs = durs.length > 0 ? Math.round(durs.reduce((a, b) => a + b, 0) / durs.length) : null;
+    const toolUses = items.reduce((acc, r) => acc + countToolCalls(r.toolCalls), 0);
+    return { total, success, fallback, failed, avgMs, toolUses };
+  })();
+
   return (
     <DashboardShell>
       <div className="space-y-6">
@@ -105,6 +119,31 @@ export default function AgentRunsPage() {
             </p>
           </div>
         </div>
+
+        {stats && (
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+            <StatCell label="総実行数" value={`${stats.total}`} />
+            <StatCell
+              label="成功率"
+              value={`${Math.round((stats.success / stats.total) * 100)}%`}
+              tone={stats.success / stats.total >= 0.9 ? "good" : stats.success / stats.total >= 0.7 ? "warn" : "bad"}
+            />
+            <StatCell
+              label="フォールバック"
+              value={`${stats.fallback}件`}
+              tone={stats.fallback === 0 ? "good" : "warn"}
+            />
+            <StatCell
+              label="失敗"
+              value={`${stats.failed}件`}
+              tone={stats.failed === 0 ? "good" : "bad"}
+            />
+            <StatCell
+              label="平均所要"
+              value={stats.avgMs === null ? "—" : formatDuration(stats.avgMs)}
+            />
+          </div>
+        )}
 
         <div className="flex flex-wrap gap-2">
           {FILTERS.map((f) => (
@@ -288,6 +327,31 @@ function RunDetailSheet({
         )}
       </SheetContent>
     </Sheet>
+  );
+}
+
+function StatCell({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone?: "good" | "warn" | "bad";
+}) {
+  const toneCls =
+    tone === "good"
+      ? "text-[var(--color-success)]"
+      : tone === "warn"
+        ? "text-[#8d6e00]"
+        : tone === "bad"
+          ? "text-[var(--color-error)]"
+          : "text-[var(--color-text-primary)]";
+  return (
+    <div className="rounded border bg-white p-2">
+      <div className="text-[10px] text-muted-foreground">{label}</div>
+      <div className={cn("text-lg font-semibold", toneCls)}>{value}</div>
+    </div>
   );
 }
 
