@@ -15,6 +15,12 @@ export interface ListActionsFilter {
   overdueOnly?: boolean;
 }
 
+function startOfToday(): Date {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
 @Injectable()
 export class ActionsService {
   constructor(private prisma: PrismaService) {}
@@ -28,7 +34,7 @@ export class ActionsService {
       where.sourceScreen = filter.sourceScreen as any;
     }
     if (filter.overdueOnly) {
-      where.dueDate = { lt: new Date() };
+      where.dueDate = { lt: startOfToday() };
       where.status = { notIn: ['COMPLETED', 'ON_HOLD'] };
     }
 
@@ -90,7 +96,7 @@ export class ActionsService {
       this.prisma.action.count({
         where: {
           ...baseWhere,
-          dueDate: { lt: new Date() },
+          dueDate: { lt: startOfToday() },
           status: { notIn: ['COMPLETED', 'ON_HOLD'] },
         },
       }),
@@ -173,9 +179,7 @@ export class ActionsService {
     }
     if (dto.status !== undefined && dto.status !== existing.status) {
       updateData.status = dto.status;
-      if (dto.status === 'COMPLETED') {
-        updateData.completedAt = new Date();
-      }
+      updateData.completedAt = dto.status === 'COMPLETED' ? new Date() : null;
       events.push({
         eventType: ActionEventType.STATUS_CHANGED,
         user: { connect: { id: actingUserId } },
@@ -237,7 +241,7 @@ export class ActionsService {
     completedAt: action.completedAt ? action.completedAt.toISOString() : null,
     isOverdue:
       action.dueDate &&
-      action.dueDate < new Date() &&
+      action.dueDate < startOfToday() &&
       !['COMPLETED', 'ON_HOLD'].includes(action.status),
   });
 }
