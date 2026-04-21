@@ -31,7 +31,8 @@ import {
   ReferenceDot,
   ResponsiveContainer,
 } from "recharts";
-import { useVariableCost } from "@/hooks/use-mf-data";
+import { useVariableCost, useMfOffice } from "@/hooks/use-mf-data";
+import { usePeriodStore, getPeriodLabel } from "@/lib/period-store";
 
 const mockVariableCostData = {
   revenue: 12500,
@@ -82,6 +83,9 @@ export default function VariableCostPage() {
   const [viewMode, setViewMode] = useState<"monthly" | "cumulative">("monthly");
   const mounted = useIsClient();
   const vcQuery = useVariableCost();
+  const office = useMfOffice();
+  const { fiscalYear, month, periods } = usePeriodStore();
+  const periodLabel = getPeriodLabel(fiscalYear, month, periods);
 
   // APIデータが取れたらモックを上書き、エラー時はモックフォールバック
   const sourceData: {
@@ -186,7 +190,19 @@ export default function VariableCostPage() {
   return (
     <DashboardShell>
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
+        {/* 印刷専用ヘッダー */}
+        <div className="print-only" data-print-block>
+          <h1 className="text-xl font-bold">変動損益分析</h1>
+          <div className="mt-1 text-sm">
+            {office.data?.name || "—"} — {periodLabel || "期間未指定"}（{selectedMonth}・{viewMode === "monthly" ? "単月" : "累計"}）
+          </div>
+          <div className="mt-0.5 text-xs text-gray-600">
+            出力日: {new Date().toLocaleDateString("ja-JP")}
+          </div>
+          <hr className="mt-2" />
+        </div>
+
+        <div className="flex items-center justify-between screen-only">
           <div>
             <div className="flex items-center gap-2">
               <TrendingDown className="h-5 w-5 text-[var(--color-text-primary)]" />
@@ -194,12 +210,12 @@ export default function VariableCostPage() {
                 変動損益分析
               </h1>
             </div>
-            <p className="text-sm text-muted-foreground">2026年3月度</p>
+            <p className="text-sm text-muted-foreground">{periodLabel || "2026年3月度"}</p>
           </div>
           <PrintButton />
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3 screen-only">
           <select
             value={selectedMonth}
             onChange={(e) => setSelectedMonth(e.target.value)}

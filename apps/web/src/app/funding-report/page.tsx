@@ -8,7 +8,8 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Landmark, Bot, TrendingUp, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { PrintButton } from "@/components/ui/print-button";
-import { useAiFundingReport } from "@/hooks/use-mf-data";
+import { useAiFundingReport, useMfOffice } from "@/hooks/use-mf-data";
+import { usePeriodStore, getPeriodLabel } from "@/lib/period-store";
 import { isMfNotConnected } from "@/lib/api";
 import { MfEmptyState } from "@/components/ui/mf-empty-state";
 
@@ -65,6 +66,9 @@ export default function FundingReportPage() {
   const { data: apiData, refetch, isFetching, error } = useAiFundingReport();
   const [generated, setGenerated] = useState(false);
   const mfNotConnected = isMfNotConnected(error);
+  const office = useMfOffice();
+  const { fiscalYear, month, periods } = usePeriodStore();
+  const periodLabel = getPeriodLabel(fiscalYear, month, periods);
 
   const report: FundingReportView | null = generated && !mfNotConnected
     ? (apiData as unknown as FundingReportView | undefined) ?? mockFundingReport
@@ -78,8 +82,21 @@ export default function FundingReportPage() {
   return (
     <DashboardShell>
       <div className="space-y-6">
+        {/* 印刷専用ヘッダー */}
+        <div className="print-only" data-print-block>
+          <h1 className="text-xl font-bold">資金調達レポート</h1>
+          <div className="mt-1 text-sm">
+            {office.data?.name || "—"} — {periodLabel || "期間未指定"}
+          </div>
+          <div className="mt-0.5 text-xs text-gray-600">
+            出力日: {new Date().toLocaleDateString("ja-JP")}
+            {report?.generatedAt && ` / AI生成: ${report.generatedAt}`}
+          </div>
+          <hr className="mt-2" />
+        </div>
+
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between screen-only">
           <div className="flex items-center gap-3">
             <Landmark className="h-6 w-6 text-[var(--color-tertiary)]" />
             <div>
@@ -97,7 +114,7 @@ export default function FundingReportPage() {
         {/* Generate Button */}
         {!generated && !mfNotConnected && (
           <Button
-            className="gap-2 bg-[var(--color-primary)] text-white hover:bg-[var(--color-primary-hover)]"
+            className="gap-2 bg-[var(--color-primary)] text-white hover:bg-[var(--color-primary-hover)] screen-only"
             onClick={handleGenerate}
           >
             <Landmark className="h-4 w-4" />
