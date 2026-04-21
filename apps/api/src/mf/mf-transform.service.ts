@@ -484,9 +484,9 @@ export class MfTransformService {
       avgBurn > 0 ? Math.round((latestCash / avgBurn) * 10) / 10 : Infinity;
 
     let alertLevel: 'SAFE' | 'CAUTION' | 'WARNING' | 'CRITICAL';
-    if (runwayMonths >= 18) alertLevel = 'SAFE';
-    else if (runwayMonths >= 12) alertLevel = 'CAUTION';
-    else if (runwayMonths >= 6) alertLevel = 'WARNING';
+    if (runwayMonths >= 12) alertLevel = 'SAFE';
+    else if (runwayMonths >= 6) alertLevel = 'CAUTION';
+    else if (runwayMonths >= 3) alertLevel = 'WARNING';
     else alertLevel = 'CRITICAL';
 
     return {
@@ -563,9 +563,9 @@ export class MfTransformService {
       runway = Math.round((cashBalance / monthlyBurn) * 10) / 10;
     }
 
-    if (runway < 6) alertLevel = 'CRITICAL';
-    else if (runway < 12) alertLevel = 'WARNING';
-    else if (runway < 18) alertLevel = 'CAUTION';
+    if (runway < 3) alertLevel = 'CRITICAL';
+    else if (runway < 6) alertLevel = 'WARNING';
+    else if (runway < 12) alertLevel = 'CAUTION';
 
     return {
       revenue,

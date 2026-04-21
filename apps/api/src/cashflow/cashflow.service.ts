@@ -89,9 +89,9 @@ export class CashflowService {
         : Infinity;
 
     let alertLevel: string;
-    if (runwayMonths >= 6) alertLevel = 'SAFE';
-    else if (runwayMonths >= 3) alertLevel = 'CAUTION';
-    else if (runwayMonths >= 1) alertLevel = 'WARNING';
+    if (runwayMonths >= 12) alertLevel = 'SAFE';
+    else if (runwayMonths >= 6) alertLevel = 'CAUTION';
+    else if (runwayMonths >= 3) alertLevel = 'WARNING';
     else alertLevel = 'CRITICAL';
 
     return {

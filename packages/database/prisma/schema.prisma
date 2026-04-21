@@ -486,10 +486,10 @@ model RunwaySnapshot {
 }
 
 enum AlertLevel {
-  SAFE       // 6ヶ月以上
-  CAUTION    // 3-6ヶ月
-  WARNING    // 1-3ヶ月
-  CRITICAL   // 1ヶ月未満
+  SAFE       // 12ヶ月以上
+  CAUTION    // 6-12ヶ月
+  WARNING    // 3-6ヶ月
+  CRITICAL   // 3ヶ月未満
 }
 
 model LoanSimulation {
