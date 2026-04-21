@@ -25,7 +25,8 @@ import {
   ShieldAlert,
 } from "lucide-react";
 import { PrintButton } from "@/components/ui/print-button";
-import { useAiSummary } from "@/hooks/use-mf-data";
+import { useAiSummary, useMfOffice } from "@/hooks/use-mf-data";
+import { usePeriodStore, getPeriodLabel } from "@/lib/period-store";
 import { isMfNotConnected } from "@/lib/api";
 import { MfEmptyState } from "@/components/ui/mf-empty-state";
 import { AgentBanner } from "@/components/agent/agent-banner";
@@ -84,6 +85,9 @@ export default function AiReportPage() {
   const { data: aiData, isLoading, refetch, isFetching, error } = useAiSummary();
   const [focus, setFocus] = useState<FocusValue>("all");
   const mfNotConnected = isMfNotConnected(error);
+  const office = useMfOffice();
+  const { fiscalYear, month, periods } = usePeriodStore();
+  const periodLabel = getPeriodLabel(fiscalYear, month, periods);
 
   const risks = (aiData?.highlights ?? [])
     .filter((h) => h.type === "negative" || h.type === "neutral")
@@ -100,7 +104,20 @@ export default function AiReportPage() {
   return (
     <DashboardShell>
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
+        {/* 印刷専用ヘッダー */}
+        <div className="print-only" data-print-block>
+          <h1 className="text-xl font-bold">AI経営分析レポート</h1>
+          <div className="mt-1 text-sm">
+            {office.data?.name || "—"} — {periodLabel || "期間未指定"}
+          </div>
+          <div className="mt-0.5 text-xs text-gray-600">
+            出力日: {new Date().toLocaleDateString("ja-JP")}
+            {generatedAtDisplay && ` / AI生成: ${generatedAtDisplay}`}
+          </div>
+          <hr className="mt-2" />
+        </div>
+
+        <div className="flex items-center justify-between screen-only">
           <div className="flex items-center gap-3">
             <Bot className="h-6 w-6 text-[var(--color-tertiary)]" />
             <div>
@@ -115,21 +132,25 @@ export default function AiReportPage() {
           <PrintButton />
         </div>
 
-        <AgentBanner
-          agent={AGENTS.drafter}
-          status={isLoading || isFetching ? "running" : aiData ? "ok" : "unknown"}
-          detectionCount={risks.length}
-          lastUpdatedAt={aiData?.generatedAt ?? new Date().toISOString()}
-          actions={
-            <CopilotOpenButton
-              agentKey="drafter"
-              mode="execute"
-              seed="顧問向け月次レポートの初稿を、根拠データと信頼度を併記してドラフト化してください。"
-            />
-          }
-        />
+        <div className="screen-only">
+          <AgentBanner
+            agent={AGENTS.drafter}
+            status={isLoading || isFetching ? "running" : aiData ? "ok" : "unknown"}
+            detectionCount={risks.length}
+            lastUpdatedAt={aiData?.generatedAt ?? new Date().toISOString()}
+            actions={
+              <CopilotOpenButton
+                agentKey="drafter"
+                mode="execute"
+                seed="顧問向け月次レポートの初稿を、根拠データと信頼度を併記してドラフト化してください。"
+              />
+            }
+          />
+        </div>
 
-        <DrafterCard />
+        <div className="screen-only">
+          <DrafterCard />
+        </div>
 
         {mfNotConnected ? (
           <MfEmptyState />
