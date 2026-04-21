@@ -544,11 +544,28 @@ function ReviewTab({
   }
 
   if (reviewQuery.isError) {
+    const err = reviewQuery.error as { statusCode?: number; message?: string } | null;
+    const status = err?.statusCode;
+    const isMfDisconnected = status === 503;
+    const isAuth = status === 401 || status === 403;
+    const title = isMfDisconnected
+      ? "MFクラウド会計に接続されていません"
+      : isAuth
+        ? "権限がないか、セッションが切れています"
+        : "レビュー実行に失敗しました";
+    const hint = isMfDisconnected
+      ? "設定 > 連携から MF 接続を完了してください"
+      : isAuth
+        ? "再ログインのうえお試しください"
+        : err?.message || "時間をおいて再試行してください";
     return (
       <Card><CardContent className="py-8 text-center">
         <AlertTriangle className="mx-auto mb-3 h-10 w-10 text-red-400" />
-        <p className="text-sm text-red-600">レビュー実行に失敗しました</p>
-        <Button className="mt-4" variant="outline" onClick={() => reviewQuery.refetch()}>再試行</Button>
+        <p className="text-sm font-semibold text-red-600">{title}</p>
+        <p className="mt-1 text-xs text-muted-foreground">{hint}</p>
+        {!isMfDisconnected && !isAuth && (
+          <Button className="mt-4" variant="outline" onClick={() => reviewQuery.refetch()}>再試行</Button>
+        )}
       </CardContent></Card>
     );
   }
@@ -645,7 +662,7 @@ function ReviewTab({
         <div className="space-y-4">
           <Card><CardHeader className="pb-2"><CardTitle className="text-sm">月次推移</CardTitle></CardHeader>
             <CardContent><div className="overflow-x-auto"><table className="w-full text-xs">
-              <thead><tr className="border-b">{["月", "売上高", "販管費", "販管費率", "営業利益", "経常利益"].map((h) => <th key={h} className="py-1.5 text-right font-semibold first:text-left">{h}</th>)}</tr></thead>
+              <thead><tr className="border-b">{["月", "売上高", "販管費", "販管費率", "営業利益", "経常利益", ""].map((h, idx) => <th key={idx} className="py-1.5 text-right font-semibold first:text-left">{h}</th>)}</tr></thead>
               <tbody>{(pl?.monthly_table || []).map((m: ReviewPlMonthlyRow, i: number) => (
                 <tr key={i} className={cn("border-b", m.operating < 0 && "bg-red-50")}>
                   <td className="py-1.5 font-medium">{m.month}</td>
@@ -654,6 +671,19 @@ function ReviewTab({
                   <td className="py-1.5 text-right tabular-nums">{m.sga_ratio}%</td>
                   <td className={cn("py-1.5 text-right tabular-nums", m.operating < 0 && "text-red-600 font-bold")}>{fmt(m.operating)}</td>
                   <td className={cn("py-1.5 text-right tabular-nums", m.ordinary < 0 && "text-red-600")}>{fmt(m.ordinary)}</td>
+                  <td className="py-1.5 text-right">
+                    {m.operating < 0 && (
+                      <ActionizeButton
+                        sourceScreen="MONTHLY_REVIEW"
+                        sourceRef={{ month: m.month, kind: "pl-operating-negative" }}
+                        defaultTitle={`${m.month} 営業赤字`}
+                        defaultDescription={`${m.month}は営業利益 ${fmt(m.operating)}円。販管費率 ${m.sga_ratio}%、売上 ${fmt(m.sales)}円。要因分析と対策を検討`}
+                        defaultSeverity="HIGH"
+                        defaultOwnerRole="ADVISOR"
+                        size="sm"
+                      />
+                    )}
+                  </td>
                 </tr>
               ))}</tbody>
             </table></div></CardContent>
@@ -674,23 +704,72 @@ function ReviewTab({
         <div className="space-y-4">
           <Card><CardHeader className="pb-2"><CardTitle className="text-sm">財務比率推移</CardTitle></CardHeader>
             <CardContent><div className="overflow-x-auto"><table className="w-full text-xs">
-              <thead><tr className="border-b">{["月", "流動比率", "自己資本比率"].map((h) => <th key={h} className="py-1.5 text-right font-semibold first:text-left">{h}</th>)}</tr></thead>
-              <tbody>{(bs?.ratios || []).map((r: ReviewBsRatio, i: number) => (
-                <tr key={i} className="border-b">
-                  <td className="py-1.5 font-medium">{r.month}</td>
-                  <td className={cn("py-1.5 text-right tabular-nums", r.current_ratio < 100 && "text-red-600")}>{r.current_ratio}%</td>
-                  <td className={cn("py-1.5 text-right tabular-nums", r.equity_ratio < 0 && "text-red-600")}>{r.equity_ratio}%</td>
-                </tr>
-              ))}</tbody>
+              <thead><tr className="border-b">{["月", "流動比率", "自己資本比率", ""].map((h, idx) => <th key={idx} className="py-1.5 text-right font-semibold first:text-left">{h}</th>)}</tr></thead>
+              <tbody>{(bs?.ratios || []).map((r: ReviewBsRatio, i: number) => {
+                const currentRisk = r.current_ratio < 100;
+                const equityRisk = r.equity_ratio < 0;
+                const risky = currentRisk || equityRisk;
+                const issues: string[] = [];
+                if (currentRisk) issues.push(`流動比率 ${r.current_ratio}%（短期支払能力に懸念）`);
+                if (equityRisk) issues.push(`自己資本比率 ${r.equity_ratio}%（債務超過）`);
+                return (
+                  <tr key={i} className="border-b">
+                    <td className="py-1.5 font-medium">{r.month}</td>
+                    <td className={cn("py-1.5 text-right tabular-nums", currentRisk && "text-red-600")}>{r.current_ratio}%</td>
+                    <td className={cn("py-1.5 text-right tabular-nums", equityRisk && "text-red-600")}>{r.equity_ratio}%</td>
+                    <td className="py-1.5 text-right">
+                      {risky && (
+                        <ActionizeButton
+                          sourceScreen="MONTHLY_REVIEW"
+                          sourceRef={{ month: r.month, kind: "bs-ratio-risk" }}
+                          defaultTitle={`${r.month} 財務比率リスク`}
+                          defaultDescription={issues.join(' / ')}
+                          defaultSeverity={equityRisk ? "CRITICAL" : "HIGH"}
+                          defaultOwnerRole="ADVISOR"
+                          size="sm"
+                        />
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}</tbody>
             </table></div></CardContent>
           </Card>
           {(bs?.negatives || []).length > 0 && (
-            <Card><CardHeader className="pb-2"><CardTitle className="text-sm">マイナス残高 ({bs.negatives?.length ?? 0}件)</CardTitle></CardHeader>
+            <Card>
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between gap-2">
+                  <CardTitle className="text-sm">マイナス残高 ({bs.negatives?.length ?? 0}件)</CardTitle>
+                  <ActionizeButton
+                    sourceScreen="MONTHLY_REVIEW"
+                    sourceRef={{ kind: "bs-negative" }}
+                    defaultTitle="BSマイナス残高の調査"
+                    defaultDescription={(bs?.neg_interpretations ?? []).slice(0, 5).join(' / ') || "マイナス残高科目を洗い出し、原因仕訳を特定"}
+                    defaultSeverity="HIGH"
+                    defaultOwnerRole="ADVISOR"
+                    size="sm"
+                  />
+                </div>
+              </CardHeader>
               <CardContent><div className="space-y-1">{(bs?.neg_interpretations || []).map((t: string, i: number) => <p key={i} className="text-xs text-muted-foreground">{t}</p>)}</div></CardContent>
             </Card>
           )}
           {(bs?.stagnant || []).length > 0 && (
-            <Card><CardHeader className="pb-2"><CardTitle className="text-sm">滞留勘定 ({bs.stagnant?.length ?? 0}件)</CardTitle></CardHeader>
+            <Card>
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between gap-2">
+                  <CardTitle className="text-sm">滞留勘定 ({bs.stagnant?.length ?? 0}件)</CardTitle>
+                  <ActionizeButton
+                    sourceScreen="MONTHLY_REVIEW"
+                    sourceRef={{ kind: "bs-stagnant" }}
+                    defaultTitle="滞留勘定の精査"
+                    defaultDescription={(bs?.stagnant_interpretations ?? []).slice(0, 5).join(' / ') || "長期間動きのない勘定残高の実在性を確認"}
+                    defaultSeverity="MEDIUM"
+                    defaultOwnerRole="ADVISOR"
+                    size="sm"
+                  />
+                </div>
+              </CardHeader>
               <CardContent><div className="space-y-1">{(bs?.stagnant_interpretations || []).map((t: string, i: number) => <p key={i} className="text-xs text-muted-foreground">{t}</p>)}</div></CardContent>
             </Card>
           )}
