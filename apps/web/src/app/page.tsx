@@ -27,7 +27,9 @@ import {
   useMfPLTransition,
   useAiSummary,
   useAlerts,
+  useMfOffice,
 } from "@/hooks/use-mf-data";
+import { PrintButton } from "@/components/ui/print-button";
 import { usePeriodStore, getPeriodLabel } from "@/lib/period-store";
 import { MfEmptyState } from "@/components/ui/mf-empty-state";
 import { QueryErrorState } from "@/components/ui/query-error-state";
@@ -110,6 +112,7 @@ function buildKpis(data: DashboardSummary) {
 
 export default function DashboardPage() {
   const dashboard = useMfDashboard();
+  const office = useMfOffice();
   const { fiscalYear, month, periods } = usePeriodStore();
 
   const isLoading = dashboard.isLoading;
@@ -130,32 +133,49 @@ export default function DashboardPage() {
   return (
     <DashboardShell>
       <div className="space-y-6">
-        <div>
-          <h1 className="text-xl font-bold text-[var(--color-text-primary)]">
-            ダッシュボード
-          </h1>
-          <p className="text-sm text-[var(--color-text-secondary)]">
-            {periodLabel} 経営サマリー
-          </p>
+        {/* 印刷専用ヘッダー */}
+        <div className="print-only" data-print-block>
+          <h1 className="text-xl font-bold">経営ダッシュボード</h1>
+          <div className="mt-1 text-sm">
+            {office.data?.name || "—"} — {periodLabel || "期間未指定"}
+          </div>
+          <div className="mt-0.5 text-xs text-gray-600">
+            出力日: {new Date().toLocaleDateString("ja-JP")}
+          </div>
+          <hr className="mt-2" />
         </div>
 
-        <AgentBanner
-          agent={AGENTS.brief}
-          status={alertsQuery.data && alertsQuery.data.length > 0 ? "alert" : "ok"}
-          detectionCount={alertsQuery.data?.length ?? 0}
-          lastUpdatedAt={new Date().toISOString()}
-          actions={
-            <CopilotOpenButton
-              agentKey="brief"
-              mode="observe"
-              seed="今朝の注目点を3点に絞って整理してください。"
-            />
-          }
-        />
+        <div className="flex items-center justify-between screen-only">
+          <div>
+            <h1 className="text-xl font-bold text-[var(--color-text-primary)]">
+              ダッシュボード
+            </h1>
+            <p className="text-sm text-[var(--color-text-secondary)]">
+              {periodLabel} 経営サマリー
+            </p>
+          </div>
+          <PrintButton />
+        </div>
 
-        <BriefingCard />
+        <div className="screen-only space-y-6">
+          <AgentBanner
+            agent={AGENTS.brief}
+            status={alertsQuery.data && alertsQuery.data.length > 0 ? "alert" : "ok"}
+            detectionCount={alertsQuery.data?.length ?? 0}
+            lastUpdatedAt={new Date().toISOString()}
+            actions={
+              <CopilotOpenButton
+                agentKey="brief"
+                mode="observe"
+                seed="今朝の注目点を3点に絞って整理してください。"
+              />
+            }
+          />
 
-        <AgentActivityCard />
+          <BriefingCard />
+
+          <AgentActivityCard />
+        </div>
 
         {isLoading ? (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
