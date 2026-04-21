@@ -28,6 +28,8 @@ import {
 } from "lucide-react";
 import { PrintButton } from "@/components/ui/print-button";
 import { useAiSummary } from "@/hooks/use-mf-data";
+import { isMfNotConnected } from "@/lib/api";
+import { MfEmptyState } from "@/components/ui/mf-empty-state";
 import { AgentBanner } from "@/components/agent/agent-banner";
 import { AGENTS } from "@/lib/agent-voice";
 import { CopilotOpenButton } from "@/components/copilot/copilot-open-button";
@@ -145,8 +147,9 @@ function filterSections(
 }
 
 export default function AiReportPage() {
-  const { data: aiData, isLoading, refetch, isFetching } = useAiSummary();
+  const { data: aiData, isLoading, refetch, isFetching, error } = useAiSummary();
   const [focus, setFocus] = useState<FocusValue>("all");
+  const mfNotConnected = isMfNotConnected(error);
 
   // AIデータからリスクを生成（negative→高、neutral→中）
   const risks = aiData?.highlights && aiData.highlights.length > 0
@@ -197,6 +200,10 @@ export default function AiReportPage() {
 
         <DrafterCard />
 
+        {mfNotConnected ? (
+          <MfEmptyState />
+        ) : (
+          <>
         {/* 月次経営分析 */}
         <Card>
           <CardHeader className="pb-2">
@@ -402,6 +409,8 @@ export default function AiReportPage() {
             {isFetching ? "生成中..." : "レポート再生成"}
           </Button>
         </div>
+          </>
+        )}
       </div>
     </DashboardShell>
   );
