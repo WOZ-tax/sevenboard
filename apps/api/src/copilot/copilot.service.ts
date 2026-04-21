@@ -12,6 +12,8 @@ import { AlertsService } from '../alerts/alerts.service';
 import { ActionsService } from '../actions/actions.service';
 import { DataHealthService } from '../data-health/data-health.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { AgentRunsService } from '../agent-runs/agent-runs.service';
+import type { AgentRunMode } from '@prisma/client';
 import type { CopilotChatDto } from './copilot.dto';
 import {
   AGENT_SYSTEM_ROLES,
@@ -45,6 +47,7 @@ export class CopilotService {
     private actions: ActionsService,
     private dataHealth: DataHealthService,
     private prisma: PrismaService,
+    private agentRuns: AgentRunsService,
   ) {}
 
   async chat(
@@ -52,8 +55,37 @@ export class CopilotService {
     dto: CopilotChatDto,
     userId: string,
   ): Promise<ChatResult> {
+    const startedAt = Date.now();
+    const runMode: AgentRunMode =
+      dto.mode === 'execute'
+        ? 'EXECUTE'
+        : dto.mode === 'dialog'
+          ? 'DIALOG'
+          : 'OBSERVE';
+    const lastUserMsg = [...dto.messages].reverse().find((m) => m.role === 'user');
+    const inputForLog = {
+      agentKey: dto.agentKey,
+      pathname: dto.pathname,
+      fiscalYear: dto.fiscalYear ?? null,
+      endMonth: dto.endMonth ?? null,
+      lastUserMessage: lastUserMsg?.content.slice(0, 2000) ?? null,
+    };
+
     const provider = createLlmProvider(this.httpService);
     if (!provider) {
+      await this.agentRuns.logRun({
+        orgId,
+        agentKey: 'COPILOT',
+        mode: runMode,
+        userId,
+        fiscalYear: dto.fiscalYear ?? null,
+        endMonth: dto.endMonth ?? null,
+        input: inputForLog,
+        output: {},
+        status: 'FAILED',
+        errorMessage: 'LLM provider not configured',
+        durationMs: Date.now() - startedAt,
+      });
       throw new ServiceUnavailableException(
         'LLM provider not configured (ANTHROPIC_API_KEY or GOOGLE_AI_API_KEY required)',
       );
@@ -111,18 +143,46 @@ export class CopilotService {
           (call) => this.handleToolCall(orgId, userId, call),
           { maxTokens: 1600, maxIterations: 4 },
         );
+        const toolCalls: ChatToolCall[] = res.toolCalls.map((t) => ({
+          name: t.name,
+          input: t.input,
+          ok: t.result.ok,
+          summary: t.result.content.slice(0, 240),
+        }));
+        const reply = res.text.trim() || '[応答なし]';
+        await this.agentRuns.logRun({
+          orgId,
+          agentKey: 'COPILOT',
+          mode: runMode,
+          userId,
+          fiscalYear: dto.fiscalYear ?? null,
+          endMonth: dto.endMonth ?? null,
+          input: inputForLog,
+          output: { reply: reply.slice(0, 4000) },
+          toolCalls: toolCalls as unknown as Record<string, unknown>[],
+          status: 'SUCCESS',
+          durationMs: Date.now() - startedAt,
+        });
         return {
-          reply: res.text.trim() || '[応答なし]',
+          reply,
           model: process.env.AI_PROVIDER || 'claude',
-          toolCalls: res.toolCalls.map((t) => ({
-            name: t.name,
-            input: t.input,
-            ok: t.result.ok,
-            summary: t.result.content.slice(0, 240),
-          })),
+          toolCalls,
         };
       } catch (err) {
         this.logger.error('Copilot execute with tools failed', err as Error);
+        await this.agentRuns.logRun({
+          orgId,
+          agentKey: 'COPILOT',
+          mode: runMode,
+          userId,
+          fiscalYear: dto.fiscalYear ?? null,
+          endMonth: dto.endMonth ?? null,
+          input: inputForLog,
+          output: {},
+          status: 'FAILED',
+          errorMessage: err instanceof Error ? err.message : String(err),
+          durationMs: Date.now() - startedAt,
+        });
         throw new ServiceUnavailableException(
           'LLM generation with tools failed',
         );
@@ -133,12 +193,38 @@ export class CopilotService {
 
     try {
       const res = await provider.generate(prompt, { maxTokens: 1200 });
+      const reply = res.text.trim() || '[応答なし]';
+      await this.agentRuns.logRun({
+        orgId,
+        agentKey: 'COPILOT',
+        mode: runMode,
+        userId,
+        fiscalYear: dto.fiscalYear ?? null,
+        endMonth: dto.endMonth ?? null,
+        input: inputForLog,
+        output: { reply: reply.slice(0, 4000) },
+        status: 'SUCCESS',
+        durationMs: Date.now() - startedAt,
+      });
       return {
-        reply: res.text.trim() || '[応答なし]',
+        reply,
         model: process.env.AI_PROVIDER || 'claude',
       };
     } catch (err) {
       this.logger.error('Copilot chat failed', err as Error);
+      await this.agentRuns.logRun({
+        orgId,
+        agentKey: 'COPILOT',
+        mode: runMode,
+        userId,
+        fiscalYear: dto.fiscalYear ?? null,
+        endMonth: dto.endMonth ?? null,
+        input: inputForLog,
+        output: {},
+        status: 'FAILED',
+        errorMessage: err instanceof Error ? err.message : String(err),
+        durationMs: Date.now() - startedAt,
+      });
       throw new ServiceUnavailableException('LLM generation failed');
     }
   }

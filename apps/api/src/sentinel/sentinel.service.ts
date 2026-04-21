@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { MfApiService } from '../mf/mf-api.service';
 import { MfTransformService } from '../mf/mf-transform.service';
+import { AgentRunsService } from '../agent-runs/agent-runs.service';
 
 export type SentinelSeverity = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'INFO';
 export type SentinelConfidence = 'HIGH' | 'MEDIUM' | 'LOW';
@@ -33,6 +34,7 @@ export class SentinelService {
   constructor(
     private mfApi: MfApiService,
     private mfTransform: MfTransformService,
+    private agentRuns: AgentRunsService,
   ) {}
 
   async detect(
@@ -40,6 +42,7 @@ export class SentinelService {
     options?: { fiscalYear?: number; endMonth?: number },
   ): Promise<SentinelResponse> {
     const now = new Date();
+    const startedAt = Date.now();
 
     try {
       const [bsTransition, pl, bs] = await Promise.all([
@@ -167,21 +170,46 @@ export class SentinelService {
 
       detections.sort((a, b) => severityRank(b.severity) - severityRank(a.severity));
 
-      return {
+      const result: SentinelResponse = {
         generatedAt: now.toISOString(),
         detections: detections.slice(0, 5),
         fallbackReason:
           detections.length === 0 ? '検知なし' : undefined,
       };
+      await this.agentRuns.logRun({
+        orgId,
+        agentKey: 'SENTINEL',
+        mode: 'OBSERVE',
+        fiscalYear: options?.fiscalYear ?? null,
+        endMonth: options?.endMonth ?? null,
+        input: { fiscalYear: options?.fiscalYear ?? null, endMonth: options?.endMonth ?? null },
+        output: result as unknown as Record<string, unknown>,
+        status: result.fallbackReason && detections.length === 0 ? 'FALLBACK' : 'SUCCESS',
+        durationMs: Date.now() - startedAt,
+      });
+      return result;
     } catch (err) {
       this.logger.warn(
         `Sentinel detection failed: ${err instanceof Error ? err.message : err}`,
       );
-      return {
+      const fallback: SentinelResponse = {
         generatedAt: now.toISOString(),
         detections: [],
         fallbackReason: 'MF会計に接続できないため検知を保留',
       };
+      await this.agentRuns.logRun({
+        orgId,
+        agentKey: 'SENTINEL',
+        mode: 'OBSERVE',
+        fiscalYear: options?.fiscalYear ?? null,
+        endMonth: options?.endMonth ?? null,
+        input: { fiscalYear: options?.fiscalYear ?? null, endMonth: options?.endMonth ?? null },
+        output: fallback as unknown as Record<string, unknown>,
+        status: 'FAILED',
+        errorMessage: err instanceof Error ? err.message : String(err),
+        durationMs: Date.now() - startedAt,
+      });
+      return fallback;
     }
   }
 

@@ -30,6 +30,7 @@ import {
   Zap,
   Activity,
   Briefcase,
+  History,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState, useEffect } from "react";
@@ -68,6 +69,7 @@ const menuItems = [
   { label: "カレンダー", href: "/calendar", icon: CalendarDays },
   { label: "経営イベント", href: "/business-events", icon: Briefcase },
   { label: "データ鮮度", href: "/data-health", icon: Activity },
+  { label: "エージェント履歴", href: "/agent-runs", icon: History },
   { label: "マスタ管理", href: "/masters", icon: Database },
   { label: "設定", href: "/settings", icon: Settings },
 ];

@@ -4,6 +4,7 @@ import { MfModule } from '../mf/mf.module';
 import { AlertsModule } from '../alerts/alerts.module';
 import { ActionsModule } from '../actions/actions.module';
 import { DataHealthModule } from '../data-health/data-health.module';
+import { AgentRunsModule } from '../agent-runs/agent-runs.module';
 import { CopilotController } from './copilot.controller';
 import { CopilotService } from './copilot.service';
 
@@ -14,6 +15,7 @@ import { CopilotService } from './copilot.service';
     AlertsModule,
     ActionsModule,
     DataHealthModule,
+    AgentRunsModule,
   ],
   controllers: [CopilotController],
   providers: [CopilotService],

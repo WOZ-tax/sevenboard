@@ -3,6 +3,7 @@ import { HttpModule } from '@nestjs/axios';
 import { TriageModule } from '../triage/triage.module';
 import { MfModule } from '../mf/mf.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { AgentRunsModule } from '../agent-runs/agent-runs.module';
 import { BriefingController } from './briefing.controller';
 import { BriefingService } from './briefing.service';
 import { BriefingSchedulerService } from './briefing-scheduler.service';
@@ -13,6 +14,7 @@ import { BriefingSchedulerService } from './briefing-scheduler.service';
     TriageModule,
     MfModule,
     NotificationsModule,
+    AgentRunsModule,
   ],
   controllers: [BriefingController],
   providers: [BriefingService, BriefingSchedulerService],

@@ -843,6 +843,56 @@ export const api = {
       ),
   },
 
+  // === Agent Runs (全エージェント実行履歴) ===
+  agentRuns: {
+    list: (
+      orgId: string,
+      params?: {
+        agentKey?: "BRIEF" | "SENTINEL" | "DRAFTER" | "AUDITOR" | "COPILOT";
+        limit?: number;
+        days?: number;
+      },
+    ) => {
+      const qs = new URLSearchParams();
+      if (params?.agentKey) qs.set("agentKey", params.agentKey);
+      if (params?.limit) qs.set("limit", String(params.limit));
+      if (params?.days) qs.set("days", String(params.days));
+      const suffix = qs.toString() ? `?${qs}` : "";
+      return apiFetch<{
+        items: Array<{
+          id: string;
+          agentKey: "BRIEF" | "SENTINEL" | "DRAFTER" | "AUDITOR" | "COPILOT";
+          mode: "OBSERVE" | "DIALOG" | "EXECUTE" | "CRON" | null;
+          generatedAt: string;
+          fiscalYear: number | null;
+          endMonth: number | null;
+          status: "SUCCESS" | "FALLBACK" | "FAILED";
+          errorMessage: string | null;
+          durationMs: number | null;
+          toolCalls: unknown;
+        }>;
+      }>(`/organizations/${orgId}/agent-runs${suffix}`);
+    },
+    get: (orgId: string, id: string) =>
+      apiFetch<{
+        id: string;
+        orgId: string;
+        agentKey: "BRIEF" | "SENTINEL" | "DRAFTER" | "AUDITOR" | "COPILOT";
+        mode: "OBSERVE" | "DIALOG" | "EXECUTE" | "CRON" | null;
+        generatedAt: string;
+        fiscalYear: number | null;
+        endMonth: number | null;
+        userId: string | null;
+        input: unknown;
+        output: unknown;
+        toolCalls: unknown;
+        status: "SUCCESS" | "FALLBACK" | "FAILED";
+        errorMessage: string | null;
+        durationMs: number | null;
+        createdAt: string;
+      }>(`/organizations/${orgId}/agent-runs/${id}`),
+  },
+
   // === Business Events (§6.2) ===
   businessEvents: {
     list: (orgId: string, fromDate?: string, toDate?: string) => {

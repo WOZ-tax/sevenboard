@@ -116,16 +116,52 @@ export function buildAgentSystemPrompt(agent: AgentKey): string {
 
 /**
  * パスから担当エージェントを特定
+ *
+ * 各エージェントの主担当画面だけでなく、テーマが近い周辺画面も同じ担当に寄せる。
+ * - brief: 全体ダッシュ/アラート/トリアージ/指標系/カレンダー/データ健全性
+ * - sentinel: 資金繰り/融資/シミュ/変動損益/資金調達
+ * - drafter: AIレポート/顧問コメント/トークスクリプト/財務諸表/予算ヘルパー
+ * - auditor: 月次レビュー/予実差異/Action/経営イベント/予算
  */
+const PATH_TO_AGENT: Array<{ prefix: string; key: AgentKey }> = [
+  // sentinel
+  { prefix: "/cashflow", key: "sentinel" },
+  { prefix: "/loan", key: "sentinel" },
+  { prefix: "/simulation", key: "sentinel" },
+  { prefix: "/variable-cost", key: "sentinel" },
+  { prefix: "/funding-report", key: "sentinel" },
+  // drafter
+  { prefix: "/ai-report", key: "drafter" },
+  { prefix: "/comments", key: "drafter" },
+  { prefix: "/talk-script", key: "drafter" },
+  { prefix: "/financial-statements", key: "drafter" },
+  { prefix: "/budget-helper", key: "drafter" },
+  // auditor
+  { prefix: "/monthly-review", key: "auditor" },
+  { prefix: "/variance", key: "auditor" },
+  { prefix: "/actions", key: "auditor" },
+  { prefix: "/business-events", key: "auditor" },
+  { prefix: "/budget", key: "auditor" },
+  // brief (ダッシュ/監視系は最後のfallback前に明示)
+  { prefix: "/alerts", key: "brief" },
+  { prefix: "/triage", key: "brief" },
+  { prefix: "/indicators", key: "brief" },
+  { prefix: "/kpi", key: "brief" },
+  { prefix: "/calendar", key: "brief" },
+  { prefix: "/data-health", key: "brief" },
+  { prefix: "/agent-runs", key: "brief" },
+];
+
 export function resolveAgentByPath(pathname: string): AgentIdentity | null {
-  // 完全一致優先
-  const exact = Object.values(AGENTS).find((a) => a.path === pathname);
-  if (exact) return exact;
-  // prefix一致（/cashflow/detail など）
-  const prefix = Object.values(AGENTS).find(
-    (a) => a.path !== "/" && pathname.startsWith(a.path),
+  // ルート / は brief を担当
+  if (pathname === "/") return AGENTS.brief;
+
+  // 明示マッピングを最長一致で照合
+  const sorted = [...PATH_TO_AGENT].sort(
+    (a, b) => b.prefix.length - a.prefix.length,
   );
-  return prefix ?? null;
+  const hit = sorted.find((entry) => pathname.startsWith(entry.prefix));
+  return hit ? AGENTS[hit.key] : null;
 }
 
 /** 信頼度表示ラベル */

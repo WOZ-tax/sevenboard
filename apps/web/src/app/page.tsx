@@ -20,6 +20,7 @@ import { AGENTS } from "@/lib/agent-voice";
 import { CopilotOpenButton } from "@/components/copilot/copilot-open-button";
 import { ActionizeButton } from "@/components/ui/actionize-button";
 import { BriefingCard } from "@/components/dashboard/briefing-card";
+import { AgentActivityCard } from "@/components/dashboard/agent-activity-card";
 import { cn } from "@/lib/utils";
 import { formatManYen } from "@/lib/format";
 import {
@@ -148,6 +149,8 @@ export default function DashboardPage() {
         />
 
         <BriefingCard />
+
+        <AgentActivityCard />
 
         {isLoading ? (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">

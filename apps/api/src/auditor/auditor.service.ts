@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { AgentRunsService } from '../agent-runs/agent-runs.service';
 
 export type AuditorSeverity = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'INFO';
 
@@ -29,10 +30,14 @@ export interface AuditorResponse {
 
 @Injectable()
 export class AuditorService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private agentRuns: AgentRunsService,
+  ) {}
 
   async checkQuality(orgId: string): Promise<AuditorResponse> {
     const now = new Date();
+    const startedAt = Date.now();
     const findings: AuditorFinding[] = [];
 
     // 1) 再発検知: 同一 sourceScreen × 同じ severity のActionが直近90日で3件以上
@@ -127,11 +132,21 @@ export class AuditorService {
 
     findings.sort((a, b) => sevRank(b.severity) - sevRank(a.severity));
 
-    return {
+    const result: AuditorResponse = {
       generatedAt: now.toISOString(),
       findings: findings.slice(0, 5),
       fallbackReason: findings.length === 0 ? '品質上の指摘事項なし' : undefined,
     };
+    await this.agentRuns.logRun({
+      orgId,
+      agentKey: 'AUDITOR',
+      mode: 'OBSERVE',
+      input: {},
+      output: result as unknown as Record<string, unknown>,
+      status: findings.length === 0 ? 'FALLBACK' : 'SUCCESS',
+      durationMs: Date.now() - startedAt,
+    });
+    return result;
   }
 
   private async findRecurringActions(

@@ -222,6 +222,117 @@ export class GeminiProvider implements LlmProvider {
     const text = res.data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
     return { text };
   }
+
+  async runWithTools(
+    prompt: string,
+    tools: LlmToolDefinition[],
+    handler: ToolUseHandler,
+    options?: LlmToolRunOptions,
+  ): Promise<LlmToolRunResult> {
+    const model = 'gemini-2.5-flash';
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${this.apiKey}`;
+    const maxIterations = options?.maxIterations ?? 4;
+
+    // Gemini は Anthropic と違い input_schema ではなく parameters を使う
+    const functionDeclarations = tools.map((t) => ({
+      name: t.name,
+      description: t.description,
+      parameters: t.input_schema,
+    }));
+
+    const contents: Array<{
+      role: 'user' | 'model';
+      parts: Array<Record<string, unknown>>;
+    }> = [{ role: 'user', parts: [{ text: prompt }] }];
+
+    if (options?.system) {
+      // Gemini の systemInstruction は body 直下だが、会話継続時は毎回送る必要あり。
+      // ここでは簡略化して prompt 先頭に融合済みを想定し、未指定時のみ注入。
+    }
+
+    const toolCalls: LlmToolRunResult['toolCalls'] = [];
+    let finalText = '';
+
+    for (let iter = 0; iter < maxIterations; iter++) {
+      const body: Record<string, unknown> = {
+        contents,
+        tools: [{ functionDeclarations }],
+        generationConfig: {
+          maxOutputTokens: options?.maxTokens || 2048,
+        },
+      };
+      if (options?.system) {
+        body.systemInstruction = { parts: [{ text: options.system }] };
+      }
+
+      const res: AxiosResponse = await lastValueFrom(
+        this.httpService.post(url, body, {
+          headers: { 'Content-Type': 'application/json' },
+        }) as any,
+      );
+
+      const candidate = res.data?.candidates?.[0];
+      const parts: Array<Record<string, unknown>> =
+        candidate?.content?.parts ?? [];
+      const finishReason: string | undefined = candidate?.finishReason;
+
+      contents.push({ role: 'model', parts });
+
+      const textParts = parts
+        .filter((p) => typeof p.text === 'string')
+        .map((p) => p.text as string)
+        .filter(Boolean);
+      if (textParts.length > 0) finalText = textParts.join('\n');
+
+      const functionCalls = parts
+        .filter((p) => p.functionCall)
+        .map((p) => p.functionCall as { name: string; args?: Record<string, unknown> });
+
+      if (functionCalls.length === 0) break;
+
+      const responseParts: Array<Record<string, unknown>> = [];
+      for (const fc of functionCalls) {
+        const input = (fc.args ?? {}) as Record<string, unknown>;
+        let result: LlmToolResult;
+        try {
+          result = await handler({
+            id: fc.name,
+            name: fc.name,
+            input,
+          });
+        } catch (err) {
+          result = {
+            toolUseId: fc.name,
+            content:
+              err instanceof Error ? err.message : 'tool handler failed',
+            isError: true,
+          };
+        }
+        toolCalls.push({
+          name: fc.name,
+          input,
+          result: { ok: !result.isError, content: result.content },
+        });
+        responseParts.push({
+          functionResponse: {
+            name: fc.name,
+            response: result.isError
+              ? { error: result.content }
+              : { result: result.content },
+          },
+        });
+      }
+
+      contents.push({ role: 'user', parts: responseParts });
+
+      if (finishReason && finishReason !== 'STOP' && finishReason !== 'MAX_TOKENS') {
+        // safety stop etc.
+        break;
+      }
+    }
+
+    return { text: finalText, toolCalls };
+  }
 }
 
 /**

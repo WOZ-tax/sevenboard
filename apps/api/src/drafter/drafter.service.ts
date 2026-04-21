@@ -3,6 +3,8 @@ import { HttpService } from '@nestjs/axios';
 import { createLlmProvider } from '../ai/llm-provider';
 import { MfApiService } from '../mf/mf-api.service';
 import { MfTransformService } from '../mf/mf-transform.service';
+import { AgentRunsService } from '../agent-runs/agent-runs.service';
+import type { AgentRunStatus } from '@prisma/client';
 
 export interface DrafterSection {
   heading: string;
@@ -31,6 +33,7 @@ export class DrafterService {
     private http: HttpService,
     private mfApi: MfApiService,
     private mfTransform: MfTransformService,
+    private agentRuns: AgentRunsService,
   ) {}
 
   async generateMonthlyDraft(
@@ -38,13 +41,14 @@ export class DrafterService {
     options?: { fiscalYear?: number; endMonth?: number },
   ): Promise<DrafterResponse> {
     const now = new Date();
+    const startedAt = Date.now();
 
     const dashboard = await this.safeDashboard(orgId, options);
     const ruleSections = this.buildRuleSections(dashboard);
 
     const provider = createLlmProvider(this.http);
     if (!provider || !dashboard) {
-      return {
+      const result: DrafterResponse = {
         generatedAt: now.toISOString(),
         kind: 'DRAFT',
         period: {
@@ -56,6 +60,8 @@ export class DrafterService {
           ? 'MF会計未連携のため定型テンプレートのみ提示'
           : 'LLM未設定のため定型テンプレートのみ提示',
       };
+      await this.logDrafterRun(orgId, options, result, 'FALLBACK', Date.now() - startedAt);
+      return result;
     }
 
     try {
@@ -75,7 +81,7 @@ export class DrafterService {
             evidence: rule.evidence,
           };
         });
-        return {
+        const result: DrafterResponse = {
           generatedAt: now.toISOString(),
           kind: 'DRAFT',
           period: {
@@ -84,6 +90,8 @@ export class DrafterService {
           },
           sections: merged,
         };
+        await this.logDrafterRun(orgId, options, result, 'SUCCESS', Date.now() - startedAt);
+        return result;
       }
     } catch (err) {
       this.logger.warn(
@@ -91,7 +99,7 @@ export class DrafterService {
       );
     }
 
-    return {
+    const fallback: DrafterResponse = {
       generatedAt: now.toISOString(),
       kind: 'DRAFT',
       period: {
@@ -100,6 +108,28 @@ export class DrafterService {
       },
       sections: ruleSections,
     };
+    await this.logDrafterRun(orgId, options, fallback, 'FALLBACK', Date.now() - startedAt);
+    return fallback;
+  }
+
+  private async logDrafterRun(
+    orgId: string,
+    options: { fiscalYear?: number; endMonth?: number } | undefined,
+    result: DrafterResponse,
+    status: AgentRunStatus,
+    durationMs: number,
+  ) {
+    await this.agentRuns.logRun({
+      orgId,
+      agentKey: 'DRAFTER',
+      mode: 'OBSERVE',
+      fiscalYear: options?.fiscalYear ?? null,
+      endMonth: options?.endMonth ?? null,
+      input: { fiscalYear: options?.fiscalYear ?? null, endMonth: options?.endMonth ?? null },
+      output: result as unknown as Record<string, unknown>,
+      status,
+      durationMs,
+    });
   }
 
   private async safeDashboard(

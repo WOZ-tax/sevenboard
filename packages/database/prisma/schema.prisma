@@ -50,6 +50,7 @@ model Organization {
   dataSyncLogs       DataSyncLog[]
   businessEvents     BusinessEvent[]
   briefingSnapshots  BriefingSnapshot[]
+  agentRuns          AgentRun[]
 
   @@map("organizations")
 }
@@ -765,6 +766,54 @@ model BusinessEvent {
 
   @@index([orgId, eventDate])
   @@map("business_events")
+}
+
+/// エージェント実行履歴（brief/sentinel/drafter/auditor/copilot）
+/// 「いつ・何を根拠に・どう出力したか」を後から再現するための監査ログ
+/// input/output/toolCalls は任意の JSON を格納
+model AgentRun {
+  id          String         @id @default(uuid()) @db.Uuid
+  orgId       String         @map("org_id") @db.Uuid
+  agentKey    AgentRunKey    @map("agent_key")
+  mode        AgentRunMode?
+  generatedAt DateTime       @default(now()) @map("generated_at")
+  fiscalYear  Int?           @map("fiscal_year")
+  endMonth    Int?           @map("end_month")
+  userId      String?        @map("user_id") @db.Uuid
+  input       Json           @default("{}")
+  output      Json           @default("{}")
+  toolCalls   Json           @default("[]") @map("tool_calls")
+  status      AgentRunStatus @default(SUCCESS)
+  errorMessage String?       @map("error_message")
+  durationMs  Int?           @map("duration_ms")
+  createdAt   DateTime       @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [orgId], references: [id])
+
+  @@index([orgId, agentKey, generatedAt])
+  @@index([orgId, generatedAt])
+  @@map("agent_runs")
+}
+
+enum AgentRunKey {
+  BRIEF
+  SENTINEL
+  DRAFTER
+  AUDITOR
+  COPILOT
+}
+
+enum AgentRunMode {
+  OBSERVE
+  DIALOG
+  EXECUTE
+  CRON
+}
+
+enum AgentRunStatus {
+  SUCCESS
+  FALLBACK
+  FAILED
 }
 
 /// 朝のサマリー（briefエージェント）のスナップショット履歴

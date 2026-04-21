@@ -33,6 +33,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { SentinelModule } from './sentinel/sentinel.module';
 import { AuditorModule } from './auditor/auditor.module';
 import { DrafterModule } from './drafter/drafter.module';
+import { AgentRunsModule } from './agent-runs/agent-runs.module';
 
 @Module({
   imports: [
@@ -68,6 +69,7 @@ import { DrafterModule } from './drafter/drafter.module';
     SentinelModule,
     AuditorModule,
     DrafterModule,
+    AgentRunsModule,
   ],
   providers: [
     {

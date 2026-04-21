@@ -5,6 +5,7 @@ import { TriageService } from '../triage/triage.service';
 import { MfApiService } from '../mf/mf-api.service';
 import { MfTransformService } from '../mf/mf-transform.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { AgentRunsService } from '../agent-runs/agent-runs.service';
 import type { Prisma } from '@prisma/client';
 
 export type BriefSource = 'URGENT' | 'ALERT' | 'ACTION' | 'FINANCIAL' | 'DATA_HEALTH';
@@ -36,12 +37,14 @@ export class BriefingService {
     private mfApi: MfApiService,
     private mfTransform: MfTransformService,
     private prisma: PrismaService,
+    private agentRuns: AgentRunsService,
   ) {}
 
   async today(
     orgId: string,
     options?: { fiscalYear?: number; endMonth?: number },
   ): Promise<BriefingResponse> {
+    const startedAt = Date.now();
     const response = await this.generateToday(orgId, options);
     // 履歴保存（失敗してもレスポンスは返す）
     await this.persistSnapshot(orgId, response, {
@@ -52,6 +55,17 @@ export class BriefingService {
         `Briefing snapshot persist failed: ${err instanceof Error ? err.message : err}`,
       ),
     );
+    await this.agentRuns.logRun({
+      orgId,
+      agentKey: 'BRIEF',
+      mode: 'OBSERVE',
+      fiscalYear: options?.fiscalYear ?? null,
+      endMonth: options?.endMonth ?? null,
+      input: { fiscalYear: options?.fiscalYear ?? null, endMonth: options?.endMonth ?? null },
+      output: response as unknown as Record<string, unknown>,
+      status: response.fallbackReason ? 'FALLBACK' : 'SUCCESS',
+      durationMs: Date.now() - startedAt,
+    });
     return response;
   }
 
