@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth";
 import type { KintoneMonthlyProgress } from "@/lib/mf-types";
+import { usePeriodStore } from "@/lib/period-store";
 import {
   Users,
   Search,
@@ -49,10 +50,14 @@ export default function TriagePage() {
   const switchOrgStore = useAuthStore((s) => s.switchOrg);
   const router = useRouter();
   const queryClient = useQueryClient();
+  const periodMonth = usePeriodStore((s) => s.month);
   const [myOnly, setMyOnly] = useState(true);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [switchingClient, setSwitchingClient] = useState<string | null>(null);
+  const [targetMonth, setTargetMonth] = useState<number>(
+    periodMonth ?? new Date().getMonth() + 1,
+  );
 
   // 自分の名前でフィルタ（myOnly時）
   const assignee = myOnly ? (user?.name || "") : undefined;
@@ -111,25 +116,25 @@ export default function TriagePage() {
 
   const records = progressQuery.data || [];
 
-  // ステータスフィルタ
+  // 選択月ベースのステータスアクセサ
+  const statusOf = useCallback(
+    (r: KintoneMonthlyProgress) => r.monthlyStatus?.[targetMonth] || "0.未作業",
+    [targetMonth],
+  );
+
+  // ステータスフィルタ（選択月のステータスで絞り込み）
   const filtered = statusFilter === "all"
     ? records
-    : records.filter((r) => {
-        const latest = getLatestStatus(r.monthlyStatus);
-        return latest.status === statusFilter;
-      });
+    : records.filter((r) => statusOf(r) === statusFilter);
 
-  // 集計
+  // 集計（選択月ベース）
   const totalCount = records.length;
-  const completedAll = records.filter((r) => getCompletedCount(r.monthlyStatus) >= 12).length;
-  const inProgress = records.filter((r) => {
-    const latest = getLatestStatus(r.monthlyStatus);
-    return latest.status.startsWith("1.") || latest.status.startsWith("2.") || latest.status.startsWith("3.");
+  const monthCompleted = records.filter((r) => statusOf(r).startsWith("4.")).length;
+  const monthInProgress = records.filter((r) => {
+    const s = statusOf(r);
+    return s.startsWith("1.") || s.startsWith("2.") || s.startsWith("3.");
   }).length;
-  const notStarted = records.filter((r) => {
-    const latest = getLatestStatus(r.monthlyStatus);
-    return latest.status.startsWith("0.");
-  }).length;
+  const monthNotStarted = records.filter((r) => statusOf(r).startsWith("0.")).length;
 
   // 現在月（遅延判定用）
   const currentMonth = new Date().getMonth() + 1;
@@ -169,23 +174,23 @@ export default function TriagePage() {
           </div>
         </div>
 
-        {/* サマリーカード */}
+        {/* サマリーカード (選択月ベース) */}
         <div className="grid grid-cols-4 gap-3">
           <div className="rounded-lg border p-3 text-center">
             <div className="text-2xl font-bold text-[var(--color-text-primary)]">{totalCount}</div>
             <div className="text-[10px] text-muted-foreground">担当クライアント</div>
           </div>
           <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-center">
-            <div className="text-2xl font-bold text-red-700">{notStarted}</div>
-            <div className="text-[10px] text-red-600">未着手</div>
+            <div className="text-2xl font-bold text-red-700">{monthNotStarted}</div>
+            <div className="text-[10px] text-red-600">{targetMonth}月 未着手</div>
           </div>
           <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-center">
-            <div className="text-2xl font-bold text-yellow-700">{inProgress}</div>
-            <div className="text-[10px] text-yellow-600">作業中</div>
+            <div className="text-2xl font-bold text-yellow-700">{monthInProgress}</div>
+            <div className="text-[10px] text-yellow-600">{targetMonth}月 作業中</div>
           </div>
           <div className="rounded-lg border border-green-200 bg-green-50 p-3 text-center">
-            <div className="text-2xl font-bold text-green-700">{completedAll}</div>
-            <div className="text-[10px] text-green-600">全月完了</div>
+            <div className="text-2xl font-bold text-green-700">{monthCompleted}</div>
+            <div className="text-[10px] text-green-600">{targetMonth}月 納品済</div>
           </div>
         </div>
 
@@ -200,6 +205,19 @@ export default function TriagePage() {
               onChange={(e) => setSearch(e.target.value)}
               className="h-9 w-full rounded-md border border-input bg-background pl-9 pr-3 text-sm"
             />
+          </div>
+          <div className="flex items-center gap-1 text-xs">
+            <span className="text-muted-foreground">対象月:</span>
+            <select
+              value={targetMonth}
+              onChange={(e) => setTargetMonth(parseInt(e.target.value, 10))}
+              className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+              aria-label="フィルター対象月"
+            >
+              {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                <option key={m} value={m}>{m}月</option>
+              ))}
+            </select>
           </div>
           <div className="flex gap-1">
             {[
@@ -242,18 +260,21 @@ export default function TriagePage() {
           <div className="space-y-2">
             {filtered
               .sort((a, b) => {
-                // 遅れている順にソート（未作業で月が進んでいるほど上）
+                // 選択月のステータス優先順（未着手ほど上）→ フォールバックに最新作業月
+                const aMonthStatus = statusOf(a);
+                const bMonthStatus = statusOf(b);
+                const aP = STATUS_CONFIG[aMonthStatus]?.priority ?? 0;
+                const bP = STATUS_CONFIG[bMonthStatus]?.priority ?? 0;
+                if (aP !== bP) return bP - aP;
                 const aLatest = getLatestStatus(a.monthlyStatus);
                 const bLatest = getLatestStatus(b.monthlyStatus);
-                const aPriority = (STATUS_CONFIG[aLatest.status]?.priority ?? 0) * 100 - aLatest.month;
-                const bPriority = (STATUS_CONFIG[bLatest.status]?.priority ?? 0) * 100 - bLatest.month;
-                return bPriority - aPriority;
+                return aLatest.month - bLatest.month;
               })
               .map((record, i) => {
-                const latest = getLatestStatus(record.monthlyStatus);
+                const monthStatus = statusOf(record);
                 const completed = getCompletedCount(record.monthlyStatus);
-                const statusConfig = STATUS_CONFIG[latest.status] || STATUS_CONFIG["0.未作業"];
-                const isDelayed = latest.month < currentMonth && !latest.status.startsWith("4.");
+                const statusConfig = STATUS_CONFIG[monthStatus] || STATUS_CONFIG["0.未作業"];
+                const isDelayed = targetMonth <= currentMonth && !monthStatus.startsWith("4.") && !monthStatus.startsWith("5.");
 
                 const isSwitching = switchingClient === record.clientName;
 
@@ -291,7 +312,7 @@ export default function TriagePage() {
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
-                      {/* 月次進捗バー */}
+                      {/* 月次進捗バー (選択月をハイライト) */}
                       <div className="hidden items-center gap-0.5 sm:flex">
                         {Array.from({ length: 12 }, (_, m) => m + 1).map((m) => {
                           const s = record.monthlyStatus[m] || "0.未作業";
@@ -301,10 +322,15 @@ export default function TriagePage() {
                             : s.startsWith("1.") ? "bg-yellow-400"
                             : s.startsWith("5.") ? "bg-gray-300"
                             : "bg-gray-200";
+                          const highlight = m === targetMonth;
                           return (
                             <div
                               key={m}
-                              className={cn("h-4 w-3 rounded-sm", bg)}
+                              className={cn(
+                                "h-4 w-3 rounded-sm",
+                                bg,
+                                highlight && "ring-2 ring-[var(--color-primary)] ring-offset-1",
+                              )}
                               title={`${m}月: ${STATUS_CONFIG[s]?.label || s}`}
                             />
                           );
@@ -312,7 +338,7 @@ export default function TriagePage() {
                       </div>
                       <div className="text-right">
                         <Badge className={cn("border text-[10px]", statusConfig.color)}>
-                          {latest.month}月: {statusConfig.label}
+                          {targetMonth}月: {statusConfig.label}
                         </Badge>
                         <div className="mt-0.5 text-[10px] text-muted-foreground">
                           {completed}/12 完了
