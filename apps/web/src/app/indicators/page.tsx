@@ -5,7 +5,9 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { Gauge, Shield, TrendingUp, Zap } from "lucide-react";
-import { useMfFinancialIndicators } from "@/hooks/use-mf-data";
+import { useMfFinancialIndicators, useMfOffice } from "@/hooks/use-mf-data";
+import { usePeriodStore, getPeriodLabel } from "@/lib/period-store";
+import { PrintButton } from "@/components/ui/print-button";
 import type { FinancialIndicators } from "@/lib/mf-types";
 
 type IndicatorKey = keyof FinancialIndicators;
@@ -114,23 +116,41 @@ function IndicatorCard({
 
 export default function IndicatorsPage() {
   const indicators = useMfFinancialIndicators();
+  const office = useMfOffice();
+  const { fiscalYear, month, periods } = usePeriodStore();
+  const periodLabel = getPeriodLabel(fiscalYear, month, periods);
 
   const data = indicators.data;
 
   return (
     <DashboardShell>
       <div className="space-y-8">
-        {/* ヘッダー */}
-        <div className="flex items-center gap-3">
-          <Gauge className="h-6 w-6 text-[var(--color-tertiary)]" />
-          <div>
-            <h1 className="text-xl font-bold text-[var(--color-text-primary)]">
-              財務指標
-            </h1>
-            <p className="text-sm text-muted-foreground">
-              主要な財務指標と判定結果
-            </p>
+        {/* 印刷専用ヘッダー */}
+        <div className="print-only" data-print-block>
+          <h1 className="text-xl font-bold">財務指標レポート</h1>
+          <div className="mt-1 text-sm">
+            {office.data?.name || "—"} — {periodLabel || "期間未指定"}
           </div>
+          <div className="mt-0.5 text-xs text-gray-600">
+            出力日: {new Date().toLocaleDateString("ja-JP")}
+          </div>
+          <hr className="mt-2" />
+        </div>
+
+        {/* ヘッダー */}
+        <div className="flex items-center justify-between screen-only">
+          <div className="flex items-center gap-3">
+            <Gauge className="h-6 w-6 text-[var(--color-tertiary)]" />
+            <div>
+              <h1 className="text-xl font-bold text-[var(--color-text-primary)]">
+                財務指標
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                主要な財務指標と判定結果
+              </p>
+            </div>
+          </div>
+          <PrintButton />
         </div>
 
         {indicators.isLoading ? (

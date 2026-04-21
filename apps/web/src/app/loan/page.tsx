@@ -25,6 +25,9 @@ import { cn } from "@/lib/utils";
 import { Landmark, Calculator, Plus, X } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth";
+import { useMfOffice } from "@/hooks/use-mf-data";
+import { usePeriodStore, getPeriodLabel } from "@/lib/period-store";
+import { PrintButton } from "@/components/ui/print-button";
 import {
   LineChart,
   Line,
@@ -101,6 +104,9 @@ function createScenario(index: number): LoanScenario {
 export default function LoanPage() {
   const user = useAuthStore((s) => s.user);
   const orgId = user?.orgId || "";
+  const office = useMfOffice();
+  const { fiscalYear, month, periods } = usePeriodStore();
+  const periodLabel = getPeriodLabel(fiscalYear, month, periods);
 
   const [scenarios, setScenarios] = useState<LoanScenario[]>([
     createScenario(0),
@@ -211,7 +217,19 @@ export default function LoanPage() {
   return (
     <DashboardShell>
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
+        {/* 印刷専用ヘッダー */}
+        <div className="print-only" data-print-block>
+          <h1 className="text-xl font-bold">融資シミュレーション</h1>
+          <div className="mt-1 text-sm">
+            {office.data?.name || "—"} — {periodLabel || "期間未指定"}
+          </div>
+          <div className="mt-0.5 text-xs text-gray-600">
+            出力日: {new Date().toLocaleDateString("ja-JP")} / シナリオ数: {scenarios.length}
+          </div>
+          <hr className="mt-2" />
+        </div>
+
+        <div className="flex items-center justify-between screen-only">
           <div className="flex items-center gap-3">
             <Landmark className="h-6 w-6 text-[var(--color-tertiary)]" />
             <div>
@@ -245,6 +263,7 @@ export default function LoanPage() {
                 全シナリオ実行
               </Button>
             )}
+            <PrintButton />
           </div>
         </div>
 
