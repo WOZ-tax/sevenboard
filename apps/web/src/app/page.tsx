@@ -32,6 +32,7 @@ import {
 import { usePeriodStore, getPeriodLabel } from "@/lib/period-store";
 import { MfEmptyState } from "@/components/ui/mf-empty-state";
 import { QueryErrorState } from "@/components/ui/query-error-state";
+import { isMfNotConnected } from "@/lib/api";
 
 const alertLevelConfig = {
   critical: {
@@ -119,8 +120,9 @@ export default function DashboardPage() {
   const periodLabel = getPeriodLabel(fiscalYear, month, periods);
 
   const isLoading = dashboard.isLoading;
-  const isError = dashboard.isError;
-  const hasNoData = !isLoading && !isError && !dashboard.data;
+  const mfNotConnected = isMfNotConnected(dashboard.error);
+  const isError = dashboard.isError && !mfNotConnected;
+  const hasNoData = !isLoading && (mfNotConnected || (!dashboard.isError && !dashboard.data));
 
   return (
     <DashboardShell>

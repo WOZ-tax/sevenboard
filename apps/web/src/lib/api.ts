@@ -35,9 +35,15 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.message || `API error: ${res.status}`);
+    const err = new Error(body.message || `API error: ${res.status}`) as Error & { statusCode?: number };
+    err.statusCode = res.status;
+    throw err;
   }
   return res.json();
+}
+
+export function isMfNotConnected(err: unknown): boolean {
+  return (err as { statusCode?: number })?.statusCode === 503;
 }
 
 export const api = {
