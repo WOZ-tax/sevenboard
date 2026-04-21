@@ -35,7 +35,9 @@ export class ActionsService {
     }
     if (filter.overdueOnly) {
       where.dueDate = { lt: startOfToday() };
-      where.status = { notIn: ['COMPLETED', 'ON_HOLD'] };
+      if (!filter.status) {
+        where.status = { notIn: ['COMPLETED', 'ON_HOLD'] };
+      }
     }
 
     const actions = await this.prisma.action.findMany({

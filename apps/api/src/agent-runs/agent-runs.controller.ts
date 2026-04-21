@@ -8,6 +8,12 @@ import { AgentRunsService } from './agent-runs.service';
 
 const VALID_KEYS: AgentRunKey[] = ['BRIEF', 'SENTINEL', 'DRAFTER', 'AUDITOR', 'COPILOT'];
 
+function parsePositiveInt(v?: string): number | undefined {
+  if (!v) return undefined;
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : undefined;
+}
+
 @Controller('organizations/:orgId/agent-runs')
 @UseGuards(JwtAuthGuard, OrgAccessGuard, RolesGuard)
 @Roles('ADMIN', 'CFO', 'ADVISOR')
@@ -26,8 +32,8 @@ export class AgentRunsController {
       : undefined;
     const items = await this.agentRuns.list(orgId, {
       agentKey: key,
-      limit: limit ? Number(limit) : undefined,
-      days: days ? Number(days) : undefined,
+      limit: parsePositiveInt(limit),
+      days: parsePositiveInt(days),
     });
     return { items };
   }
