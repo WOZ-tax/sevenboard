@@ -6,9 +6,10 @@ import { Badge } from "@/components/ui/badge";
 import { CashflowTable } from "@/components/cashflow/cashflow-table";
 import { CashflowChart } from "@/components/cashflow/cashflow-chart";
 import { Shield, Link2, RefreshCw } from "lucide-react";
+import { PrintButton } from "@/components/ui/print-button";
 import { cn } from "@/lib/utils";
 import { formatManYen } from "@/lib/format";
-import { useMfCashflow } from "@/hooks/use-mf-data";
+import { useMfCashflow, useMfOffice } from "@/hooks/use-mf-data";
 import { AgentBanner } from "@/components/agent/agent-banner";
 import { AGENTS } from "@/lib/agent-voice";
 import { CopilotOpenButton } from "@/components/copilot/copilot-open-button";
@@ -61,6 +62,7 @@ type AlertLevelKey = keyof typeof alertLevelConfig;
 
 export default function CashflowPage() {
   const mfCashflow = useMfCashflow();
+  const office = useMfOffice();
   const { fiscalYear, month, periods } = usePeriodStore();
   const periodLabel = getPeriodLabel(fiscalYear, month, periods);
   const user = useAuthStore((s) => s.user);
@@ -108,7 +110,19 @@ export default function CashflowPage() {
   return (
     <DashboardShell>
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
+        {/* 印刷専用ヘッダー */}
+        <div className="print-only" data-print-block>
+          <h1 className="text-xl font-bold">資金繰り報告書</h1>
+          <div className="mt-1 text-sm">
+            {office.data?.name || "—"} — {periodLabel || "期間未指定"}
+          </div>
+          <div className="mt-0.5 text-xs text-gray-600">
+            出力日: {new Date().toLocaleDateString("ja-JP")}
+          </div>
+          <hr className="mt-2" />
+        </div>
+
+        <div className="flex items-center justify-between screen-only">
           <div>
             <h1 className="text-xl font-bold text-[var(--color-text-primary)]">
               資金繰り
@@ -117,37 +131,45 @@ export default function CashflowPage() {
               {periodLabel ? `${periodLabel} ` : ""}月次推移と資金残高予測
             </p>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-1.5 text-xs"
-            onClick={() => mfCashflow.refetch()}
-            disabled={mfCashflow.isFetching}
-          >
-            <RefreshCw className={cn("h-3.5 w-3.5", mfCashflow.isFetching && "animate-spin")} />
-            再取得
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5 text-xs"
+              onClick={() => mfCashflow.refetch()}
+              disabled={mfCashflow.isFetching}
+            >
+              <RefreshCw className={cn("h-3.5 w-3.5", mfCashflow.isFetching && "animate-spin")} />
+              再取得
+            </Button>
+            <PrintButton />
+
+          </div>
         </div>
 
-        <AgentBanner
-          agent={AGENTS.sentinel}
-          status={bannerStatus}
-          detectionCount={
-            runwayData && (runwayData.alertLevel === "CRITICAL" || runwayData.alertLevel === "WARNING")
-              ? 1
-              : 0
-          }
-          lastUpdatedAt={mfCashflow.dataUpdatedAt ? new Date(mfCashflow.dataUpdatedAt).toISOString() : new Date().toISOString()}
-          actions={
-            <CopilotOpenButton
-              agentKey="sentinel"
-              mode="dialog"
-              seed="現在の資金リスクと、想定される枯渇予兆・推奨アクションをドラフトで整理してください。"
-            />
-          }
-        />
+        <div className="screen-only">
+          <AgentBanner
+            agent={AGENTS.sentinel}
+            status={bannerStatus}
+            detectionCount={
+              runwayData && (runwayData.alertLevel === "CRITICAL" || runwayData.alertLevel === "WARNING")
+                ? 1
+                : 0
+            }
+            lastUpdatedAt={mfCashflow.dataUpdatedAt ? new Date(mfCashflow.dataUpdatedAt).toISOString() : new Date().toISOString()}
+            actions={
+              <CopilotOpenButton
+                agentKey="sentinel"
+                mode="dialog"
+                seed="現在の資金リスクと、想定される枯渇予兆・推奨アクションをドラフトで整理してください。"
+              />
+            }
+          />
+        </div>
 
-        <SentinelCard />
+        <div className="screen-only">
+          <SentinelCard />
+        </div>
 
         {isLoading ? (
           <div className="h-24 animate-pulse rounded-lg bg-muted" />
