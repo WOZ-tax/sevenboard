@@ -5,7 +5,7 @@
     "buildCommand": "rm -rf node_modules/.cache && npm install -w apps/api -w packages/database -w packages/shared && npx prisma generate --schema=packages/database/prisma/schema.prisma && npm run build -w apps/api"
   },
   "deploy": {
-    "startCommand": "node apps/api/dist/main",
+    "startCommand": "node apps/api/dist/src/main",
     "healthcheckPath": "/health",
     "healthcheckTimeout": 30,
     "restartPolicyType": "ON_FAILURE",
