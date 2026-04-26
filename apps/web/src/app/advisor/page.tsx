@@ -16,11 +16,24 @@ import {
   ChevronUp,
   ArrowUpDown,
   ExternalLink,
+  Plus,
+  Loader2,
+  Pencil,
+  Trash2,
 } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Table,
   TableBody,
@@ -29,8 +42,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { useQueryClient } from "@tanstack/react-query";
+import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth";
+import { useCurrentOrg } from "@/contexts/current-org";
+import { useIsClient } from "@/hooks/use-is-client";
 import { cn } from "@/lib/utils";
 
 // ─── Types ───────────────────────────────────────────────
@@ -61,8 +78,6 @@ interface SummaryData {
   pendingComments: number;
 }
 
-// ─── Mock Data ───────────────────────────────────────────
-
 const INDUSTRIES = [
   "SaaS",
   "製造業",
@@ -71,72 +86,19 @@ const INDUSTRIES = [
   "コンサルティング",
 ];
 
-const mockOrgs: OrgListItem[] = Array.from({ length: 50 }, (_, i) => ({
-  id: `org-${i + 1}`,
-  name: `${["株式会社", "合同会社", "有限会社"][i % 3]}${
-    ["テスト", "サンプル", "デモ"][i % 3]
-  }${i + 1}`,
-  code: `${String(Math.floor(i / 10) + 1).padStart(4, "0")}-${String(
-    (i % 10) + 1
-  ).padStart(4, "0")}`,
-  industry: INDUSTRIES[i % 5],
-  fiscalMonthEnd: [3, 6, 9, 12][i % 4],
-  planType: ["STARTER", "GROWTH", "PRO"][i % 3],
-  employeeCount: 10 + i * 3,
-  updatedAt: new Date(2026, 3, 5 - (i % 10)).toISOString(),
-}));
+const emptyOrgs: PaginatedOrgs = {
+  data: [],
+  total: 0,
+  page: 1,
+  limit: 20,
+  totalPages: 0,
+};
 
-function mockPaginate(
-  params: {
-    page: number;
-    limit: number;
-    search?: string;
-    industry?: string;
-    sortBy?: string;
-    order?: string;
-  }
-): PaginatedOrgs {
-  let filtered = [...mockOrgs];
-
-  if (params.search) {
-    const q = params.search.toLowerCase();
-    filtered = filtered.filter(
-      (o) =>
-        o.name.toLowerCase().includes(q) ||
-        (o.code && o.code.toLowerCase().includes(q))
-    );
-  }
-  if (params.industry) {
-    filtered = filtered.filter((o) => o.industry === params.industry);
-  }
-
-  const sortBy = params.sortBy || "name";
-  const order = params.order === "desc" ? -1 : 1;
-  filtered.sort((a, b) => {
-    const av = (a as unknown as Record<string, unknown>)[sortBy] ?? "";
-    const bv = (b as unknown as Record<string, unknown>)[sortBy] ?? "";
-    if (typeof av === "string" && typeof bv === "string") {
-      return av.localeCompare(bv) * order;
-    }
-    return ((av as number) - (bv as number)) * order;
-  });
-
-  const start = (params.page - 1) * params.limit;
-  const data = filtered.slice(start, start + params.limit);
-  return {
-    data,
-    total: filtered.length,
-    page: params.page,
-    limit: params.limit,
-    totalPages: Math.ceil(filtered.length / params.limit),
-  };
-}
-
-const mockSummary: SummaryData = {
-  totalOrgs: 50,
-  activeOrgs: 42,
-  alertCount: 3,
-  pendingComments: 8,
+const emptySummary: SummaryData = {
+  totalOrgs: 0,
+  activeOrgs: 0,
+  alertCount: 0,
+  pendingComments: 0,
 };
 
 // ─── Helpers ─────────────────────────────────────────────
@@ -172,8 +134,38 @@ function saveFavorites(ids: string[]) {
 // ─── Component ───────────────────────────────────────────
 
 export default function AdvisorPortalPage() {
+  return (
+    <DashboardShell>
+      <AdvisorPortalContent />
+    </DashboardShell>
+  );
+}
+
+function AdvisorPortalContent() {
   const router = useRouter();
-  const { switchOrg } = useAuthStore();
+  const switchOrg = useAuthStore((s) => s.switchOrg);
+  const user = useAuthStore((s) => s.user);
+  const { setCurrentOrgId } = useCurrentOrg();
+  const queryClient = useQueryClient();
+  const hydrated = useIsClient();
+
+  // 事務所スタッフ以外はダッシュボードへ戻す（CL 側からの直接アクセスを防止）
+  const canAccess = user?.role === "owner" || user?.role === "advisor";
+  useEffect(() => {
+    if (hydrated && user && !canAccess) {
+      router.push("/");
+    }
+  }, [hydrated, user, canAccess, router]);
+
+  const canCreateOrg = canAccess;
+  const canEditOrg = canAccess;
+  const canDeleteOrg = user?.role === "owner";
+
+  // 新規顧問先追加 modal
+  const [newOrgOpen, setNewOrgOpen] = useState(false);
+  // 編集 / 削除 ターゲット（null なら閉じてる）
+  const [editTarget, setEditTarget] = useState<OrgListItem | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<OrgListItem | null>(null);
 
   // Data state
   const [summary, setSummary] = useState<SummaryData | null>(null);
@@ -182,6 +174,7 @@ export default function AdvisorPortalPage() {
   const [favorites, setFavorites] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [switching, setSwitching] = useState<string | null>(null);
+  const [fetchFailed, setFetchFailed] = useState(false);
 
   // Filter state
   const [search, setSearch] = useState("");
@@ -221,7 +214,8 @@ export default function AdvisorPortalPage() {
         const data = await api.advisor.getSummary();
         setSummary(data);
       } catch {
-        setSummary(mockSummary);
+        setSummary(emptySummary);
+        setFetchFailed(true);
       }
     }
     fetch();
@@ -234,7 +228,8 @@ export default function AdvisorPortalPage() {
         const data = await api.advisor.getRecent();
         setRecentOrgs(data);
       } catch {
-        setRecentOrgs(mockOrgs.slice(0, 5));
+        setRecentOrgs([]);
+        setFetchFailed(true);
       }
     }
     fetch();
@@ -253,17 +248,10 @@ export default function AdvisorPortalPage() {
         order,
       });
       setOrgResult(data);
+      setFetchFailed(false);
     } catch {
-      setOrgResult(
-        mockPaginate({
-          page,
-          limit,
-          search: debouncedSearch || undefined,
-          industry: industry || undefined,
-          sortBy,
-          order,
-        })
-      );
+      setOrgResult({ ...emptyOrgs, page, limit });
+      setFetchFailed(true);
     } finally {
       setLoading(false);
     }
@@ -314,14 +302,11 @@ export default function AdvisorPortalPage() {
     setPage(1);
   };
 
-  // Favorite orgs from current data
+  // Favorite orgs from current data (we only know orgs on the current page)
   const favoriteOrgs = useMemo(() => {
     if (!orgResult) return [];
-    // Collect from all loaded data -- but we only have current page
-    // Use mockOrgs as fallback for favorites lookup
-    const allKnown = orgResult.data;
     return favorites
-      .map((id) => allKnown.find((o) => o.id === id))
+      .map((id) => orgResult.data.find((o) => o.id === id))
       .filter(Boolean) as OrgListItem[];
   }, [favorites, orgResult]);
 
@@ -384,14 +369,80 @@ export default function AdvisorPortalPage() {
   ];
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Page title */}
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">管理ポータル</h1>
-        <p className="text-sm text-muted-foreground">
-          担当顧問先の一覧と横断管理
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">管理ポータル</h1>
+          <p className="text-sm text-muted-foreground">
+            担当顧問先の一覧と横断管理
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          {user?.role === "owner" && (
+            <Button
+              variant="outline"
+              onClick={() => router.push("/advisor/staff")}
+              className="gap-1.5"
+            >
+              <Building2 className="h-4 w-4" />
+              事務所スタッフ管理
+            </Button>
+          )}
+          {canCreateOrg && (
+            <Button
+              onClick={() => setNewOrgOpen(true)}
+              className="gap-1.5 bg-[var(--color-primary)] text-white hover:bg-[var(--color-primary)]/90"
+            >
+              <Plus className="h-4 w-4" />
+              新規顧問先追加
+            </Button>
+          )}
+        </div>
       </div>
+
+      <NewOrgDialog
+        open={newOrgOpen}
+        onOpenChange={setNewOrgOpen}
+        onCreated={(org) => {
+          // memberships キャッシュを破棄して再取得 → 次の useCurrentOrg で新 org を選択可能に
+          queryClient.invalidateQueries({ queryKey: ["auth", "memberships"] });
+          setCurrentOrgId(org.id);
+          setNewOrgOpen(false);
+          // 一覧を即時更新するため refresh
+          fetchOrgs();
+          // ダッシュボードへ遷移（オンボーディング初期化はそのページ側で）
+          router.push("/");
+        }}
+      />
+
+      <EditOrgDialog
+        target={editTarget}
+        onClose={() => setEditTarget(null)}
+        onUpdated={() => {
+          queryClient.invalidateQueries({ queryKey: ["auth", "memberships"] });
+          setEditTarget(null);
+          fetchOrgs();
+        }}
+      />
+
+      <DeleteOrgDialog
+        target={deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onDeleted={() => {
+          queryClient.invalidateQueries({ queryKey: ["auth", "memberships"] });
+          setDeleteTarget(null);
+          fetchOrgs();
+        }}
+      />
+
+      {fetchFailed && (
+        <Card className="border-red-300 bg-red-50">
+          <CardContent className="p-4 text-sm text-red-700">
+            顧問先一覧を取得できませんでした。ネットワーク状況をご確認のうえ、時間を置いて再読み込みしてください。
+          </CardContent>
+        </Card>
+      )}
 
       {/* Summary cards */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
@@ -642,25 +693,57 @@ export default function AdvisorPortalPage() {
                     {formatDate(org.updatedAt)}
                   </TableCell>
                   <TableCell>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      disabled={switching === org.id}
-                      className="gap-1"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleOpenOrg(org.id);
-                      }}
-                    >
-                      {switching === org.id ? (
-                        "..."
-                      ) : (
-                        <>
-                          開く
-                          <ExternalLink className="h-3 w-3" />
-                        </>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={switching === org.id}
+                        className="gap-1"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleOpenOrg(org.id);
+                        }}
+                      >
+                        {switching === org.id ? (
+                          "..."
+                        ) : (
+                          <>
+                            開く
+                            <ExternalLink className="h-3 w-3" />
+                          </>
+                        )}
+                      </Button>
+                      {canEditOrg && (
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          className="h-7 w-7 text-muted-foreground hover:text-[var(--color-navy)]"
+                          aria-label="編集"
+                          title="編集"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditTarget(org);
+                          }}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
                       )}
-                    </Button>
+                      {canDeleteOrg && (
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          className="h-7 w-7 text-muted-foreground hover:text-red-600"
+                          aria-label="削除"
+                          title="削除"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDeleteTarget(org);
+                          }}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
+                    </div>
                   </TableCell>
                 </TableRow>
               ))
@@ -793,5 +876,558 @@ export default function AdvisorPortalPage() {
         </div>
       )}
     </div>
+  );
+}
+
+// ─── New Org Dialog ─────────────────────────────────────
+
+interface NewOrgDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onCreated: (org: { id: string; name: string }) => void;
+}
+
+function NewOrgDialog({ open, onOpenChange, onCreated }: NewOrgDialogProps) {
+  const [name, setName] = useState("");
+  const [code, setCode] = useState("");
+  const [managementNo, setManagementNo] = useState("");
+  const [fiscalMonthEnd, setFiscalMonthEnd] = useState("3");
+  const [industry, setIndustry] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // open/close 切替時にフォームをリセット
+  useEffect(() => {
+    if (!open) {
+      setName("");
+      setCode("");
+      setManagementNo("");
+      setFiscalMonthEnd("3");
+      setIndustry("");
+      setError(null);
+      setSubmitting(false);
+    }
+  }, [open]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (submitting) return;
+
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      setError("顧問先名を入力してください");
+      return;
+    }
+    const monthInt = parseInt(fiscalMonthEnd, 10);
+    if (!Number.isFinite(monthInt) || monthInt < 1 || monthInt > 12) {
+      setError("決算月は 1〜12 で指定してください");
+      return;
+    }
+
+    setSubmitting(true);
+    setError(null);
+
+    try {
+      const created = await api.createOrganization({
+        name: trimmedName,
+        ...(code.trim() ? { code: code.trim() } : {}),
+        ...(managementNo.trim() ? { managementNo: managementNo.trim() } : {}),
+        fiscalMonthEnd: monthInt,
+        ...(industry.trim() ? { industry: industry.trim() } : {}),
+      });
+      onCreated({ id: created.id, name: created.name });
+    } catch (err) {
+      const message =
+        err instanceof Error && err.message
+          ? err.message
+          : "顧問先の作成に失敗しました";
+      setError(message);
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <DialogHeader>
+            <DialogTitle>新規顧問先追加</DialogTitle>
+            <DialogDescription>
+              事務所スタッフ（owner / advisor）が新しい顧問先を登録します。作成者は自動で担当アサインに追加されます。
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="new-org-name">
+                顧問先名 <span className="text-red-500">*</span>
+              </Label>
+              <Input
+                id="new-org-name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="株式会社○○"
+                maxLength={100}
+                required
+                autoFocus
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="new-org-fiscal">
+                  決算月 <span className="text-red-500">*</span>
+                </Label>
+                <select
+                  id="new-org-fiscal"
+                  value={fiscalMonthEnd}
+                  onChange={(e) => setFiscalMonthEnd(e.target.value)}
+                  className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  required
+                >
+                  {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                    <option key={m} value={String(m)}>
+                      {m}月
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="new-org-industry">業種</Label>
+                <Input
+                  id="new-org-industry"
+                  value={industry}
+                  onChange={(e) => setIndustry(e.target.value)}
+                  placeholder="SaaS / 製造業 など"
+                  maxLength={40}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="new-org-code">MF事業者コード</Label>
+              <Input
+                id="new-org-code"
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                placeholder="MF Cloud と連携する場合に設定"
+                maxLength={40}
+              />
+              <p className="text-xs text-muted-foreground">
+                未設定でも作成可能。後から設定画面で追加できます。
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="new-org-mno">管理No（社内）</Label>
+              <Input
+                id="new-org-mno"
+                value={managementNo}
+                onChange={(e) => setManagementNo(e.target.value)}
+                placeholder="社内システム上の管理番号"
+                maxLength={40}
+              />
+            </div>
+
+            {error && (
+              <div className="rounded-md border border-red-300 bg-red-50 p-2 text-sm text-red-700">
+                {error}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+              disabled={submitting}
+            >
+              キャンセル
+            </Button>
+            <Button
+              type="submit"
+              disabled={submitting}
+              className="gap-1.5 bg-[var(--color-primary)] text-white hover:bg-[var(--color-primary)]/90"
+            >
+              {submitting ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  作成中...
+                </>
+              ) : (
+                <>
+                  <Plus className="h-4 w-4" />
+                  作成して切替
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── Edit Org Dialog ─────────────────────────────────────
+
+interface EditOrgDialogProps {
+  target: OrgListItem | null;
+  onClose: () => void;
+  onUpdated: () => void;
+}
+
+function EditOrgDialog({ target, onClose, onUpdated }: EditOrgDialogProps) {
+  const user = useAuthStore((s) => s.user);
+  const canEditPlan = user?.role === "owner";
+  const [name, setName] = useState("");
+  const [code, setCode] = useState("");
+  const [fiscalMonthEnd, setFiscalMonthEnd] = useState("3");
+  const [industry, setIndustry] = useState("");
+  const [planType, setPlanType] = useState<"STARTER" | "GROWTH" | "PRO">(
+    "STARTER",
+  );
+  // 原価計算トグル。OrgListItem には含まれないので、target が変わったら
+  // api.getOrganization で詳細を別フェッチして初期化する
+  const [usesCostAccounting, setUsesCostAccounting] = useState(false);
+  const [originalUsesCostAccounting, setOriginalUsesCostAccounting] =
+    useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // target が変わるたびにフォームに流し込み
+  useEffect(() => {
+    if (target) {
+      setName(target.name);
+      setCode(target.code ?? "");
+      setFiscalMonthEnd(String(target.fiscalMonthEnd));
+      setIndustry(target.industry ?? "");
+      setPlanType(
+        (["STARTER", "GROWTH", "PRO"] as const).includes(
+          target.planType as "STARTER" | "GROWTH" | "PRO",
+        )
+          ? (target.planType as "STARTER" | "GROWTH" | "PRO")
+          : "STARTER",
+      );
+      setError(null);
+      setSubmitting(false);
+      // 原価計算フラグだけ追加 fetch
+      api
+        .getOrganization(target.id)
+        .then((org) => {
+          setUsesCostAccounting(org.usesCostAccounting);
+          setOriginalUsesCostAccounting(org.usesCostAccounting);
+        })
+        .catch(() => {
+          setUsesCostAccounting(false);
+          setOriginalUsesCostAccounting(false);
+        });
+    }
+  }, [target]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!target || submitting) return;
+
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      setError("顧問先名を入力してください");
+      return;
+    }
+    const monthInt = parseInt(fiscalMonthEnd, 10);
+    if (!Number.isFinite(monthInt) || monthInt < 1 || monthInt > 12) {
+      setError("決算月は 1〜12 で指定してください");
+      return;
+    }
+
+    setSubmitting(true);
+    setError(null);
+
+    try {
+      await api.updateOrganization(target.id, {
+        name: trimmedName,
+        code: code.trim() || undefined,
+        fiscalMonthEnd: monthInt,
+        industry: industry.trim() || undefined,
+        ...(canEditPlan && planType !== target.planType ? { planType } : {}),
+        ...(usesCostAccounting !== originalUsesCostAccounting
+          ? { usesCostAccounting }
+          : {}),
+      });
+      onUpdated();
+    } catch (err) {
+      const message =
+        err instanceof Error && err.message
+          ? err.message
+          : "顧問先の更新に失敗しました";
+      setError(message);
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={!!target} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <DialogHeader>
+            <DialogTitle>顧問先を編集</DialogTitle>
+            <DialogDescription>
+              {target?.name} の基本情報を更新します。
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-org-name">
+                顧問先名 <span className="text-red-500">*</span>
+              </Label>
+              <Input
+                id="edit-org-name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                maxLength={100}
+                required
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-org-fiscal">
+                  決算月 <span className="text-red-500">*</span>
+                </Label>
+                <select
+                  id="edit-org-fiscal"
+                  value={fiscalMonthEnd}
+                  onChange={(e) => setFiscalMonthEnd(e.target.value)}
+                  className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  required
+                >
+                  {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                    <option key={m} value={String(m)}>
+                      {m}月
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-org-industry">業種</Label>
+                <Input
+                  id="edit-org-industry"
+                  value={industry}
+                  onChange={(e) => setIndustry(e.target.value)}
+                  maxLength={40}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-org-code">MF事業者コード</Label>
+              <Input
+                id="edit-org-code"
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                maxLength={40}
+              />
+            </div>
+
+            {canEditPlan && (
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-org-plan">契約プラン</Label>
+                <select
+                  id="edit-org-plan"
+                  value={planType}
+                  onChange={(e) =>
+                    setPlanType(e.target.value as "STARTER" | "GROWTH" | "PRO")
+                  }
+                  className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                >
+                  <option value="STARTER">STARTER（基本）</option>
+                  <option value="GROWTH">GROWTH（標準）</option>
+                  <option value="PRO">PRO（上位）</option>
+                </select>
+                <p className="text-xs text-muted-foreground">
+                  請求機能は今後追加予定。現状は表示のみ。
+                </p>
+              </div>
+            )}
+
+            {/* 原価計算トグル。OFF（既定）= 売上総利益率を信用しないモード */}
+            <div className="flex items-start justify-between rounded-md border px-3 py-2.5">
+              <div className="pr-3">
+                <div className="text-sm font-medium text-[var(--color-text-primary)]">
+                  原価計算を運用している
+                </div>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  ON にすると指標 / AI レポートで売上総利益率を分析対象に含めます。原価計算未運用なら OFF のまま（売上総利益率は非表示）。
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={usesCostAccounting}
+                onClick={() => setUsesCostAccounting((v) => !v)}
+                className={cn(
+                  "relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors",
+                  usesCostAccounting
+                    ? "bg-[var(--color-primary)]"
+                    : "bg-gray-200",
+                )}
+              >
+                <span
+                  className={cn(
+                    "inline-block h-5 w-5 rounded-full bg-white shadow transition-transform",
+                    usesCostAccounting ? "translate-x-5" : "translate-x-0",
+                  )}
+                />
+              </button>
+            </div>
+
+            {error && (
+              <div className="rounded-md border border-red-300 bg-red-50 p-2 text-sm text-red-700">
+                {error}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onClose}
+              disabled={submitting}
+            >
+              キャンセル
+            </Button>
+            <Button
+              type="submit"
+              disabled={submitting}
+              className="gap-1.5 bg-[var(--color-primary)] text-white hover:bg-[var(--color-primary)]/90"
+            >
+              {submitting ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  更新中...
+                </>
+              ) : (
+                "保存"
+              )}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── Delete Org Dialog ───────────────────────────────────
+
+interface DeleteOrgDialogProps {
+  target: OrgListItem | null;
+  onClose: () => void;
+  onDeleted: () => void;
+}
+
+function DeleteOrgDialog({ target, onClose, onDeleted }: DeleteOrgDialogProps) {
+  const [confirmText, setConfirmText] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (target) {
+      setConfirmText("");
+      setError(null);
+      setSubmitting(false);
+    }
+  }, [target]);
+
+  // DB の name に意図せぬ前後空白が混入していても確認ロジックが破綻しないよう両側 trim
+  const matches =
+    !!target && confirmText.trim() === (target.name ?? "").trim();
+
+  const handleConfirm = async () => {
+    if (!target || !matches || submitting) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      await api.deleteOrganization(target.id);
+      onDeleted();
+    } catch (err) {
+      const message =
+        err instanceof Error && err.message
+          ? err.message
+          : "顧問先の削除に失敗しました";
+      setError(message);
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={!!target} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="text-red-700">顧問先を削除</DialogTitle>
+          <DialogDescription>
+            <span className="font-semibold text-foreground">{target?.name}</span>{" "}
+            を完全に削除します。仕訳・予算・コメント等の関連データも併せて消失します。**この操作は取り消せません。**
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-3">
+          <div className="rounded-md border border-red-300 bg-red-50 p-3 text-xs text-red-700">
+            実行前に MF Cloud 連携を解除し、必要な月次データのバックアップを取得してください。
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="delete-org-confirm">
+              削除を確定するには、顧問先名「
+              <span className="font-mono font-semibold">{target?.name}</span>
+              」を入力してください
+            </Label>
+            <Input
+              id="delete-org-confirm"
+              value={confirmText}
+              onChange={(e) => setConfirmText(e.target.value)}
+              placeholder={target?.name ?? ""}
+              autoComplete="off"
+            />
+          </div>
+          {error && (
+            <div className="rounded-md border border-red-300 bg-red-50 p-2 text-sm text-red-700">
+              {error}
+            </div>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onClose}
+            disabled={submitting}
+          >
+            キャンセル
+          </Button>
+          <Button
+            type="button"
+            disabled={!matches || submitting}
+            onClick={handleConfirm}
+            className="gap-1.5 bg-red-600 text-white hover:bg-red-700 disabled:bg-red-300"
+          >
+            {submitting ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                削除中...
+              </>
+            ) : (
+              <>
+                <Trash2 className="h-4 w-4" />
+                完全に削除
+              </>
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

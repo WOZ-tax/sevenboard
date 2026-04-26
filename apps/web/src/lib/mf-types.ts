@@ -6,11 +6,48 @@ export interface CashflowRow {
   isDiff?: boolean;
 }
 
+export type RunwayAlertLevel = "SAFE" | "CAUTION" | "WARNING" | "CRITICAL";
+export type RunwayMode = "worstCase" | "netBurn" | "actual";
+
+export interface RunwayVariant {
+  months: number;
+  basis: number;
+  alertLevel: RunwayAlertLevel;
+}
+
+export interface RunwayVariants {
+  defaultMode: RunwayMode;
+  worstCase: RunwayVariant;
+  netBurn: RunwayVariant;
+  actual: RunwayVariant;
+}
+
+export interface BurnComposition {
+  netBurn: number;
+  capex: number;
+  taxPayment: number;
+  actualBurn: number;
+  financingNet: number;
+  realBalanceDrop: number;
+  otherWorkingCapital: number;
+  /** active月の判定ソース */
+  dataQuality: 'settled' | 'heuristic' | 'none';
+  /** 計算に使った active 月（カレンダー月、1-12） */
+  activeMonths: number[];
+}
+
 export interface CashflowRunway {
   months: number;
   cashBalance: number;
   monthlyBurnRate: number;
-  alertLevel: "SAFE" | "CAUTION" | "WARNING" | "CRITICAL";
+  alertLevel: RunwayAlertLevel;
+  defaultMode?: RunwayMode;
+  variants?: {
+    worstCase: RunwayVariant;
+    netBurn: RunwayVariant;
+    actual: RunwayVariant;
+  };
+  composition?: BurnComposition;
 }
 
 export interface CashflowData {
@@ -28,9 +65,19 @@ export interface DashboardSummary {
   cashBalance: number;
   totalAssets: number;
   runway: number;
-  alertLevel: "SAFE" | "CAUTION" | "WARNING" | "CRITICAL";
+  alertLevel: RunwayAlertLevel;
+  runwayVariants?: RunwayVariants;
   fiscalYear: number;
   period: { start: string; end: string };
+  /** 前年同期の主要指標（YoY 比較用）。前年データが無いと undefined */
+  prevYear?: {
+    revenue: number;
+    operatingProfit: number;
+    ordinaryProfit: number;
+    netIncome: number;
+    cashBalance: number;
+    fiscalYear: number;
+  };
 }
 
 export interface FinancialStatementRow {
@@ -78,10 +125,29 @@ export interface AiSummaryHighlight {
   text: string;
 }
 
+export interface AiMonthlyTrendPoint {
+  month: string;
+  revenue: number;
+  operatingProfit: number;
+  actual: boolean;
+}
+
+export interface AiTargetMonthData {
+  month: string;
+  revenue: number;
+  grossProfit: number;
+  sga: number;
+  operatingProfit: number;
+  ordinaryProfit: number;
+}
+
 export interface AiSummaryResponse {
   summary: string;
   sections?: AiSummarySection[];
   highlights: AiSummaryHighlight[];
+  targetMonth?: string;
+  targetMonthData?: AiTargetMonthData;
+  monthlyTrend?: AiMonthlyTrendPoint[];
   generatedAt: string;
 }
 

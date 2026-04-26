@@ -46,6 +46,11 @@ export interface Organization {
   briefPushEnabled: boolean;
   briefPushHourJst: number;
   briefSlackWebhookUrl: string | null;
+  /**
+   * 原価計算を運用しているかのトグル。false（既定）= 売上総利益率は信用しない。
+   * 中小企業で原価計算をしていないケースに合わせて UI / AI コメントを切替える。
+   */
+  usesCostAccounting: boolean;
   createdAt: string;
   updatedAt: string;
   departments: DepartmentMaster[];
@@ -120,6 +125,7 @@ export interface VarianceRow {
   actualAmount: number;
   varianceAmount: number;
   variancePercent: number;
+  priorYearAmount: number | null;
 }
 
 export interface PlRow {
@@ -234,7 +240,11 @@ export interface AdvisorOrgListItem {
 
 export interface TalkScriptSection {
   title: string;
+  material?: string;
   content: string;
+  hearings?: string[];
+  anticipatedResponses?: string[];
+  proposals?: string[];
   qa?: Array<{ q: string; a: string }>;
 }
 
@@ -242,6 +252,8 @@ export interface TalkScript {
   opening: string;
   sections: TalkScriptSection[];
   closing: string;
+  nextActionsForAdvisor?: string[];
+  nextActionsForExecutive?: string[];
   generatedAt: string;
 }
 
@@ -253,11 +265,31 @@ export interface BudgetScenario {
   assumptions: string[];
 }
 
+export interface FundingOption {
+  type: string;
+  amount: number;
+  rationale: string;
+  suggestedRate?: number;
+  suggestedMonths?: number;
+  repaymentType?: "EQUAL_INSTALLMENT" | "EQUAL_PRINCIPAL" | "BULLET";
+}
+
+export interface FundingScenarioSeed {
+  name: string;
+  principal: number;
+  monthlyPayment: number;
+  totalInterest: number;
+  termMonths: number;
+  interestRate: number;
+}
+
 export interface FundingReport {
   executiveSummary: string;
   financialHighlights: string[];
   strengthsRisks: { strengths: string[]; risks: string[] };
-  projections: unknown;
+  projections: string;
+  suggestedOptions?: FundingOption[];
+  echoedScenarios?: FundingScenarioSeed[];
   generatedAt: string;
 }
 

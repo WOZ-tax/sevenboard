@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth";
+import { useCurrentOrg } from "@/contexts/current-org";
 import { usePeriodStore } from "@/lib/period-store";
 import type {
   CashflowData,
@@ -17,10 +18,10 @@ import type {
 } from "@/lib/mf-types";
 
 function useOrgId() {
-  const user = useAuthStore((s) => s.user);
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const { currentOrgId } = useCurrentOrg();
   if (!isAuthenticated) return "";
-  return user?.orgId || "";
+  return currentOrgId ?? "";
 }
 
 /** グローバル期間セレクターの値を返す */
@@ -123,22 +124,31 @@ export function useMfPLTransition(options?: QueryOptions) {
   });
 }
 
+function useStoredRunwayMode(): 'worstCase' | 'netBurn' | 'actual' | undefined {
+  if (typeof window === 'undefined') return undefined;
+  const v = window.localStorage.getItem('sevenboard:runway-mode:v2');
+  return v === 'worstCase' || v === 'netBurn' || v === 'actual' ? v : undefined;
+}
+
 export function useAiSummary(options?: QueryOptions) {
   const orgId = useOrgId();
   const { fiscalYear, month } = useGlobalPeriod();
+  const runwayMode = useStoredRunwayMode();
   return useQuery<AiSummaryResponse>({
-    queryKey: ["ai", "summary", orgId, fiscalYear, month],
-    queryFn: () => api.ai.getSummary(orgId, fiscalYear, month),
+    queryKey: ["ai", "summary", orgId, fiscalYear, month, runwayMode],
+    queryFn: () => api.ai.getSummary(orgId, fiscalYear, month, runwayMode),
     enabled: !!orgId && (options?.enabled ?? true),
     staleTime: 30 * 60 * 1000,
   });
 }
 
-export function useAiTalkScript(fiscalYear?: number) {
+export function useAiTalkScript() {
   const orgId = useOrgId();
+  const { fiscalYear, month } = useGlobalPeriod();
+  const runwayMode = useStoredRunwayMode();
   return useQuery({
-    queryKey: ["ai", "talk-script", orgId, fiscalYear],
-    queryFn: () => api.ai.getTalkScript(orgId, fiscalYear),
+    queryKey: ["ai", "talk-script", orgId, fiscalYear, month, runwayMode],
+    queryFn: () => api.ai.getTalkScript(orgId, fiscalYear, month, runwayMode),
     enabled: false, // manual trigger only
     staleTime: 30 * 60 * 1000,
   });
@@ -146,19 +156,22 @@ export function useAiTalkScript(fiscalYear?: number) {
 
 export function useAiBudgetScenarios(fiscalYear?: number) {
   const orgId = useOrgId();
+  const runwayMode = useStoredRunwayMode();
   return useQuery({
-    queryKey: ["ai", "budget-scenarios", orgId, fiscalYear],
-    queryFn: () => api.ai.getBudgetScenarios(orgId, fiscalYear),
+    queryKey: ["ai", "budget-scenarios", orgId, fiscalYear, runwayMode],
+    queryFn: () => api.ai.getBudgetScenarios(orgId, fiscalYear, runwayMode),
     enabled: false, // manual trigger only
     staleTime: 30 * 60 * 1000,
   });
 }
 
-export function useAiFundingReport(fiscalYear?: number) {
+export function useAiFundingReport() {
   const orgId = useOrgId();
+  const { fiscalYear, month } = useGlobalPeriod();
+  const runwayMode = useStoredRunwayMode();
   return useQuery({
-    queryKey: ["ai", "funding-report", orgId, fiscalYear],
-    queryFn: () => api.ai.getFundingReport(orgId, fiscalYear),
+    queryKey: ["ai", "funding-report", orgId, fiscalYear, month, runwayMode],
+    queryFn: () => api.ai.getFundingReport(orgId, fiscalYear, month, runwayMode),
     enabled: false, // manual trigger only
     staleTime: 30 * 60 * 1000,
   });
@@ -174,11 +187,11 @@ export function useMfOffice() {
   });
 }
 
-export function useVariableCost(month?: string) {
+export function useVariableCost(fiscalYear?: number, endMonth?: number) {
   const orgId = useOrgId();
   return useQuery({
-    queryKey: ["variable-cost", orgId, month],
-    queryFn: () => api.getVariableCost(orgId, month),
+    queryKey: ["variable-cost", orgId, fiscalYear, endMonth],
+    queryFn: () => api.getVariableCost(orgId, fiscalYear, endMonth),
     enabled: !!orgId,
     staleTime: 5 * 60 * 1000,
   });
@@ -212,6 +225,22 @@ export function useMfFinancialIndicators(options?: QueryOptions) {
     queryFn: () => api.mf.getFinancialIndicators(orgId, fiscalYear, month),
     enabled: !!orgId && (options?.enabled ?? true),
     staleTime: 5 * 60 * 1000,
+  });
+}
+
+/**
+ * 財務指標ページの AI CFO 解説。
+ * indicators 同様の period スコープで生成。LLM 呼び出しコストが大きいので 30 分キャッシュ。
+ */
+export function useAiIndicatorsCommentary(options?: QueryOptions) {
+  const orgId = useOrgId();
+  const { fiscalYear, month } = useGlobalPeriod();
+  return useQuery({
+    queryKey: ["ai", "indicators-commentary", orgId, fiscalYear, month],
+    queryFn: () => api.ai.getIndicatorsCommentary(orgId, fiscalYear, month),
+    enabled: !!orgId && (options?.enabled ?? true),
+    staleTime: 30 * 60 * 1000,
+    refetchOnWindowFocus: false,
   });
 }
 

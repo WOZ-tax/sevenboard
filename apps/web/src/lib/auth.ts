@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { AuthUser } from './api-types';
+import { clearCurrentOrgStorage } from './current-org-storage';
 
 interface AuthState {
   token: string | null;
@@ -37,6 +38,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   logout: () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
+    clearCurrentOrgStorage();
     set({ token: null, user: null, isAuthenticated: false });
   },
   switchOrg: (token, user) => {

@@ -9,6 +9,14 @@ export function formatManYen(value: number): string {
 }
 
 /**
+ * 金額を円表記でフォーマットする（API返却の生の円値をそのまま表示）
+ * 例: 960000000 -> "¥960,000,000"
+ */
+export function formatYen(value: number): string {
+  return `¥${value.toLocaleString()}`;
+}
+
+/**
  * パーセントを表示用にフォーマットする
  * 例: 5.2 -> "+5.2%"
  */

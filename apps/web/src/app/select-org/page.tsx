@@ -128,7 +128,7 @@ export default function SelectOrgPage() {
   const [recentIds, setRecentIds] = useState<string[]>([]);
 
   const deferredQuery = useDeferredValue(query.trim().toLowerCase());
-  const canSwitchOrg = user?.role === "ADVISOR";
+  const canSwitchOrg = user?.role === "advisor" || user?.role === "owner";
 
   useEffect(() => {
     if (!hydrated) return;

@@ -23,8 +23,8 @@ const DEMO_USERS = [
       id: "demo-admin",
       email: "admin@demo.com",
       name: "田中 太郎",
-      role: "ADMIN",
-      orgId: "demo-org",
+      role: "owner",
+      orgId: null,
     },
   },
   {
@@ -34,8 +34,8 @@ const DEMO_USERS = [
       id: "demo-advisor",
       email: "advisor@sevenrich.jp",
       name: "七海 太郎",
-      role: "ADVISOR",
-      orgId: "demo-org",
+      role: "advisor",
+      orgId: null,
     },
   },
 ] as const;
@@ -73,11 +73,8 @@ export default function LoginPage() {
     try {
       const result = await api.login(data.email, data.password);
       login(result.accessToken, result.user);
-      if (result.user.role === "ADVISOR") {
-        router.push("/advisor");
-      } else {
-        router.push("/");
-      }
+      // 着地は常にダッシュボード。事務所スタッフはヘッダーの OrgSwitcher / 顧問先一覧から切替
+      router.push("/");
       return;
     } catch (err) {
       const demoUser = tryDemoLogin(data.email, data.password);
@@ -89,11 +86,7 @@ export default function LoginPage() {
       if (isNetworkError && demoUser) {
         login("demo-token", demoUser.user);
         setUsedDemoMode(true);
-        if (demoUser.user.role === "ADVISOR") {
-          router.push("/advisor");
-        } else {
-          router.push("/");
-        }
+        router.push("/");
         return;
       }
 
@@ -106,7 +99,7 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-[var(--color-primary)] to-[#004d80]">
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-[var(--color-primary)] to-[var(--color-navy-dark)]">
       <Card className="w-full max-w-md shadow-2xl">
         <CardHeader className="pb-2 text-center">
           <div className="mb-2 text-3xl font-bold text-[var(--color-primary)]">

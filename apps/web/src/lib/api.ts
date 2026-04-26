@@ -137,6 +137,22 @@ export const api = {
       '/auth/me/organizations',
     ),
 
+  /**
+   * factory-hybrid と整合する membership API。
+   * フロントの useCurrentOrg() context が消費する。
+   */
+  getMemberships: () =>
+    apiFetch<
+      Array<{
+        orgId: string;
+        role: 'owner' | 'admin' | 'member' | 'viewer' | 'advisor';
+        orgName: string;
+        orgCode: string | null;
+        industry?: string | null;
+        fiscalMonthEnd?: number | null;
+      }>
+    >('/auth/me/memberships'),
+
   // Switch org (ADVISOR)
   switchOrg: (orgId: string) =>
     apiFetch<{ accessToken: string; user: AuthUser }>('/auth/switch-org', {
@@ -147,6 +163,99 @@ export const api = {
   // Organizations
   getOrganization: (orgId: string) =>
     apiFetch<Organization>(`/organizations/${orgId}`),
+
+  /**
+   * 新規顧問先を作成。SEVENRICH スタッフ (owner / advisor) のみ。
+   */
+  createOrganization: (payload: {
+    name: string;
+    code?: string;
+    managementNo?: string;
+    fiscalMonthEnd: number;
+    industry?: string;
+    usesCostAccounting?: boolean;
+    advisorUserIds?: string[];
+  }) =>
+    apiFetch<Organization>("/organizations", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  updateOrganization: (
+    orgId: string,
+    payload: {
+      name?: string;
+      code?: string;
+      managementNo?: string;
+      fiscalMonthEnd?: number;
+      industry?: string;
+      planType?: 'STARTER' | 'GROWTH' | 'PRO';
+      usesCostAccounting?: boolean;
+    },
+  ) =>
+    apiFetch<Organization>(`/organizations/${orgId}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+
+  deleteOrganization: (orgId: string) =>
+    apiFetch<{ success: boolean }>(`/organizations/${orgId}`, {
+      method: "DELETE",
+    }),
+
+  // === Internal Users (SEVENRICH 事務所スタッフ) ===
+  internalUsers: {
+    list: () =>
+      apiFetch<
+        Array<{
+          id: string;
+          email: string;
+          name: string;
+          role: 'owner' | 'advisor';
+          avatarUrl: string | null;
+          createdAt: string;
+          updatedAt: string;
+          _count: { memberships: number };
+        }>
+      >('/internal/users'),
+
+    create: (payload: {
+      email: string;
+      name: string;
+      password: string;
+      role: 'owner' | 'advisor';
+    }) =>
+      apiFetch<{
+        id: string;
+        email: string;
+        name: string;
+        role: 'owner' | 'advisor';
+      }>('/internal/users', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }),
+
+    update: (
+      userId: string,
+      payload: {
+        name?: string;
+        role?: 'owner' | 'advisor';
+        password?: string;
+      },
+    ) =>
+      apiFetch<{ id: string; email: string; name: string; role: string }>(
+        `/internal/users/${userId}`,
+        {
+          method: 'PUT',
+          body: JSON.stringify(payload),
+        },
+      ),
+
+    remove: (userId: string) =>
+      apiFetch<{ success: boolean }>(`/internal/users/${userId}`, {
+        method: 'DELETE',
+      }),
+  },
 
   getFiscalYears: (orgId: string) =>
     apiFetch<FiscalYear[]>(`/organizations/${orgId}/fiscal-years`),
@@ -183,8 +292,15 @@ export const api = {
     return apiFetch<PlRow[]>(`/organizations/${orgId}/reports/pl${suffix}`);
   },
 
-  getVariableCost: (orgId: string, month?: string) =>
-    apiFetch<VariableCostReport>(`/organizations/${orgId}/reports/variable-cost${month ? `?month=${month}` : ''}`),
+  getVariableCost: (orgId: string, fiscalYear?: number, endMonth?: number) => {
+    const qs = new URLSearchParams();
+    if (fiscalYear) qs.set('fiscalYear', String(fiscalYear));
+    if (endMonth) qs.set('endMonth', String(endMonth));
+    const suffix = qs.toString() ? `?${qs}` : '';
+    return apiFetch<VariableCostReport>(
+      `/organizations/${orgId}/reports/variable-cost${suffix}`,
+    );
+  },
 
   // Budgets
   getBudgetVersions: (fyId: string) =>
@@ -288,19 +404,47 @@ export const api = {
 
   // === AI ===
   ai: {
-    getSummary: (orgId: string, fiscalYear?: number, month?: number) => {
+    getSummary: (
+      orgId: string,
+      fiscalYear?: number,
+      month?: number,
+      runwayMode?: 'worstCase' | 'netBurn' | 'actual',
+    ) => {
       const qs = new URLSearchParams();
       if (fiscalYear) qs.set('fiscalYear', String(fiscalYear));
       if (month) qs.set('endMonth', String(month));
+      if (runwayMode) qs.set('runwayMode', runwayMode);
       const suffix = qs.toString() ? `?${qs}` : '';
       return apiFetch<AiSummaryResponse>(
         `/organizations/${orgId}/ai/summary${suffix}`,
       );
     },
-    getTalkScript: (orgId: string, fiscalYear?: number) =>
-      apiFetch<TalkScript>(`/organizations/${orgId}/ai/talk-script${fiscalYear ? `?fiscalYear=${fiscalYear}` : ''}`),
-    getBudgetScenarios: (orgId: string, fiscalYear?: number) =>
-      apiFetch<BudgetScenario[]>(`/organizations/${orgId}/ai/budget-scenarios${fiscalYear ? `?fiscalYear=${fiscalYear}` : ''}`),
+    getTalkScript: (
+      orgId: string,
+      fiscalYear?: number,
+      endMonth?: number,
+      runwayMode?: 'worstCase' | 'netBurn' | 'actual',
+    ) => {
+      const qs = new URLSearchParams();
+      if (fiscalYear) qs.set('fiscalYear', String(fiscalYear));
+      if (endMonth) qs.set('endMonth', String(endMonth));
+      if (runwayMode) qs.set('runwayMode', runwayMode);
+      const suffix = qs.toString() ? `?${qs}` : '';
+      return apiFetch<TalkScript>(`/organizations/${orgId}/ai/talk-script${suffix}`);
+    },
+    getBudgetScenarios: (
+      orgId: string,
+      fiscalYear?: number,
+      runwayMode?: 'worstCase' | 'netBurn' | 'actual',
+    ) => {
+      const qs = new URLSearchParams();
+      if (fiscalYear) qs.set('fiscalYear', String(fiscalYear));
+      if (runwayMode) qs.set('runwayMode', runwayMode);
+      const suffix = qs.toString() ? `?${qs}` : '';
+      return apiFetch<BudgetScenario[]>(
+        `/organizations/${orgId}/ai/budget-scenarios${suffix}`,
+      );
+    },
     generateBudgetScenarios: (orgId: string, params: {
       fiscalYear?: number;
       baseGrowthRate?: number;
@@ -309,13 +453,83 @@ export const api = {
       newHires?: number;
       costReductionRate?: number;
       notes?: string;
+      runwayMode?: 'worstCase' | 'netBurn' | 'actual';
     }) =>
       apiFetch<BudgetScenario[]>(`/organizations/${orgId}/ai/budget-scenarios`, {
         method: 'POST',
         body: JSON.stringify(params),
       }),
-    getFundingReport: (orgId: string, fiscalYear?: number) =>
-      apiFetch<FundingReport>(`/organizations/${orgId}/ai/funding-report${fiscalYear ? `?fiscalYear=${fiscalYear}` : ''}`),
+    /**
+     * 財務指標ページの AI CFO 解説。
+     * 安全性 / 収益性 / 効率性 の 3 カテゴリ別 commentary。
+     */
+    getIndicatorsCommentary: (
+      orgId: string,
+      fiscalYear?: number,
+      endMonth?: number,
+    ) => {
+      const qs = new URLSearchParams();
+      if (fiscalYear) qs.set('fiscalYear', String(fiscalYear));
+      if (endMonth) qs.set('endMonth', String(endMonth));
+      const suffix = qs.toString() ? `?${qs}` : '';
+      return apiFetch<{
+        categories: Array<{
+          name: '安全性' | '収益性' | '効率性';
+          level: 'good' | 'caution' | 'warning';
+          summary: string;
+          advice: string;
+        }>;
+        overallSummary: string;
+        inputs: {
+          currentRatio: number;
+          equityRatio: number;
+          debtEquityRatio: number;
+          grossProfitMargin: number;
+          operatingProfitMargin: number;
+          roe: number;
+          roa: number;
+          totalAssetTurnover: number;
+          receivablesTurnover: number;
+        };
+        generatedAt: string;
+        fallbackReason?: string;
+      }>(`/organizations/${orgId}/ai/indicators-commentary${suffix}`);
+    },
+
+    getFundingReport: (
+      orgId: string,
+      fiscalYear?: number,
+      endMonth?: number,
+      runwayMode?: 'worstCase' | 'netBurn' | 'actual',
+    ) => {
+      const qs = new URLSearchParams();
+      if (fiscalYear) qs.set('fiscalYear', String(fiscalYear));
+      if (endMonth) qs.set('endMonth', String(endMonth));
+      if (runwayMode) qs.set('runwayMode', runwayMode);
+      const suffix = qs.toString() ? `?${qs}` : '';
+      return apiFetch<FundingReport>(`/organizations/${orgId}/ai/funding-report${suffix}`);
+    },
+
+    /** 融資シミュの結果を添えてレポート再生成 */
+    getFundingReportWithScenarios: (
+      orgId: string,
+      params: {
+        fiscalYear?: number;
+        endMonth?: number;
+        scenarios?: Array<{
+          name: string;
+          principal: number;
+          monthlyPayment: number;
+          totalInterest: number;
+          termMonths: number;
+          interestRate: number;
+        }>;
+      },
+    ) =>
+      apiFetch<FundingReport>(`/organizations/${orgId}/ai/funding-report`, {
+        method: 'POST',
+        body: JSON.stringify(params),
+      }),
   },
 
   // === MF OAuth ===
@@ -365,6 +579,18 @@ export const api = {
       apiFetch<AccountMaster>(`/organizations/${orgId}/masters/accounts/${id}`, {
         method: 'DELETE',
       }),
+    /** 変動損益分析画面の固定/変動分類を一括保存 */
+    bulkUpdateVariableCostFlags: (
+      orgId: string,
+      updates: Array<{ name: string; isVariableCost: boolean }>,
+    ) =>
+      apiFetch<{ ok: boolean; count: number }>(
+        `/organizations/${orgId}/masters/accounts/variable-cost-flags`,
+        {
+          method: 'PUT',
+          body: JSON.stringify({ updates }),
+        },
+      ),
     getDepartments: (orgId: string) =>
       apiFetch<DepartmentMaster[]>(`/organizations/${orgId}/masters/departments`),
     createDepartment: (orgId: string, data: CreateDepartmentInput) =>
@@ -579,6 +805,41 @@ export const api = {
         method: 'PUT',
         body: JSON.stringify({ month, status }),
       }),
+  },
+
+  // === MonthlyClose（SevenBoard 内の月次締め: OPEN/IN_REVIEW/CLOSED） ===
+  monthlyClose: {
+    list: (orgId: string, fiscalYear: number) =>
+      apiFetch<
+        Array<{
+          id: string;
+          orgId: string;
+          fiscalYear: number;
+          month: number;
+          status: 'OPEN' | 'IN_REVIEW' | 'CLOSED';
+          changedAt: string;
+          changedBy: string | null;
+          note: string | null;
+        }>
+      >(`/organizations/${orgId}/monthly-closes?fiscalYear=${fiscalYear}`),
+    getDefaultMonth: (orgId: string, fiscalYear: number) =>
+      apiFetch<{ month: number | null }>(
+        `/organizations/${orgId}/monthly-closes/default-month?fiscalYear=${fiscalYear}`,
+      ),
+    setStatus: (
+      orgId: string,
+      fiscalYear: number,
+      month: number,
+      status: 'OPEN' | 'IN_REVIEW' | 'CLOSED',
+      note?: string,
+    ) =>
+      apiFetch<unknown>(
+        `/organizations/${orgId}/monthly-closes/${fiscalYear}/${month}`,
+        {
+          method: 'PUT',
+          body: JSON.stringify({ status, note }),
+        },
+      ),
   },
 
   // === Sync ===
@@ -864,11 +1125,16 @@ export const api = {
   sentinel: {
     signals: (
       orgId: string,
-      params?: { fiscalYear?: number; endMonth?: number },
+      params?: {
+        fiscalYear?: number;
+        endMonth?: number;
+        runwayMode?: 'worstCase' | 'netBurn' | 'actual';
+      },
     ) => {
       const qs = new URLSearchParams();
       if (params?.fiscalYear) qs.set("fiscalYear", String(params.fiscalYear));
       if (params?.endMonth) qs.set("endMonth", String(params.endMonth));
+      if (params?.runwayMode) qs.set("runwayMode", params.runwayMode);
       const suffix = qs.toString() ? `?${qs}` : "";
       return apiFetch<{
         generatedAt: string;
@@ -924,11 +1190,16 @@ export const api = {
   drafter: {
     monthlyDraft: (
       orgId: string,
-      params?: { fiscalYear?: number; endMonth?: number },
+      params?: {
+        fiscalYear?: number;
+        endMonth?: number;
+        runwayMode?: 'worstCase' | 'netBurn' | 'actual';
+      },
     ) => {
       const qs = new URLSearchParams();
       if (params?.fiscalYear) qs.set("fiscalYear", String(params.fiscalYear));
       if (params?.endMonth) qs.set("endMonth", String(params.endMonth));
+      if (params?.runwayMode) qs.set("runwayMode", params.runwayMode);
       const suffix = qs.toString() ? `?${qs}` : "";
       return apiFetch<{
         generatedAt: string;
@@ -948,7 +1219,7 @@ export const api = {
     },
   },
 
-  // === Copilot (呼び出し型AIペイン) ===
+  // === Copilot (β版 AIペイン。レビュー/対話/実行の3モード) ===
   copilot: {
     chat: (
       orgId: string,
@@ -958,6 +1229,7 @@ export const api = {
         pathname: string;
         fiscalYear?: number;
         endMonth?: number;
+        runwayMode?: 'worstCase' | 'netBurn' | 'actual';
         messages: { role: "user" | "assistant"; content: string }[];
       },
     ) =>

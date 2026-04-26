@@ -29,8 +29,8 @@ export interface AgentIdentity {
 export const AGENTS: Record<AgentKey, AgentIdentity> = {
   brief: {
     key: "brief",
-    roleName: "経営サマリーエージェント",
-    shortName: "Brief",
+    roleName: "AI CFOエージェント",
+    shortName: "AI CFO",
     icon: Eye,
     summary: "今朝の注目点を3行で抽出",
     path: "/",
@@ -41,8 +41,8 @@ export const AGENTS: Record<AgentKey, AgentIdentity> = {
   },
   sentinel: {
     key: "sentinel",
-    roleName: "キャッシュ予兆エージェント",
-    shortName: "Sentinel",
+    roleName: "AI CFOエージェント",
+    shortName: "AI CFO",
     icon: Shield,
     summary: "資金枯渇リスクを早期検知",
     path: "/cashflow",
@@ -53,8 +53,8 @@ export const AGENTS: Record<AgentKey, AgentIdentity> = {
   },
   drafter: {
     key: "drafter",
-    roleName: "顧問ドラフトエージェント",
-    shortName: "Drafter",
+    roleName: "AI CFOエージェント",
+    shortName: "AI CFO",
     icon: PenTool,
     summary: "顧問レポートの初稿を生成",
     path: "/ai-report",
@@ -65,8 +65,8 @@ export const AGENTS: Record<AgentKey, AgentIdentity> = {
   },
   auditor: {
     key: "auditor",
-    roleName: "品質改善エージェント",
-    shortName: "Auditor",
+    roleName: "AI CFOエージェント",
+    shortName: "AI CFO",
     icon: CheckCircle2,
     summary: "月次レビューの網羅性・ルール暴走を監視",
     path: "/monthly-review",
@@ -120,7 +120,7 @@ export function buildAgentSystemPrompt(agent: AgentKey): string {
  * 各エージェントの主担当画面だけでなく、テーマが近い周辺画面も同じ担当に寄せる。
  * - brief: 全体ダッシュ/アラート/トリアージ/指標系/カレンダー/データ健全性
  * - sentinel: 資金繰り/融資/シミュ/変動損益/資金調達
- * - drafter: AIレポート/顧問コメント/トークスクリプト/財務諸表/予算ヘルパー
+ * - drafter: AI CFOレポート/顧問コメント/トークスクリプト/財務諸表/予算ヘルパー
  * - auditor: 月次レビュー/予実差異/Action/経営イベント/予算
  */
 const PATH_TO_AGENT: Array<{ prefix: string; key: AgentKey }> = [

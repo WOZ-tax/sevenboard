@@ -16,6 +16,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
+import { useCurrentOrg } from "@/contexts/current-org";
 import { useAuthStore } from "@/lib/auth";
 
 type NotificationType =
@@ -61,7 +62,7 @@ function relativeTime(iso: string): string {
 export function NotificationDropdown() {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-  const orgId = useAuthStore((s) => s.user?.orgId || "");
+  const orgId = useCurrentOrg().currentOrgId ?? "";
   const queryClient = useQueryClient();
 
   const unread = useQuery({
