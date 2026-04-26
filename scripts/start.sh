@@ -5,4 +5,4 @@ echo "Running Prisma migrations..."
 npx prisma migrate deploy --schema=packages/database/prisma/schema.prisma
 
 echo "Starting API server..."
-node apps/api/dist/main
+node apps/api/dist/src/main
