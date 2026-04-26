@@ -21,6 +21,11 @@ model Organization {
   employeeCount  Int?     @map("employee_count")
   planType       PlanType @default(STARTER) @map("plan_type")
   aiOptOut       Boolean  @default(false) @map("ai_opt_out") // AI機能オプトアウト
+  /// 原価計算を運用しているか。false（既定）= 売上原価が信頼できない前提。
+  /// 中小企業では原価計算を行っていないケースが多く、その場合 grossProfitMargin（売上総利益率）は
+  /// 実態と乖離するため、UI / AI レポートともに参照を控える。
+  /// 顧問先ごとに owner / advisor がトグルできる。
+  usesCostAccounting Boolean @default(false) @map("uses_cost_accounting")
   briefPushEnabled     Boolean @default(false) @map("brief_push_enabled")
   briefPushHourJst     Int     @default(8) @map("brief_push_hour_jst") // 0-23
   briefSlackWebhookUrl String? @map("brief_slack_webhook_url")
@@ -35,7 +40,7 @@ model Organization {
   journalEntries     JournalEntry[]
   kpiDefinitions     KpiDefinition[]
   users              User[]
-  advisorAssignments AdvisorAssignment[]
+  memberships        OrganizationMembership[]
   notifications      Notification[]
   reports            Report[]
   auditLogs          AuditLog[]
@@ -53,6 +58,7 @@ model Organization {
   briefingSnapshots  BriefingSnapshot[]
   agentRuns          AgentRun[]
   monthlyReviewApprovals MonthlyReviewApproval[]
+  monthlyCloses      MonthlyClose[]
 
   @@map("organizations")
 }
@@ -68,14 +74,14 @@ model User {
   email     String   @unique
   name      String
   password  String // bcrypt hashed
-  role      UserRole @default(VIEWER)
+  role      UserRole @default(viewer)
   orgId     String?  @map("org_id") @db.Uuid // null = SEVENRICH顧問スタッフ
   avatarUrl String?  @map("avatar_url")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
   organization       Organization?       @relation(fields: [orgId], references: [id])
-  advisorAssignments AdvisorAssignment[]
+  memberships        OrganizationMembership[]
   budgetVersions     BudgetVersion[]
   aiComments         AiComment[]         @relation("ReviewedBy")
   notifications      Notification[]
@@ -88,24 +94,54 @@ model User {
   @@map("users")
 }
 
+// factory-hybrid と統一の小文字 5 値。
+//
+// SevenBoard の G-1 ロール設計：
+//   owner   - 事務所オーナー（内部スタッフのみ。orgId=NULL 限定）
+//   advisor - 顧問スタッフ（内部スタッフのみ。orgId=NULL 限定）
+//   admin   - CL 管理者
+//   member  - CL 一般メンバー（編集可・承認不可）
+//   viewer  - CL 閲覧専用
+//
+// 「owner = 会計事務所のみ」という設計を migration
+// `20260426010000_user_role_orgid_partition` の CHECK 制約 `user_role_orgid_partition`
+// で DB レイヤから強制している:
+//   org_id IS NULL     → role ∈ {'owner', 'advisor'}
+//   org_id IS NOT NULL → role ∈ {'admin', 'member', 'viewer'}
+// これにより顧問先側 owner という概念は DB に作成不可。アプリ側でうっかり
+// `role === 'owner'` だけ見るコードを書いても権限漏れに繋がらない。
+//
+// クロステナント access を判定するヘルパー:
+//   isInternalOwner(user)   = user.orgId === null && user.role === 'owner'
+//   isInternalAdvisor(user) = user.orgId === null && user.role === 'advisor'
+//   isInternalStaff(user)   = いずれか
 enum UserRole {
-  ADMIN
-  CFO
-  VIEWER
-  ADVISOR // SEVENRICH顧問スタッフ
+  owner
+  admin
+  member
+  viewer
+  advisor
 }
 
-model AdvisorAssignment {
+/// User と Organization の所属関係（factory-hybrid の OrganizationMembership と同じ概念）。
+/// 1 user × 1 org に対して 1 行。
+/// - SEVENRICH 事務所スタッフ（owner / advisor）が複数顧問先を担当する場合は user × N orgs の N 行
+/// - CL 側ユーザー（viewer 等）は user.orgId と一致する 1 行のみ
+/// 既存テーブル名 advisor_assignments は legacy。2026-04-25 に rename して概念統合。
+model OrganizationMembership {
   id        String   @id @default(uuid()) @db.Uuid
   userId    String   @map("user_id") @db.Uuid
   orgId     String   @map("org_id") @db.Uuid
+  /// この user が当該 org に対して持つロール。
+  /// SEVENRICH スタッフは 'owner' / 'advisor'、CL 側は 'admin' / 'member' / 'viewer'
+  role      UserRole @default(advisor)
   createdAt DateTime @default(now()) @map("created_at")
 
   user         User         @relation(fields: [userId], references: [id])
   organization Organization @relation(fields: [orgId], references: [id])
 
   @@unique([userId, orgId])
-  @@map("advisor_assignments")
+  @@map("organization_memberships")
 }
 
 // ============================================================
@@ -864,4 +900,36 @@ enum MonthlyReviewApprovalStatus {
   PENDING
   APPROVED
   REJECTED
+}
+
+// ============================================================
+// 月次締め (Monthly Close)
+// kintone未連携でも「現在対象月」を確定させ、レビュー進捗を追跡する。
+// status=IN_REVIEW の最新月が SevenBoard デフォルト表示月になる。
+// ============================================================
+
+model MonthlyClose {
+  id         String             @id @default(uuid()) @db.Uuid
+  orgId      String             @map("org_id") @db.Uuid
+  fiscalYear Int                @map("fiscal_year")
+  month      Int                // 1-12 (カレンダー月)
+  status     MonthlyCloseStatus @default(OPEN)
+  changedAt  DateTime           @default(now()) @map("changed_at")
+  changedBy  String?            @map("changed_by") @db.Uuid
+  /// CLOSED時点のKPIスナップショット（後の数字変更で締め値を保護）
+  snapshot   Json?
+  note       String?
+
+  organization Organization @relation(fields: [orgId], references: [id])
+
+  @@unique([orgId, fiscalYear, month])
+  @@index([orgId, fiscalYear])
+  @@index([orgId, status])
+  @@map("monthly_closes")
+}
+
+enum MonthlyCloseStatus {
+  OPEN
+  IN_REVIEW
+  CLOSED
 }

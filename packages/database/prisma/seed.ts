@@ -24,15 +24,22 @@ async function main() {
   // 2. ユーザー
   const hashedPassword = await bcrypt.hash('password123', 12);
 
+  // admin@demo.com は SEVENRICH 事務所オーナー（内部スタッフ）。
+  // G-1 設計: 内部スタッフは orgId=NULL & role=owner/advisor。
+  // role='owner' & orgId 持ちにすると顧問先側 owner と区別がつかなくなり権限混線するため絶対に避ける。
   const admin = await prisma.user.upsert({
     where: { email: 'admin@demo.com' },
-    update: { password: hashedPassword },
+    update: {
+      password: hashedPassword,
+      role: 'owner',
+      orgId: null,
+    },
     create: {
       email: 'admin@demo.com',
       name: '田中 健太',
       password: hashedPassword,
-      role: 'ADMIN',
-      orgId: org.id,
+      role: 'owner',
+      orgId: null,
     },
   });
 
@@ -43,16 +50,16 @@ async function main() {
       email: 'advisor@sevenrich.jp',
       name: '山田 太郎',
       password: hashedPassword,
-      role: 'ADVISOR',
+      role: 'advisor',
       orgId: null, // SEVENRICH顧問スタッフ
     },
   });
 
-  // 顧問担当割当
-  await prisma.advisorAssignment.upsert({
+  // 顧問担当割当 (OrganizationMembership)
+  await prisma.organizationMembership.upsert({
     where: { userId_orgId: { userId: advisor.id, orgId: org.id } },
     update: {},
-    create: { userId: advisor.id, orgId: org.id },
+    create: { userId: advisor.id, orgId: org.id, role: 'advisor' },
   });
   console.log(`  ✅ Users: ${admin.name}, ${advisor.name}`);
 
