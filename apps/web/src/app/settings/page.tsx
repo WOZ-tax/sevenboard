@@ -7,14 +7,6 @@ import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
 import { useScopedOrgId } from "@/hooks/use-scoped-org-id";
@@ -25,7 +17,6 @@ import {
   Building2,
   BellRing,
   Link2,
-  Users,
   LayoutDashboard,
   Eye,
   EyeOff,
@@ -61,13 +52,6 @@ interface IntegrationStatus {
   syncStatus: string;
 }
 
-interface UserRecord {
-  name: string;
-  email: string;
-  role: string;
-  lastLogin: string;
-}
-
 import { useMfOffice } from "@/hooks/use-mf-data";
 
 const initialNotifications: NotificationSetting[] = [
@@ -93,12 +77,6 @@ const PROVIDER_META: Record<string, { name: string; description: string }> = {
 };
 
 const ALL_PROVIDERS = ["MF_CLOUD", "FREEE", "BOOKKEEPING_PLUGIN"];
-
-const users: UserRecord[] = [
-  { name: "田中 太郎", email: "tanaka@example.com", role: "管理者", lastLogin: "2026-04-05 10:30" },
-  { name: "佐藤 花子", email: "sato@example.com", role: "編集者", lastLogin: "2026-04-04 15:20" },
-  { name: "鈴木 一郎", email: "suzuki@example.com", role: "閲覧者", lastLogin: "2026-04-01 09:00" },
-];
 
 
 function formatDateTime(iso: string | null): string {
@@ -482,38 +460,6 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2 text-base font-semibold text-[var(--color-text-primary)]">
-              <Users className="h-4 w-4" />
-              ユーザー一覧
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow className="bg-[var(--color-background)] border-b-2 border-[var(--color-border)]">
-                    <TableHead className="font-semibold text-[var(--color-text-primary)]">氏名</TableHead>
-                    <TableHead className="font-semibold text-[var(--color-text-primary)]">メールアドレス</TableHead>
-                    <TableHead className="font-semibold text-[var(--color-text-primary)]">役割</TableHead>
-                    <TableHead className="font-semibold text-[var(--color-text-primary)]">最終ログイン</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {users.map((user) => (
-                    <TableRow key={user.email}>
-                      <TableCell className="text-sm font-medium text-[var(--color-text-primary)]">{user.name}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{user.email}</TableCell>
-                      <TableCell><Badge variant="secondary">{user.role}</Badge></TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{user.lastLogin}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          </CardContent>
-        </Card>
         <MenuVisibilitySettings />
       </div>
     </DashboardShell>

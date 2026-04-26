@@ -216,7 +216,7 @@ export default function CalendarPage() {
         description: formDescription.trim() || undefined,
       });
     } else {
-      // Mock fallback: just close form
+      // 顧問先未選択時は API 呼ばず form を閉じるだけ
       resetAddForm();
     }
   };
