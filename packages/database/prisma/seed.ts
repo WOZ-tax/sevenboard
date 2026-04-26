@@ -3,8 +3,43 @@ import * as bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
-async function main() {
-  console.log('🌱 Seeding database...');
+const isProductionSeed = process.env.IS_PRODUCTION_SEED === 'true';
+
+async function seedProduction() {
+  console.log('🌱 Seeding production (owner only)...');
+
+  const email = 'hiroki.tobayashi@sevenrich.jp';
+  const password = process.env.PRODUCTION_OWNER_PASSWORD;
+  if (!password) {
+    throw new Error(
+      'PRODUCTION_OWNER_PASSWORD env var is required for production seed',
+    );
+  }
+  const hashed = await bcrypt.hash(password, 12);
+
+  // 内部スタッフ owner: orgId=NULL 必須（G-1 ロール設計）。
+  // 顧問先側 owner と区別するための user_role_orgid_partition CHECK 制約あり。
+  const owner = await prisma.user.upsert({
+    where: { email },
+    update: {
+      password: hashed,
+      role: 'owner',
+      orgId: null,
+    },
+    create: {
+      email,
+      name: '外林 洋輝',
+      password: hashed,
+      role: 'owner',
+      orgId: null,
+    },
+  });
+  console.log(`  ✅ Owner: ${owner.email}`);
+  console.log('\n🎉 Production seed completed.');
+}
+
+async function seedDevelopment() {
+  console.log('🌱 Seeding development (demo data)...');
 
   // 1. 組織（デモ用）
   const org = await prisma.organization.upsert({
@@ -214,7 +249,15 @@ async function main() {
   });
   console.log('  ✅ Runway snapshot: 8.3 months');
 
-  console.log('\n🎉 Seed completed!');
+  console.log('\n🎉 Dev seed completed.');
+}
+
+async function main() {
+  if (isProductionSeed) {
+    await seedProduction();
+  } else {
+    await seedDevelopment();
+  }
 }
 
 main()

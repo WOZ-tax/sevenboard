@@ -15,49 +15,17 @@ interface LoginFormData {
   password: string;
 }
 
-const DEMO_USERS = [
-  {
-    email: "admin@demo.com",
-    password: "password123",
-    user: {
-      id: "demo-admin",
-      email: "admin@demo.com",
-      name: "田中 太郎",
-      role: "owner",
-      orgId: null,
-    },
-  },
-  {
-    email: "advisor@sevenrich.jp",
-    password: "password123",
-    user: {
-      id: "demo-advisor",
-      email: "advisor@sevenrich.jp",
-      name: "七海 太郎",
-      role: "advisor",
-      orgId: null,
-    },
-  },
-] as const;
-
-function tryDemoLogin(email: string, password: string) {
-  return DEMO_USERS.find(
-    (candidate) => candidate.email === email && candidate.password === password
-  );
-}
-
 export default function LoginPage() {
   const router = useRouter();
   const login = useAuthStore((s) => s.login);
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const [apiError, setApiError] = useState<string | null>(null);
-  const [usedDemoMode, setUsedDemoMode] = useState(false);
   const {
     register,
     handleSubmit,
     formState: { errors, isSubmitting },
   } = useForm<LoginFormData>({
-    defaultValues: { email: "admin@demo.com", password: "password123" },
+    defaultValues: { email: "", password: "" },
   });
 
   useEffect(() => {
@@ -68,28 +36,12 @@ export default function LoginPage() {
 
   const onSubmit = async (data: LoginFormData) => {
     setApiError(null);
-    setUsedDemoMode(false);
-
     try {
       const result = await api.login(data.email, data.password);
       login(result.accessToken, result.user);
       // 着地は常にダッシュボード。事務所スタッフはヘッダーの OrgSwitcher / 顧問先一覧から切替
       router.push("/");
-      return;
     } catch (err) {
-      const demoUser = tryDemoLogin(data.email, data.password);
-      const isNetworkError =
-        err instanceof TypeError ||
-        (err instanceof Error &&
-          /fetch|network|failed to fetch|load failed/i.test(err.message));
-
-      if (isNetworkError && demoUser) {
-        login("demo-token", demoUser.user);
-        setUsedDemoMode(true);
-        router.push("/");
-        return;
-      }
-
       setApiError(
         err instanceof Error
           ? err.message
@@ -116,16 +68,6 @@ export default function LoginPage() {
                 <p className="text-sm text-[var(--color-negative)]">{apiError}</p>
               </div>
             )}
-            {usedDemoMode && (
-              <div className="rounded-md border border-amber-200 bg-amber-50 p-3">
-                <p className="text-sm text-amber-800">
-                  API が起動していないため、デモモードでログインしました。
-                </p>
-              </div>
-            )}
-            <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
-              デモ用: `admin@demo.com / password123`
-            </div>
             <div className="space-y-2">
               <Label htmlFor="email">メールアドレス</Label>
               <Input
