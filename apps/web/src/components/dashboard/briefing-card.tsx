@@ -13,6 +13,7 @@ import {
   ChevronDown,
   ChevronUp,
 } from "lucide-react";
+import { useCurrentOrg } from "@/contexts/current-org";
 import { useAuthStore } from "@/lib/auth";
 import { usePeriodStore } from "@/lib/period-store";
 import { api } from "@/lib/api";
@@ -72,7 +73,7 @@ const severityStyle: Record<
 };
 
 export function BriefingCard() {
-  const orgId = useAuthStore((s) => s.user?.orgId || "");
+  const orgId = useCurrentOrg().currentOrgId ?? "";
   const { fiscalYear, month } = usePeriodStore();
   const [showHistory, setShowHistory] = useState(false);
   const [openSnapshotId, setOpenSnapshotId] = useState<string | null>(null);

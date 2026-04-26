@@ -2,21 +2,28 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { FileText } from "lucide-react";
+import { useCurrentOrg } from "@/contexts/current-org";
 import { useAuthStore } from "@/lib/auth";
 import { usePeriodStore } from "@/lib/period-store";
+import { useRunwayMode } from "@/components/ui/runway-mode-toggle";
 import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { CopilotOpenButton } from "@/components/copilot/copilot-open-button";
 
 export function DrafterCard() {
-  const orgId = useAuthStore((s) => s.user?.orgId || "");
+  const orgId = useCurrentOrg().currentOrgId ?? "";
   const { fiscalYear, month } = usePeriodStore();
+  const [runwayMode] = useRunwayMode();
 
   const { data, isLoading } = useQuery({
-    queryKey: ["drafter-monthly", orgId, fiscalYear, month],
+    queryKey: ["drafter-monthly", orgId, fiscalYear, month, runwayMode],
     queryFn: () =>
-      api.drafter.monthlyDraft(orgId, { fiscalYear, endMonth: month }),
+      api.drafter.monthlyDraft(orgId, {
+        fiscalYear,
+        endMonth: month,
+        runwayMode,
+      }),
     enabled: !!orgId,
     staleTime: 5 * 60_000,
     refetchOnWindowFocus: false,

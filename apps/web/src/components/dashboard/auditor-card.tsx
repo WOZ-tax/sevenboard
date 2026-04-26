@@ -3,6 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { AlertCircle, AlertTriangle, Info, ExternalLink } from "lucide-react";
+import { useCurrentOrg } from "@/contexts/current-org";
 import { useAuthStore } from "@/lib/auth";
 import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -55,7 +56,7 @@ const categoryLabel: Record<string, string> = {
 };
 
 export function AuditorCard() {
-  const orgId = useAuthStore((s) => s.user?.orgId || "");
+  const orgId = useCurrentOrg().currentOrgId ?? "";
 
   const { data, isLoading } = useQuery({
     queryKey: ["auditor-quality", orgId],

@@ -70,7 +70,7 @@ export default function BudgetPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-[var(--color-navy)]">

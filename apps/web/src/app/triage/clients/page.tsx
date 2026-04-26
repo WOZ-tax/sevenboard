@@ -78,7 +78,7 @@ export default function TriagePage() {
     queryKey: ["advisor", "orgs"],
     queryFn: () => api.getAdvisorOrgs(),
     staleTime: 5 * 60 * 1000,
-    enabled: user?.role === "ADVISOR",
+    enabled: user?.role === "advisor",
   });
 
   // クライアント選択→org切替→月次レビューへ
@@ -141,7 +141,7 @@ export default function TriagePage() {
 
   return (
     <DashboardShell>
-      <div className="space-y-6">
+      <div className="space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Users className="h-6 w-6 text-[var(--color-tertiary)]" />

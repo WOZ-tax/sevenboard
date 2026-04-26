@@ -46,10 +46,10 @@
   --radius-2xl: 16px;
   --radius-3xl: 20px;
   --radius-4xl: 24px;
-  /* 後方互換: navy/gold → DESIGN.md マッピング */
-  --color-navy: #0077c7;
-  --color-navy-light: #005fa3;
-  --color-navy-dark: #004d80;
+  /* 後方互換: navy/gold → ブランド赤に追随 */
+  --color-navy: #a50009;
+  --color-navy-light: #7a0007;
+  --color-navy-dark: #560005;
   --color-gold: #f56121;
   --color-gold-light: #ff8a57;
   --color-positive: #2e7d32;
@@ -59,8 +59,8 @@
 :root {
   /* SEVENRICH Design System トークン */
   /* ブランドカラー */
-  --color-primary: #0077c7;
-  --color-primary-hover: #005fa3;
+  --color-primary: #a50009;
+  --color-primary-hover: #7a0007;
   --color-secondary: #0f7f85;
   --color-tertiary: #f56121;
 
@@ -76,7 +76,7 @@
   --color-text-primary: #23221e;
   --color-text-secondary: #706d65;
   --color-text-disabled: #c1bdb7;
-  --color-text-link: #0071c1;
+  --color-text-link: #7a0007;
   --color-border: #d6d3d0;
   --color-overlay: rgba(3,3,2,0.15);
   --color-scrim: rgba(3,3,2,0.5);
@@ -103,7 +103,7 @@
   --card-foreground: #23221e;
   --popover: #ffffff;
   --popover-foreground: #23221e;
-  --primary: #0077c7;
+  --primary: #a50009;
   --primary-foreground: #ffffff;
   --secondary: #f8f7f6;
   --secondary-foreground: #23221e;
@@ -114,8 +114,8 @@
   --destructive: #e01e5a;
   --border: #d6d3d0;
   --input: #d6d3d0;
-  --ring: #0077c7;
-  --chart-1: #0077c7;
+  --ring: #a50009;
+  --chart-1: #a50009;
   --chart-2: #0f7f85;
   --chart-3: #2e7d32;
   --chart-4: #706d65;
@@ -123,7 +123,7 @@
   --radius: 8px;
 
   /* サイドバー */
-  --sidebar: #0077c7;
+  --sidebar: #a50009;
   --sidebar-foreground: rgba(255,255,255,0.9);
   --sidebar-primary: #f56121;
   --sidebar-primary-foreground: #ffffff;
@@ -136,8 +136,8 @@
 /* ダークモード */
 @media (prefers-color-scheme: dark) {
   :root {
-    --color-primary: #4da6e8;
-    --color-primary-hover: #3a8fd4;
+    --color-primary: #ff4d57;
+    --color-primary-hover: #e63946;
     --color-secondary: #4db8bd;
     --color-tertiary: #ff8a57;
 
@@ -151,7 +151,7 @@
     --color-text-primary: #f0f0f0;
     --color-text-secondary: #a8a8a8;
     --color-text-disabled: #5c5c5c;
-    --color-text-link: #4da6e8;
+    --color-text-link: #ff4d57;
     --color-border: #404040;
     --color-overlay: rgba(255,255,255,0.1);
     --color-scrim: rgba(0,0,0,0.6);
@@ -162,7 +162,7 @@
     --card-foreground: #f0f0f0;
     --popover: #2d2d2d;
     --popover-foreground: #f0f0f0;
-    --primary: #4da6e8;
+    --primary: #ff4d57;
     --primary-foreground: #1a1a1a;
     --secondary: #2d2d2d;
     --secondary-foreground: #f0f0f0;
@@ -173,8 +173,8 @@
     --destructive: #ff6b8a;
     --border: #404040;
     --input: #404040;
-    --ring: #4da6e8;
-    --chart-1: #4da6e8;
+    --ring: #ff4d57;
+    --chart-1: #ff4d57;
     --chart-2: #4db8bd;
     --chart-3: #66bb6a;
     --chart-4: #a8a8a8;

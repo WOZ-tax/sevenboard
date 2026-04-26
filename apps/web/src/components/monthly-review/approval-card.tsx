@@ -27,8 +27,9 @@ const STATUS_META: Record<MonthlyReviewApprovalStatus, { label: string; icon: ty
 export function ApprovalCard({ orgId, fiscalYear, month }: ApprovalCardProps) {
   const user = useAuthStore((s) => s.user);
   const role = user?.role || "";
-  const canApprove = ["ADMIN", "CFO", "ADVISOR"].includes(role);
-  const canSubmit = ["ADMIN", "CFO", "ADVISOR", "ACCOUNTANT"].includes(role);
+  // G-1 strict: 月次レビューの承認も申請も内部スタッフのみ。CL=viewer は閲覧のみ
+  const canApprove = ["owner", "advisor"].includes(role);
+  const canSubmit = ["owner", "advisor"].includes(role);
 
   const queryClient = useQueryClient();
   const { data, isLoading } = useQuery({

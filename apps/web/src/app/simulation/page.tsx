@@ -28,7 +28,7 @@ import {
   ResponsiveContainer,
   ReferenceLine,
 } from "recharts";
-import { useWhatIfSimulation } from "@/hooks/use-mf-data";
+import { useWhatIfSimulation, useMfDashboard } from "@/hooks/use-mf-data";
 import type { WhatIfResult } from "@/lib/api-types";
 
 function formatYen(value: number): string {
@@ -60,19 +60,22 @@ function ChangeCell({ value }: { value: number }) {
   );
 }
 
-// モックベースの簡易計算
-function localSimulate(params: {
-  revenueChangePercent: number;
-  costChangePercent: number;
-  newHires: number;
-  additionalInvestment: number;
-}): WhatIfResult {
-  const before = {
-    revenue: 500_000_000,
-    operatingProfit: 50_000_000,
-    cashBalance: 120_000_000,
-    runway: 18.5,
-  };
+// APIが使えない場合のローカル計算。base値はダッシュボードの実績を渡す
+function localSimulate(
+  params: {
+    revenueChangePercent: number;
+    costChangePercent: number;
+    newHires: number;
+    additionalInvestment: number;
+  },
+  base: {
+    revenue: number;
+    operatingProfit: number;
+    cashBalance: number;
+    runway: number;
+  },
+): WhatIfResult {
+  const before = base;
 
   const revChange = before.revenue * (params.revenueChangePercent / 100);
   const costChange = (before.revenue - before.operatingProfit) * (params.costChangePercent / 100);
@@ -112,6 +115,17 @@ export default function SimulationPage() {
   const [hasSimulated, setHasSimulated] = useState(false);
 
   const mutation = useWhatIfSimulation();
+  const dashboard = useMfDashboard();
+
+  const localBase = useMemo(() => {
+    const d = dashboard.data;
+    return {
+      revenue: d?.revenue ?? 0,
+      operatingProfit: d?.operatingProfit ?? 0,
+      cashBalance: d?.cashBalance ?? 0,
+      runway: d?.runway ?? 0,
+    };
+  }, [dashboard.data]);
 
   const handleReset = useCallback(() => {
     setRevenueChangePercent(0);
@@ -134,13 +148,16 @@ export default function SimulationPage() {
   // API結果があればそれを使い、なければローカル計算
   const result = useMemo(() => {
     if (mutation.data) return mutation.data;
-    return localSimulate({
-      revenueChangePercent,
-      costChangePercent,
-      newHires,
-      additionalInvestment,
-    });
-  }, [mutation.data, revenueChangePercent, costChangePercent, newHires, additionalInvestment]);
+    return localSimulate(
+      {
+        revenueChangePercent,
+        costChangePercent,
+        newHires,
+        additionalInvestment,
+      },
+      localBase,
+    );
+  }, [mutation.data, revenueChangePercent, costChangePercent, newHires, additionalInvestment, localBase]);
 
   const runwayAfter = result.after?.runway || 0;
   const runwayAlert =
@@ -148,7 +165,7 @@ export default function SimulationPage() {
 
   return (
     <DashboardShell>
-      <div className="space-y-6">
+      <div className="space-y-4">
         {/* ヘッダー */}
         <div className="flex items-center gap-3">
           <FlaskConical className="h-6 w-6 text-[var(--color-tertiary)]" />
@@ -179,7 +196,7 @@ export default function SimulationPage() {
                 リセット
               </Button>
             </CardHeader>
-            <CardContent className="space-y-6">
+            <CardContent className="space-y-4">
               {/* 売上変動率 */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
@@ -422,9 +439,9 @@ export default function SimulationPage() {
             )}
 
             {mutation.isError && (
-              <Card className="border-red-300 bg-red-50">
-                <CardContent className="p-4 text-sm text-red-700">
-                  シミュレーションでエラーが発生しました。モックデータで表示しています。
+              <Card className="border-amber-300 bg-amber-50">
+                <CardContent className="p-4 text-sm text-amber-800">
+                  サーバー計算に失敗したため、現在のダッシュボード実績値を元にブラウザ側で簡易計算しています。
                 </CardContent>
               </Card>
             )}

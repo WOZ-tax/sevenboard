@@ -15,7 +15,7 @@ import { formatPercent, getValueColor } from "@/lib/format";
 
 export default function VariancePage() {
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <div>
         <h1 className="text-xl font-bold text-[var(--color-navy)]">
           予実分析

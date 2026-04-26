@@ -5,7 +5,7 @@ import { CashflowTable } from "@/components/cashflow/cashflow-table";
 
 export default function CashflowPage() {
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <div>
         <h1 className="text-xl font-bold text-[var(--color-navy)]">
           資金繰り表

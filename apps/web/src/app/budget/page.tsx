@@ -13,7 +13,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
-import { formatManYen } from "@/lib/format";
+import { formatYen } from "@/lib/format";
 import { MfEmptyState } from "@/components/ui/mf-empty-state";
 import {
   useBudgetContext,
@@ -276,7 +276,7 @@ export default function BudgetPage() {
 
   return (
     <DashboardShell>
-      <div className="space-y-6">
+      <div className="space-y-4">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-xl font-bold text-[var(--color-text-primary)]">
@@ -461,7 +461,7 @@ export default function BudgetPage() {
                                 />
                               ) : (
                                 <div className="px-3 py-2">
-                                  {formatManYen(value)}
+                                  {formatYen(value)}
                                 </div>
                               )}
                             </TableCell>

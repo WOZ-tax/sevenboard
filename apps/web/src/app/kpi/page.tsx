@@ -90,9 +90,9 @@ function formatKpiValue(value: number, format: KpiFormat): string {
 
 function formatDelta(current: number, prior: number, format: KpiFormat): string {
   const diff = current - prior;
-  const sign = diff > 0 ? "+" : "";
-  if (format === "percent") return `${sign}${diff.toFixed(1)}pt`;
-  if (format === "yen") return `${sign}${formatManYen(diff)}`;
+  const sign = diff > 0 ? "+" : diff < 0 ? "-" : "";
+  if (format === "percent") return `${sign}${Math.abs(diff).toFixed(1)}pt`;
+  if (format === "yen") return `${sign}¥${Math.abs(diff).toLocaleString()}`;
   return `${sign}${diff.toLocaleString()}`;
 }
 
@@ -154,7 +154,7 @@ export default function KpiPage() {
 
   return (
     <DashboardShell>
-      <div className="space-y-6">
+      <div className="space-y-4">
         {/* 印刷専用ヘッダー */}
         <div className="print-only" data-print-block>
           <h1 className="text-xl font-bold">KPIトラッキング</h1>

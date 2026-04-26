@@ -5,80 +5,66 @@ import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { Mic, Bot, Copy, Check, ChevronDown, ChevronRight } from "lucide-react";
+import {
+  Mic,
+  Bot,
+  Copy,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  MessageCircleQuestion,
+  Lightbulb,
+  FileText,
+  CheckCheck,
+} from "lucide-react";
 import { useAiTalkScript, useMfOffice } from "@/hooks/use-mf-data";
 import { isMfNotConnected } from "@/lib/api";
 import { MfEmptyState } from "@/components/ui/mf-empty-state";
 import { PrintButton } from "@/components/ui/print-button";
 import { usePeriodStore, getPeriodLabel } from "@/lib/period-store";
+import type { TalkScript, TalkScriptSection } from "@/lib/api-types";
 
-// --- モックデータ ---
-const mockTalkScript = {
-  opening:
-    "先月もお忙しい中、月次のお打ち合わせのお時間をいただきありがとうございます。3月度の業績をご報告いたします。",
-  sections: [
-    {
-      title: "売上・利益の状況",
-      content:
-        "売上高は前月比5.2%増の12,500万円で推移しております。計画比では98.4%とほぼ達成水準です。ただし営業利益率は22.4%と前期比でやや低下しており、主因は人件費の増加です。",
-      qa: [
-        {
-          q: "人件費はどれくらい増えましたか？",
-          a: "前月比で約8.3%の増加です。新規採用の2名分の人件費が反映されています。",
-        },
-      ],
-    },
-    {
-      title: "資金繰り・キャッシュ",
-      content:
-        "現預金残高は17,800万円で、ランウェイは18.5ヶ月を維持しています。来月に設備投資2,000万円を予定していますが、資金余力は十分にございます。",
-      qa: [],
-    },
-    {
-      title: "今後の課題と提案",
-      content:
-        "販管費の最適化が今後の課題です。特に広告宣伝費のROIを分析し、効果の低い施策は停止することを推奨いたします。また、A社への売上依存度が35%に達しているため、新規顧客の開拓も並行して進めていきましょう。",
-      qa: [
-        {
-          q: "新規顧客はどう開拓すべきですか？",
-          a: "既存顧客からの紹介プログラムの整備と、ターゲットを絞ったセミナー開催が効果的と考えます。",
-        },
-      ],
-    },
-  ],
-  closing:
-    "以上が3月度のご報告です。来月は採用計画の見直しと広告宣伝費のROI分析結果をご報告いたします。",
-  generatedAt: "2026-04-05 09:00",
-};
-
-type TalkScriptView = typeof mockTalkScript;
-
-function buildPlainText(script: TalkScriptView): string {
+function buildPlainText(script: TalkScript): string {
   const parts: string[] = [];
-  parts.push(`【オープニング】\n${script.opening}\n`);
+  parts.push(`【導入】\n${script.opening}\n`);
   for (const sec of script.sections) {
-    parts.push(`【${sec.title}】\n${sec.content}`);
-    if (sec.qa.length > 0) {
+    parts.push(`【${sec.title}】${sec.material ? `（資料: ${sec.material}）` : ""}`);
+    parts.push(sec.content);
+    if (sec.hearings && sec.hearings.length > 0) {
+      parts.push("  ― ヒアリング ―");
+      for (const q of sec.hearings) parts.push(`  ・${q}`);
+    }
+    if (sec.proposals && sec.proposals.length > 0) {
+      parts.push("  ― 提案・アクション ―");
+      for (const p of sec.proposals) parts.push(`  ・${p}`);
+    }
+    if (sec.qa && sec.qa.length > 0) {
       parts.push("  ― 想定Q&A ―");
-      for (const item of sec.qa) {
-        parts.push(`  Q: ${item.q}\n  A: ${item.a}`);
-      }
+      for (const item of sec.qa) parts.push(`  Q: ${item.q}\n  A: ${item.a}`);
     }
     parts.push("");
   }
-  parts.push(`【クロージング】\n${script.closing}`);
+  parts.push(`【結び】\n${script.closing}`);
+  if (script.nextActionsForAdvisor?.length) {
+    parts.push("");
+    parts.push("【次回までの宿題（担当者）】");
+    for (const a of script.nextActionsForAdvisor) parts.push(`  ・${a}`);
+  }
+  if (script.nextActionsForExecutive?.length) {
+    parts.push("");
+    parts.push("【次回までの宿題（経営者）】");
+    for (const a of script.nextActionsForExecutive) parts.push(`  ・${a}`);
+  }
   return parts.join("\n");
 }
 
 function CopyButton({ text, label }: { text: string; label?: string }) {
   const [copied, setCopied] = useState(false);
-
   const handleCopy = async () => {
     await navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
-
   return (
     <Button
       variant="ghost"
@@ -96,15 +82,9 @@ function CopyButton({ text, label }: { text: string; label?: string }) {
   );
 }
 
-function QaAccordion({
-  qa,
-}: {
-  qa: { q: string; a: string }[];
-}) {
+function QaAccordion({ qa }: { qa: { q: string; a: string }[] }) {
   const [open, setOpen] = useState(false);
-
   if (qa.length === 0) return null;
-
   return (
     <div className="mt-3">
       <button
@@ -132,6 +112,106 @@ function QaAccordion({
   );
 }
 
+function SectionCard({ section, index }: { section: TalkScriptSection; index: number }) {
+  const copyText = [
+    `${section.title}${section.material ? `（資料: ${section.material}）` : ""}`,
+    "",
+    section.content,
+    section.hearings?.length
+      ? "\n― ヒアリング ―\n" + section.hearings.map((h) => `・${h}`).join("\n")
+      : "",
+    section.proposals?.length
+      ? "\n― 提案・アクション ―\n" + section.proposals.map((p) => `・${p}`).join("\n")
+      : "",
+    section.qa?.length
+      ? "\n― 想定Q&A ―\n" +
+        section.qa.map((i) => `Q: ${i.q}\nA: ${i.a}`).join("\n")
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  return (
+    <Card className="overflow-hidden">
+      <CardHeader className="pb-2">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <CardTitle className="flex flex-wrap items-center gap-2 text-base font-semibold text-[var(--color-text-primary)]">
+              <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--color-primary)] text-xs font-bold text-white">
+                {index + 1}
+              </span>
+              {section.title}
+            </CardTitle>
+            {section.material && (
+              <div className="mt-1 inline-flex items-center gap-1 rounded border border-[var(--color-border)] bg-muted/40 px-2 py-0.5 text-[11px] text-muted-foreground">
+                <FileText className="h-3 w-3" />
+                資料: {section.material}
+              </div>
+            )}
+          </div>
+          <CopyButton text={copyText} />
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {/* 担当者の発言 */}
+        <blockquote className="border-l-2 border-[var(--color-primary)]/40 bg-muted/20 py-2 pl-4 text-sm leading-relaxed text-[var(--color-text-primary)]">
+          {section.content}
+        </blockquote>
+
+        {/* 想定される経営者の反応 */}
+        {section.anticipatedResponses && section.anticipatedResponses.length > 0 && (
+          <div className="rounded-md border border-dashed border-[var(--color-border)] bg-background px-3 py-2 text-xs text-muted-foreground">
+            <div className="mb-1 font-semibold uppercase tracking-wide">想定される社長の反応</div>
+            <ul className="space-y-1">
+              {section.anticipatedResponses.map((r, i) => (
+                <li key={i}>— {r}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* ヒアリング */}
+        {section.hearings && section.hearings.length > 0 && (
+          <div className="rounded-md border border-[var(--color-warning)]/30 bg-[var(--color-warning)]/5 px-3 py-2">
+            <div className="mb-1 flex items-center gap-1 text-xs font-semibold text-[var(--color-warning)]">
+              <MessageCircleQuestion className="h-3.5 w-3.5" />
+              ヒアリング
+            </div>
+            <ul className="space-y-1 text-sm text-[var(--color-text-primary)]">
+              {section.hearings.map((h, i) => (
+                <li key={i} className="flex gap-2">
+                  <span className="mt-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-warning)]" />
+                  <span className="leading-relaxed">{h}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* 提案 */}
+        {section.proposals && section.proposals.length > 0 && (
+          <div className="rounded-md border border-[var(--color-tertiary)]/30 bg-[var(--color-tertiary)]/5 px-3 py-2">
+            <div className="mb-1 flex items-center gap-1 text-xs font-semibold text-[var(--color-tertiary)]">
+              <Lightbulb className="h-3.5 w-3.5" />
+              提案・アクション設定
+            </div>
+            <ul className="space-y-1 text-sm text-[var(--color-text-primary)]">
+              {section.proposals.map((p, i) => (
+                <li key={i} className="flex gap-2">
+                  <span className="mt-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-tertiary)]" />
+                  <span className="leading-relaxed">{p}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        <QaAccordion qa={section.qa ?? []} />
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function TalkScriptPage() {
   const { data: apiData, refetch, isFetching, error } = useAiTalkScript();
   const [generated, setGenerated] = useState(false);
@@ -140,8 +220,8 @@ export default function TalkScriptPage() {
   const { fiscalYear, month, periods } = usePeriodStore();
   const periodLabel = getPeriodLabel(fiscalYear, month, periods);
 
-  const script: TalkScriptView | null = generated && !mfNotConnected
-    ? (apiData as unknown as TalkScriptView | undefined) ?? mockTalkScript
+  const script: TalkScript | null = generated && !mfNotConnected
+    ? ((apiData as TalkScript | undefined) ?? null)
     : null;
 
   const handleGenerate = async () => {
@@ -151,10 +231,10 @@ export default function TalkScriptPage() {
 
   return (
     <DashboardShell>
-      <div className="space-y-6">
+      <div className="space-y-4">
         {/* Print-only header */}
         <div className="print-only mb-4">
-          <h1 className="text-xl font-bold">トークスクリプト</h1>
+          <h1 className="text-xl font-bold">トークスクリプト（月次報告）</h1>
           <p className="text-sm">事業所: {office.data?.name || "—"}</p>
           <p className="text-sm">対象期間: {periodLabel}</p>
           <p className="text-sm">出力日: {new Date().toLocaleDateString("ja-JP")}</p>
@@ -172,7 +252,7 @@ export default function TalkScriptPage() {
                 トークスクリプト
               </h1>
               <p className="text-sm text-muted-foreground">
-                月次報告用の話す原稿
+                巡回監査・月次報告の会話原稿（導入→業績→P/L→B/S→予測→課題ヒアリング→結び）
               </p>
             </div>
           </div>
@@ -201,8 +281,25 @@ export default function TalkScriptPage() {
                 原稿を生成中...
               </p>
               <p className="mt-1 text-xs text-muted-foreground">
-                AIが月次データを分析しています
+                AI CFOが月次データを分析しています
               </p>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Error / empty response */}
+        {generated && !isFetching && !script && !mfNotConnected && (
+          <Card>
+            <CardContent className="flex flex-col items-center justify-center py-16 text-center">
+              <p className="text-sm font-medium text-[var(--color-text-primary)]">
+                原稿の生成に失敗しました
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                サーバーから原稿を取得できませんでした。時間を置いて再試行してください。
+              </p>
+              <Button className="mt-4" variant="outline" onClick={() => refetch()}>
+                再試行
+              </Button>
             </CardContent>
           </Card>
         )}
@@ -212,64 +309,80 @@ export default function TalkScriptPage() {
           <>
             {/* Full Copy Button */}
             <div className="screen-only flex justify-end">
-              <CopyButton
-                text={buildPlainText(script)}
-                label="全文コピー"
-              />
+              <CopyButton text={buildPlainText(script)} label="全文コピー" />
             </div>
 
-            {/* Opening */}
+            {/* 導入 */}
             <Card className="border-l-4 border-l-[var(--color-tertiary)]">
               <CardHeader className="pb-2">
                 <CardTitle className="flex items-center justify-between text-base font-semibold text-[var(--color-text-primary)]">
-                  オープニング
+                  導入 — 本日の目的の共有
                   <CopyButton text={script.opening} />
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <blockquote className="border-l-2 border-muted-foreground/20 pl-4 text-base italic leading-relaxed text-muted-foreground">
+                <blockquote className="border-l-2 border-[var(--color-primary)]/40 bg-muted/20 py-2 pl-4 text-sm leading-relaxed text-[var(--color-text-primary)]">
                   {script.opening}
                 </blockquote>
               </CardContent>
             </Card>
 
-            {/* Sections */}
-            {script.sections.map((section, index) => (
-              <div key={index} className="space-y-1">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-bold text-[var(--color-text-primary)]">
-                    {section.title}
-                  </h3>
-                  <CopyButton
-                    text={`${section.title}\n\n${section.content}${
-                      section.qa.length > 0
-                        ? "\n\n想定Q&A\n" +
-                          section.qa
-                            .map((item) => `Q: ${item.q}\nA: ${item.a}`)
-                            .join("\n")
-                        : ""
-                    }`}
-                  />
-                </div>
-                <p className="text-sm leading-relaxed text-muted-foreground">
-                  {section.content}
-                </p>
-                <QaAccordion qa={section.qa} />
-              </div>
-            ))}
+            {/* 5ステップ */}
+            <div className="space-y-4">
+              {script.sections.map((section, i) => (
+                <SectionCard key={i} section={section} index={i} />
+              ))}
+            </div>
 
-            {/* Closing */}
+            {/* 結び */}
             <Card className="border-l-4 border-l-[var(--color-tertiary)]">
               <CardHeader className="pb-2">
                 <CardTitle className="flex items-center justify-between text-base font-semibold text-[var(--color-text-primary)]">
-                  クロージング
+                  結び — 次回までの宿題確認
                   <CopyButton text={script.closing} />
                 </CardTitle>
               </CardHeader>
-              <CardContent>
-                <blockquote className="border-l-2 border-muted-foreground/20 pl-4 text-base italic leading-relaxed text-muted-foreground">
+              <CardContent className="space-y-3">
+                <blockquote className="border-l-2 border-[var(--color-primary)]/40 bg-muted/20 py-2 pl-4 text-sm leading-relaxed text-[var(--color-text-primary)]">
                   {script.closing}
                 </blockquote>
+
+                {(script.nextActionsForAdvisor?.length || script.nextActionsForExecutive?.length) ? (
+                  <div className="grid gap-3 md:grid-cols-2">
+                    {script.nextActionsForAdvisor && script.nextActionsForAdvisor.length > 0 && (
+                      <div className="rounded-md border bg-background p-3">
+                        <div className="mb-1 flex items-center gap-1 text-xs font-semibold text-[var(--color-text-primary)]">
+                          <CheckCheck className="h-3.5 w-3.5" />
+                          次回までの宿題（担当者側）
+                        </div>
+                        <ul className="space-y-1 text-sm text-[var(--color-text-primary)]">
+                          {script.nextActionsForAdvisor.map((a, i) => (
+                            <li key={i} className="flex gap-2">
+                              <span className="mt-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-primary)]" />
+                              <span>{a}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {script.nextActionsForExecutive && script.nextActionsForExecutive.length > 0 && (
+                      <div className="rounded-md border bg-background p-3">
+                        <div className="mb-1 flex items-center gap-1 text-xs font-semibold text-[var(--color-text-primary)]">
+                          <CheckCheck className="h-3.5 w-3.5" />
+                          次回までの宿題（経営者側）
+                        </div>
+                        <ul className="space-y-1 text-sm text-[var(--color-text-primary)]">
+                          {script.nextActionsForExecutive.map((a, i) => (
+                            <li key={i} className="flex gap-2">
+                              <span className="mt-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-primary)]" />
+                              <span>{a}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                ) : null}
               </CardContent>
             </Card>
 

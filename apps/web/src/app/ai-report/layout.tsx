@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "AIレポート | SevenBoard",
+  title: "AI CFOレポート | SevenBoard",
 };
 
 export default function Layout({ children }: { children: React.ReactNode }) {

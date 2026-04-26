@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ChevronRight, Search, ArrowLeft, Download } from "lucide-react";
 import { useMfAccountTransition, useMfJournals } from "@/hooks/use-mf-data";
+import { MfEmptyState } from "@/components/ui/mf-empty-state";
 import {
   BarChart,
   Bar,
@@ -102,7 +103,12 @@ function DrilldownContent() {
     if (!selectedMonth) return undefined;
     const m = MONTH_MAP[selectedMonth];
     if (!m) return undefined;
-    const year = new Date().getFullYear() + (m.offset ? 0 : (m.month >= 4 ? 0 : 1));
+    // 現在の会計年度(4月開始)の開始年を算出し、月offsetで次年判定
+    const today = new Date();
+    const currentCalMonth = today.getMonth() + 1;
+    const fyStartYear =
+      currentCalMonth >= 4 ? today.getFullYear() : today.getFullYear() - 1;
+    const year = fyStartYear + m.offset;
     const startDate = `${year}-${String(m.month).padStart(2, "0")}-01`;
     const lastDay = new Date(year, m.month, 0).getDate();
     const endDate = `${year}-${String(m.month).padStart(2, "0")}-${lastDay}`;
@@ -111,46 +117,23 @@ function DrilldownContent() {
 
   const journals = useMfJournals(journalParams);
 
-  // モックデータフォールバック
-  const transitionData = useMemo(() => {
-    if (transition.data && transition.data.length > 0) return transition.data;
-    return [
-      { month: "4月", amount: 120000 },
-      { month: "5月", amount: 85000 },
-      { month: "6月", amount: 230000 },
-      { month: "7月", amount: 150000 },
-      { month: "8月", amount: 95000 },
-      { month: "9月", amount: 310000 },
-      { month: "10月", amount: 175000 },
-      { month: "11月", amount: 140000 },
-      { month: "12月", amount: 280000 },
-      { month: "1月", amount: 110000 },
-      { month: "2月", amount: 90000 },
-      { month: "3月", amount: 200000 },
-    ];
-  }, [transition.data]);
+  const transitionData = useMemo(
+    () => transition.data ?? [],
+    [transition.data],
+  );
+  const hasTransitionData = transitionData.length > 0;
 
   const journalList = useMemo(() => {
-    if (journals.data?.journals && journals.data.journals.length > 0) {
-      return (journals.data.journals as RawJournal[]).map((j, idx): JournalRow => ({
-        id: j.id || String(idx),
-        date: j.date || j.recognized_at || "",
-        debit: j.details?.[0]?.debit_account_name || j.details?.[0]?.account_item_name || "",
-        credit: j.details?.[0]?.credit_account_name || "",
-        amount: j.details?.[0]?.amount || j.amount || 0,
-        description: j.description || j.details?.[0]?.description || "",
-      }));
-    }
-    // モックデータ
-    if (!selectedMonth) return [];
-    return [
-      { id: "1", date: "2026-09-05", debit: accountName || "接待交際費", credit: "現金", amount: 45000, description: "取引先接待 レストランA" },
-      { id: "2", date: "2026-09-12", debit: accountName || "接待交際費", credit: "普通預金", amount: 120000, description: "顧客接待 ゴルフ" },
-      { id: "3", date: "2026-09-18", debit: accountName || "接待交際費", credit: "現金", amount: 38000, description: "取引先会食 居酒屋B" },
-      { id: "4", date: "2026-09-25", debit: accountName || "接待交際費", credit: "未払金", amount: 85000, description: "パートナー企業接待" },
-      { id: "5", date: "2026-09-28", debit: accountName || "接待交際費", credit: "現金", amount: 22000, description: "お中元・贈答品" },
-    ];
-  }, [journals.data, selectedMonth, accountName]);
+    if (!journals.data?.journals?.length) return [];
+    return (journals.data.journals as RawJournal[]).map((j, idx): JournalRow => ({
+      id: j.id || String(idx),
+      date: j.date || j.recognized_at || "",
+      debit: j.details?.[0]?.debit_account_name || j.details?.[0]?.account_item_name || "",
+      credit: j.details?.[0]?.credit_account_name || "",
+      amount: j.details?.[0]?.amount || j.amount || 0,
+      description: j.description || j.details?.[0]?.description || "",
+    }));
+  }, [journals.data]);
 
   // --- フィルタ state ---
   const [searchText, setSearchText] = useState("");
@@ -225,7 +208,7 @@ function DrilldownContent() {
 
   return (
     <DashboardShell>
-      <div className="space-y-6">
+      <div className="space-y-4">
         {/* パンくず */}
         <nav className="flex items-center gap-2 text-sm text-muted-foreground">
           <Link href="/" className="hover:text-[var(--color-primary)] transition-colors">
@@ -266,6 +249,13 @@ function DrilldownContent() {
             </CardTitle>
           </CardHeader>
           <CardContent>
+            {!hasTransitionData ? (
+              <MfEmptyState
+                title="月次推移データがありません"
+                description="MFクラウド会計を接続すると、科目別の月次推移が表示されます。"
+              />
+            ) : (
+            <>
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={transitionData}>
@@ -347,6 +337,8 @@ function DrilldownContent() {
                 })}
               </TableBody>
             </Table>
+            </>
+            )}
           </CardContent>
         </Card>
 

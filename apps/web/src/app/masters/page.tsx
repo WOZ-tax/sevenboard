@@ -31,9 +31,12 @@ const departments = [
   { name: "開発チーム", type: "team", order: 300 },
 ];
 
+// CL 側のユーザー一覧サンプル。
+// 内部スタッフ（owner / advisor）はこの画面の対象ではないため含めない。
+// G-1 設計: CL は viewer / admin / member のみ。owner / advisor は orgId=NULL の事務所スタッフ専用。
 const users = [
-  { name: "田中 太郎", email: "admin@demo.com", role: "ADMIN" },
-  { name: "七海 太郎", email: "advisor@sevenrich.jp", role: "ADVISOR" },
+  { name: "田中 太郎", email: "tanaka@demo.com", role: "admin" },
+  { name: "佐藤 花子", email: "sato@demo.com", role: "viewer" },
 ];
 
 export default function MastersPage() {
@@ -47,7 +50,7 @@ export default function MastersPage() {
 
   return (
     <DashboardShell>
-      <div className="space-y-6">
+      <div className="space-y-4">
         <div>
           <div className="flex items-center gap-2">
             <Database className="h-5 w-5 text-[var(--color-text-primary)]" />

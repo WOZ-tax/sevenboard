@@ -3,9 +3,11 @@
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { AlertCircle, AlertTriangle, Info, ExternalLink } from "lucide-react";
+import { useCurrentOrg } from "@/contexts/current-org";
 import { useAuthStore } from "@/lib/auth";
 import { usePeriodStore } from "@/lib/period-store";
 import { api } from "@/lib/api";
+import { useRunwayMode } from "@/components/ui/runway-mode-toggle";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -61,13 +63,14 @@ const severityToActionSeverity: Record<
 };
 
 export function SentinelCard() {
-  const orgId = useAuthStore((s) => s.user?.orgId || "");
+  const orgId = useCurrentOrg().currentOrgId ?? "";
   const { fiscalYear, month } = usePeriodStore();
+  const [runwayMode] = useRunwayMode();
 
   const { data, isLoading } = useQuery({
-    queryKey: ["sentinel-signals", orgId, fiscalYear, month],
+    queryKey: ["sentinel-signals", orgId, fiscalYear, month, runwayMode],
     queryFn: () =>
-      api.sentinel.signals(orgId, { fiscalYear, endMonth: month }),
+      api.sentinel.signals(orgId, { fiscalYear, endMonth: month, runwayMode }),
     enabled: !!orgId,
     staleTime: 5 * 60_000,
     refetchOnWindowFocus: false,

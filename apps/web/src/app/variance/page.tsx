@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { formatManYen, formatPercent, getValueColor } from "@/lib/format";
+import { formatYen, formatPercent, getValueColor } from "@/lib/format";
 import { MfEmptyState } from "@/components/ui/mf-empty-state";
 import {
   useBudgetContext,
@@ -49,7 +49,7 @@ export default function VariancePage() {
 
   return (
     <DashboardShell>
-      <div className="space-y-6">
+      <div className="space-y-4">
         <div>
           <h1 className="text-xl font-bold text-[var(--color-text-primary)]">
             予実差異
@@ -193,10 +193,10 @@ export default function VariancePage() {
                           )}
                         </TableCell>
                         <TableCell className="text-right font-[family-name:var(--font-inter)] text-sm tabular-nums">
-                          {formatManYen(row.budget)}
+                          {formatYen(row.budget)}
                         </TableCell>
                         <TableCell className="text-right font-[family-name:var(--font-inter)] text-sm tabular-nums">
-                          {formatManYen(row.actual)}
+                          {formatYen(row.actual)}
                         </TableCell>
                         <TableCell
                           className={cn(
@@ -205,7 +205,7 @@ export default function VariancePage() {
                           )}
                         >
                           {row.variance > 0 ? "+" : ""}
-                          {formatManYen(row.variance)}
+                          {formatYen(row.variance)}
                         </TableCell>
                         <TableCell
                           className={cn(
@@ -216,7 +216,7 @@ export default function VariancePage() {
                           {formatPercent(row.ratio)}
                         </TableCell>
                         <TableCell className="text-right font-[family-name:var(--font-inter)] text-sm tabular-nums">
-                          {row.priorYear != null ? formatManYen(row.priorYear) : "—"}
+                          {row.priorYear != null ? formatYen(row.priorYear) : "—"}
                         </TableCell>
                         {(() => {
                           const pyRatio =
