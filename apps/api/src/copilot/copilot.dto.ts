@@ -41,6 +41,10 @@ export class CopilotChatDto {
   @IsInt()
   endMonth?: number;
 
+  @IsOptional()
+  @IsIn(['worstCase', 'netBurn', 'actual'])
+  runwayMode?: 'worstCase' | 'netBurn' | 'actual';
+
   @IsArray()
   @ArrayMaxSize(8)
   @ValidateNested({ each: true })

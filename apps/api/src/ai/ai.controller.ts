@@ -27,30 +27,56 @@ export class AiController {
     return fy;
   }
 
+  private parseRunwayMode(value?: string): 'worstCase' | 'netBurn' | 'actual' | undefined {
+    return value === 'worstCase' || value === 'netBurn' || value === 'actual'
+      ? value
+      : undefined;
+  }
+
   @Get('summary')
   async getSummary(
     @Param('orgId') orgId: string,
     @Query('fiscalYear') fiscalYear?: string,
     @Query('endMonth') endMonth?: string,
+    @Query('runwayMode') runwayMode?: string,
   ) {
     const em = endMonth ? parseInt(endMonth, 10) : undefined;
-    return this.aiService.generateMonthlySummary(orgId, this.parseFy(fiscalYear), em);
+    return this.aiService.generateMonthlySummary(
+      orgId,
+      this.parseFy(fiscalYear),
+      em,
+      this.parseRunwayMode(runwayMode),
+    );
   }
 
   @Get('talk-script')
   async getTalkScript(
     @Param('orgId') orgId: string,
     @Query('fiscalYear') fiscalYear?: string,
+    @Query('endMonth') endMonth?: string,
+    @Query('runwayMode') runwayMode?: string,
   ) {
-    return this.aiService.generateTalkScript(orgId, this.parseFy(fiscalYear));
+    const em = endMonth ? parseInt(endMonth, 10) : undefined;
+    return this.aiService.generateTalkScript(
+      orgId,
+      this.parseFy(fiscalYear),
+      em,
+      this.parseRunwayMode(runwayMode),
+    );
   }
 
   @Get('budget-scenarios')
   async getBudgetScenarios(
     @Param('orgId') orgId: string,
     @Query('fiscalYear') fiscalYear?: string,
+    @Query('runwayMode') runwayMode?: string,
   ) {
-    return this.aiService.generateBudgetScenarios(orgId, this.parseFy(fiscalYear));
+    return this.aiService.generateBudgetScenarios(
+      orgId,
+      this.parseFy(fiscalYear),
+      undefined,
+      this.parseRunwayMode(runwayMode),
+    );
   }
 
   @Post('budget-scenarios')
@@ -64,16 +90,74 @@ export class AiController {
       newHires?: number;
       costReductionRate?: number;
       notes?: string;
+      runwayMode?: 'worstCase' | 'netBurn' | 'actual';
     },
   ) {
-    return this.aiService.generateBudgetScenarios(orgId, body.fiscalYear, body);
+    return this.aiService.generateBudgetScenarios(
+      orgId,
+      body.fiscalYear,
+      body,
+      this.parseRunwayMode(body.runwayMode),
+    );
   }
 
   @Get('funding-report')
   async getFundingReport(
     @Param('orgId') orgId: string,
     @Query('fiscalYear') fiscalYear?: string,
+    @Query('endMonth') endMonth?: string,
+    @Query('runwayMode') runwayMode?: string,
   ) {
-    return this.aiService.generateFundingReport(orgId, this.parseFy(fiscalYear));
+    const em = endMonth ? parseInt(endMonth, 10) : undefined;
+    return this.aiService.generateFundingReport(
+      orgId,
+      this.parseFy(fiscalYear),
+      undefined,
+      em,
+      this.parseRunwayMode(runwayMode),
+    );
+  }
+
+  /**
+   * 財務指標ページの AI CFO 解説を生成。
+   * 安全性 / 収益性 / 効率性 の 3 カテゴリ × CFO トーンで自動解説。
+   */
+  @Get('indicators-commentary')
+  async getIndicatorsCommentary(
+    @Param('orgId') orgId: string,
+    @Query('fiscalYear') fiscalYear?: string,
+    @Query('endMonth') endMonth?: string,
+  ) {
+    const em = endMonth ? parseInt(endMonth, 10) : undefined;
+    return this.aiService.generateIndicatorsCommentary(
+      orgId,
+      this.parseFy(fiscalYear),
+      em,
+    );
+  }
+
+  /** 融資シミュレーションのシナリオを添えてレポート再生成 */
+  @Post('funding-report')
+  async generateFundingReportWithScenarios(
+    @Param('orgId') orgId: string,
+    @Body() body: {
+      fiscalYear?: number;
+      endMonth?: number;
+      scenarios?: Array<{
+        name: string;
+        principal: number;
+        monthlyPayment: number;
+        totalInterest: number;
+        termMonths: number;
+        interestRate: number;
+      }>;
+    },
+  ) {
+    return this.aiService.generateFundingReport(
+      orgId,
+      body.fiscalYear,
+      body.scenarios,
+      body.endMonth,
+    );
   }
 }

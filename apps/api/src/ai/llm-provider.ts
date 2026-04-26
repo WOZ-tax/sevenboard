@@ -199,13 +199,15 @@ export class GeminiProvider implements LlmProvider {
   ) {}
 
   async generate(prompt: string, options?: { maxTokens?: number; json?: boolean }): Promise<LlmResponse> {
-    const model = 'gemini-2.5-flash';
+    const model = 'gemini-3-flash-preview';
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${this.apiKey}`;
 
     const body: any = {
       contents: [{ parts: [{ text: prompt }] }],
       generationConfig: {
-        maxOutputTokens: options?.maxTokens || 2048,
+        maxOutputTokens: options?.maxTokens || 4096,
+        // Gemini 2.5は thinkingトークンが maxOutputTokens を食って出力が途中で切れる。無効化する。
+        thinkingConfig: { thinkingBudget: 0 },
       },
     };
 
@@ -229,7 +231,7 @@ export class GeminiProvider implements LlmProvider {
     handler: ToolUseHandler,
     options?: LlmToolRunOptions,
   ): Promise<LlmToolRunResult> {
-    const model = 'gemini-2.5-flash';
+    const model = 'gemini-3-flash-preview';
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${this.apiKey}`;
     const maxIterations = options?.maxIterations ?? 4;
 
@@ -259,6 +261,7 @@ export class GeminiProvider implements LlmProvider {
         tools: [{ functionDeclarations }],
         generationConfig: {
           maxOutputTokens: options?.maxTokens || 2048,
+          thinkingConfig: { thinkingBudget: 0 },
         },
       };
       if (options?.system) {

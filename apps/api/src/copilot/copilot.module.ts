@@ -5,6 +5,7 @@ import { AlertsModule } from '../alerts/alerts.module';
 import { ActionsModule } from '../actions/actions.module';
 import { DataHealthModule } from '../data-health/data-health.module';
 import { AgentRunsModule } from '../agent-runs/agent-runs.module';
+import { MonthlyCloseModule } from '../monthly-close/monthly-close.module';
 import { CopilotController } from './copilot.controller';
 import { CopilotService } from './copilot.service';
 
@@ -16,6 +17,7 @@ import { CopilotService } from './copilot.service';
     ActionsModule,
     DataHealthModule,
     AgentRunsModule,
+    MonthlyCloseModule,
   ],
   controllers: [CopilotController],
   providers: [CopilotService],

@@ -13,6 +13,7 @@ import { ActionsService } from '../actions/actions.service';
 import { DataHealthService } from '../data-health/data-health.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AgentRunsService } from '../agent-runs/agent-runs.service';
+import { MonthlyCloseService } from '../monthly-close/monthly-close.service';
 import type { AgentRunMode } from '@prisma/client';
 import type { CopilotChatDto } from './copilot.dto';
 import {
@@ -48,6 +49,7 @@ export class CopilotService {
     private dataHealth: DataHealthService,
     private prisma: PrismaService,
     private agentRuns: AgentRunsService,
+    private monthlyClose: MonthlyCloseService,
   ) {}
 
   async chat(
@@ -102,6 +104,7 @@ export class CopilotService {
       orgId,
       dto.fiscalYear,
       dto.endMonth,
+      dto.runwayMode,
     );
 
     const history = dto.messages
@@ -125,7 +128,10 @@ export class CopilotService {
       history,
     ].join('\n');
 
-    // execute モードかつ Claude provider のみ tool-use ループを有効化
+    // execute モードのときだけ tool-use ループを有効化。
+    // Claude / Gemini どちらの provider でも runWithTools を実装しているので両対応。
+    // 将来 tool 非対応 provider を足したら自動的に通常 generate にフォールバックする
+    // （`provider.runWithTools` は optional なので false fallthrough）。
     if (dto.mode === 'execute' && provider.runWithTools) {
       const tools = await this.filterAvailableTools(orgId, COPILOT_TOOLS);
       const prompt = [
@@ -417,9 +423,10 @@ export class CopilotService {
     orgId: string,
     fiscalYear?: number,
     endMonth?: number,
+    runwayMode?: 'worstCase' | 'netBurn' | 'actual',
   ): Promise<string> {
     const [financial, alerts, actionSummary, dataHealth] = await Promise.all([
-      this.safeFinancial(orgId, fiscalYear, endMonth),
+      this.safeFinancial(orgId, fiscalYear, endMonth, runwayMode),
       this.safeAlerts(orgId, fiscalYear, endMonth),
       this.safeActionSummary(orgId),
       this.safeDataHealth(orgId),
@@ -434,21 +441,31 @@ export class CopilotService {
     orgId: string,
     fiscalYear?: number,
     endMonth?: number,
+    runwayMode?: 'worstCase' | 'netBurn' | 'actual',
   ): Promise<string> {
     try {
-      const [pl, bs] = await Promise.all([
+      const [pl, bs, bsT, plT, settledMonths] = await Promise.all([
         this.mfApi.getTrialBalancePL(orgId, fiscalYear, endMonth),
         this.mfApi.getTrialBalanceBS(orgId, fiscalYear, endMonth),
+        this.mfApi.getTransitionBS(orgId, fiscalYear, endMonth).catch(() => null),
+        this.mfApi.getTransitionPL(orgId, fiscalYear, endMonth).catch(() => null),
+        fiscalYear ? this.monthlyClose.getSettledMonths(orgId, fiscalYear) : Promise.resolve(undefined),
       ]);
-      const d = this.mfTransform.buildDashboardSummary(pl, bs);
+      const cashflowDerived =
+        bsT && plT ? this.mfTransform.deriveCashflow(bsT, plT, bs, settledMonths) : undefined;
+      const d = this.mfTransform.buildDashboardSummary(pl, bs, cashflowDerived);
+      const burnContext = cashflowDerived
+        ? this.mfTransform.formatBurnContextForPrompt(cashflowDerived, runwayMode)
+        : `- ランウェイ: ${d.runway}ヶ月`;
       return [
         '## 財務KPI (MF会計, 確定値)',
         `- 売上高: ${formatYen(d.revenue)}`,
         `- 営業利益: ${formatYen(d.operatingProfit)}`,
         `- 経常利益: ${formatYen(d.ordinaryProfit)}`,
         `- 現預金: ${formatYen(d.cashBalance)}`,
-        `- ランウェイ: ${d.runway}ヶ月`,
         `- 期間: ${d.period.start}〜${d.period.end}`,
+        '',
+        burnContext,
       ].join('\n');
     } catch {
       return '## 財務KPI\n- MF会計未連携のためデータ取得不可';
