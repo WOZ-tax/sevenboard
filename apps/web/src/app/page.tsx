@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
@@ -18,7 +18,8 @@ import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Bot, AlertTriangle, AlertCircle, Info, Zap, Users, ChevronRight } from "lucide-react";
+import { Bot, AlertTriangle, AlertCircle, Info, Zap, Users, ChevronRight, Sparkles } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { AgentBanner } from "@/components/agent/agent-banner";
 import { AGENTS } from "@/lib/agent-voice";
 import { CopilotOpenButton } from "@/components/copilot/copilot-open-button";
@@ -233,8 +234,12 @@ export default function DashboardPage() {
   const canQueryDependents = !!dashboard.data && !mfNotConnected && !isError;
   const [runwayMode, setRunwayMode] = useRunwayMode();
 
+  // AI コール（aiSummary / Briefing）はコストが重いので明示的なボタン押下時だけ発火する。
+  // KPI / グラフ / アラート / トリアージ等は自動継続。並び順も AI を画面下に配置済み。
+  const [aiTriggered, setAiTriggered] = useState(false);
+
   const plTransition = useMfPLTransition({ enabled: canQueryDependents });
-  const aiSummaryQuery = useAiSummary({ enabled: canQueryDependents });
+  const aiSummaryQuery = useAiSummary({ enabled: canQueryDependents && aiTriggered });
   const alertsQuery = useAlerts({ enabled: canQueryDependents });
 
   const actionsSummary = useQuery({
@@ -434,12 +439,42 @@ export default function DashboardPage() {
             }
           />
 
-          <BriefingCard enabled={canQueryDependents} />
-
           <AgentActivityCard enabled={canQueryDependents} />
         </div>
 
-        {canQueryDependents && (
+        {/* AI 分析セクション。重いコール（aiSummary / Briefing）は自動 fetch せず、
+            ユーザーが明示的にボタンを押した時だけ発火する。並び順は KPI/グラフ/アラート
+            の下、ページ末尾に配置。 */}
+        {canQueryDependents && !aiTriggered && (
+          <Card className="border-dashed border-[var(--color-secondary)]/40 bg-gradient-to-br from-[#ede7f6]/30 via-white to-white">
+            <CardContent className="flex flex-col items-center gap-3 p-6 text-center">
+              <Sparkles className="h-8 w-8 text-[var(--color-secondary)]" />
+              <div className="space-y-1">
+                <p className="text-sm font-semibold text-[var(--color-text-primary)]">
+                  AI 経営分析
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  今期の業績データから AI が朝サマリーと経営コメンタリーを生成します（数秒〜十数秒かかります）。
+                </p>
+              </div>
+              <Button
+                onClick={() => setAiTriggered(true)}
+                className="bg-[var(--color-secondary)] text-white hover:bg-[var(--color-secondary)]/90"
+              >
+                <Sparkles className="mr-2 h-4 w-4" />
+                AI 分析を実行
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+
+        {canQueryDependents && aiTriggered && (
+          <div className="screen-only space-y-6">
+            <BriefingCard enabled={canQueryDependents} />
+          </div>
+        )}
+
+        {canQueryDependents && aiTriggered && (
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="flex items-center gap-2 text-base font-semibold text-[var(--color-text-primary)]">
