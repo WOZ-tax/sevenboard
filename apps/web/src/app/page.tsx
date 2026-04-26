@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { KpiCard } from "@/components/dashboard/kpi-card";
@@ -200,7 +202,25 @@ export default function DashboardPage() {
   const dashboard = useMfDashboard();
   const office = useMfOffice();
   const { fiscalYear, month, periods } = usePeriodStore();
-  const orgId = useCurrentOrg().currentOrgId ?? "";
+  const { currentOrgId, memberships, isLoading: membershipsLoading, hasMemberships } = useCurrentOrg();
+  const orgId = currentOrgId ?? "";
+  const user = useAuthStore((s) => s.user);
+  const router = useRouter();
+
+  // 顧問先 0 件の事務所スタッフ (owner / advisor) はダッシュボードを開いても何も見るものがないため、
+  // /advisor (顧問先一覧 + 新規追加 CTA) に誘導する。
+  // memberships 取得待ちの間は判定保留 (isLoading 中は redirect しない)。
+  useEffect(() => {
+    if (membershipsLoading) return;
+    if (!user) return;
+    const isInternalStaff = user.role === "owner" || user.role === "advisor";
+    if (isInternalStaff && !hasMemberships) {
+      router.replace("/advisor");
+    }
+  }, [membershipsLoading, user, hasMemberships, router]);
+
+  // memberships 未解決のあいだは描画を抑止（チラつき / 不要な MF query を防ぐ）
+  void memberships;
 
   const isLoading = dashboard.isLoading;
   const mfNotConnected = isMfNotConnected(dashboard.error);
