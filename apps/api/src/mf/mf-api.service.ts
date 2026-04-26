@@ -37,6 +37,15 @@ export class MfApiService {
    */
   private tokenInFlight: Map<string, Promise<string>> = new Map();
 
+  /**
+   * 進行中の MCP リクエストを cacheKey ごとに保持して in-flight de-dupe。
+   * cold load 時に dashboard / alerts / triage / briefing が同じ MF データ
+   * (PL/BS/PL推移/BS推移など) を同時に要求した際、最初の 1 本だけ実発火し
+   * 残りは同じ Promise を再利用する。これがないと 5〜10 倍の MF コール量に
+   * 膨らみ、rate-limit backoff (3s/6s/12s) に簡単に突入してページ全体が重くなる。
+   */
+  private requestInFlight: Map<string, Promise<unknown>> = new Map();
+
   constructor(
     private httpService: HttpService,
     private prisma: PrismaService,
@@ -382,6 +391,27 @@ export class MfApiService {
     const cached = this.cache.get<T>(cacheKey);
     if (cached) return cached;
 
+    // 同じ cacheKey で進行中のリクエストがあれば、その Promise を共有して de-dupe する。
+    // cold load 時に dashboard/alerts/triage/briefing から同じ MF API が同時叩きされる構造
+    // のため、これを入れないと外部 MF へのコール数が初期表示で 5〜10 倍に膨らむ。
+    const inFlight = this.requestInFlight.get(cacheKey) as Promise<T> | undefined;
+    if (inFlight) return inFlight;
+
+    const promise = this.executeMcpRequest<T>(orgId, toolName, args, cacheKey);
+    this.requestInFlight.set(cacheKey, promise);
+    try {
+      return await promise;
+    } finally {
+      this.requestInFlight.delete(cacheKey);
+    }
+  }
+
+  private async executeMcpRequest<T>(
+    orgId: string,
+    toolName: string,
+    args: Record<string, any>,
+    cacheKey: string,
+  ): Promise<T> {
     const token = await this.getAccessToken(orgId);
 
     const attempt = async (): Promise<T> => {

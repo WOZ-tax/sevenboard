@@ -13,6 +13,7 @@ import { useCurrentOrg } from "@/contexts/current-org";
 import { usePeriodStore, getPeriodLabel } from "@/lib/period-store";
 import { PeriodSegmentControl } from "@/components/ui/period-segment-control";
 import { useMfOffice } from "@/hooks/use-mf-data";
+import { usePeriodDefaultFromKintone } from "@/hooks/use-kintone-progress";
 import {
   ClipboardCheck,
   FileText,
@@ -72,6 +73,8 @@ export default function MonthlyReviewPage() {
   const [activeTab, setActiveTab] = useState<TabKey>("review");
   const orgId = useScopedOrgId();
   const { currentOrgId } = useCurrentOrg();
+  // kintone 月次進捗の「納品済」最新月を期間デフォルトに自動適用 (旧 DashboardShell から移設)
+  usePeriodDefaultFromKintone();
   const { fiscalYear, month, periods } = usePeriodStore();
   const periodLabel = getPeriodLabel(fiscalYear, month, periods);
   const queryClient = useQueryClient();

@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
-import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth";
 import { useCurrentOrg } from "@/contexts/current-org";
@@ -33,40 +32,6 @@ function useGlobalPeriod() {
 
 interface QueryOptions {
   enabled?: boolean;
-}
-
-/**
- * P-1: ログイン後に主要MFデータを一括プリフェッチ
- * 実クエリと同じキー (orgId, fiscalYear, [month]) でキャッシュを温める
- */
-export function usePrefetchMfData() {
-  const orgId = useOrgId();
-  const { fiscalYear, month } = useGlobalPeriod();
-  const queryClient = useQueryClient();
-
-  useEffect(() => {
-    if (!orgId) return;
-    queryClient.prefetchQuery({
-      queryKey: ["mf", "dashboard", orgId, fiscalYear, month],
-      queryFn: () => api.mf.getDashboard(orgId, fiscalYear, month),
-      staleTime: 5 * 60 * 1000,
-    });
-    queryClient.prefetchQuery({
-      queryKey: ["mf", "pl", orgId, fiscalYear, month],
-      queryFn: () => api.mf.getPL(orgId, fiscalYear, month),
-      staleTime: 5 * 60 * 1000,
-    });
-    queryClient.prefetchQuery({
-      queryKey: ["mf", "bs", orgId, fiscalYear, month],
-      queryFn: () => api.mf.getBS(orgId, fiscalYear, month),
-      staleTime: 5 * 60 * 1000,
-    });
-    queryClient.prefetchQuery({
-      queryKey: ["mf", "cashflow", orgId, fiscalYear],
-      queryFn: () => api.mf.getCashflow(orgId, fiscalYear),
-      staleTime: 5 * 60 * 1000,
-    });
-  }, [orgId, fiscalYear, month, queryClient]);
 }
 
 export function useMfDashboard(options?: QueryOptions) {
