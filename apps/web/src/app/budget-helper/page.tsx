@@ -8,7 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
-import { useAuthStore } from "@/lib/auth";
+import { useScopedOrgId } from "@/hooks/use-scoped-org-id";
+import { useRunwayMode } from "@/components/ui/runway-mode-toggle";
 import {
   Calculator,
   Bot,
@@ -17,32 +18,13 @@ import {
   RotateCcw,
 } from "lucide-react";
 
-// --- モック ---
-const mockScenarios = [
-  {
-    name: "Base",
-    description: "現状の成長率を維持するシナリオ",
-    revenue: 150000000,
-    operatingProfit: 33000000,
-    assumptions: ["売上成長率: 前年比+5%", "人件費: 2名採用分増加", "広告費: 前年並み"],
-  },
-  {
-    name: "Upside",
-    description: "積極投資で成長を加速するシナリオ",
-    revenue: 180000000,
-    operatingProfit: 38000000,
-    assumptions: ["売上成長率: 前年比+20%", "営業人員3名追加", "マーケティング予算1.5倍"],
-  },
-  {
-    name: "Downside",
-    description: "景気後退に備えた保守的シナリオ",
-    revenue: 130000000,
-    operatingProfit: 25000000,
-    assumptions: ["売上成長率: 前年比-5%", "採用凍結", "固定費10%削減"],
-  },
-];
-
-type Scenario = (typeof mockScenarios)[number];
+interface Scenario {
+  name: string;
+  description: string;
+  revenue: number;
+  operatingProfit: number;
+  assumptions: string[];
+}
 
 const scenarioStyle: Record<string, { badge: string; border?: string }> = {
   Base: { badge: "bg-[var(--color-primary)] text-white", border: "border-l-4 border-l-[var(--color-primary)]" },
@@ -173,12 +155,13 @@ function SkeletonCard() {
 }
 
 export default function BudgetHelperPage() {
-  const user = useAuthStore((s) => s.user);
-  const orgId = user?.orgId || "";
+  const orgId = useScopedOrgId();
+  const [runwayMode] = useRunwayMode();
 
   const [params, setParams] = useState<ScenarioParams>(defaultParams);
   const [showParams, setShowParams] = useState(true);
   const [scenarios, setScenarios] = useState<Scenario[] | null>(null);
+  const [generateError, setGenerateError] = useState<string | null>(null);
 
   // POST版（パラメータ付き生成）
   const generateMutation = useMutation({
@@ -189,23 +172,32 @@ export default function BudgetHelperPage() {
       newHires: params.newHires,
       costReductionRate: params.costReductionRate,
       notes: params.notes || undefined,
+      runwayMode,
     }),
     onSuccess: (data) => {
-      setScenarios(data?.length ? data : mockScenarios);
+      if (data?.length) {
+        setScenarios(data);
+        setGenerateError(null);
+      } else {
+        setScenarios(null);
+        setGenerateError("シナリオを生成できませんでした。入力条件を変えて再試行してください。");
+      }
     },
     onError: () => {
-      setScenarios(mockScenarios);
+      setScenarios(null);
+      setGenerateError("生成中にエラーが発生しました。時間を置いて再試行してください。");
     },
   });
 
   const isGenerating = generateMutation.isPending;
 
   const handleGenerate = () => {
-    if (orgId) {
-      generateMutation.mutate();
-    } else {
-      setScenarios(mockScenarios);
+    if (!orgId) {
+      setGenerateError("事業所が選択されていません。");
+      return;
     }
+    setGenerateError(null);
+    generateMutation.mutate();
   };
 
   const handleReset = () => {
@@ -218,7 +210,7 @@ export default function BudgetHelperPage() {
 
   return (
     <DashboardShell>
-      <div className="space-y-6">
+      <div className="space-y-4">
         <div className="flex items-center gap-3">
           <Calculator className="h-6 w-6 text-[var(--color-tertiary)]" />
           <div>
@@ -292,6 +284,15 @@ export default function BudgetHelperPage() {
               <SkeletonCard />
             </div>
           </div>
+        )}
+
+        {/* エラー */}
+        {generateError && !isGenerating && (
+          <Card className="border-red-300 bg-red-50">
+            <CardContent className="p-4 text-sm text-red-700">
+              {generateError}
+            </CardContent>
+          </Card>
         )}
 
         {/* 生成結果 */}

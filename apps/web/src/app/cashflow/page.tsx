@@ -8,7 +8,7 @@ import { CashflowChart } from "@/components/cashflow/cashflow-chart";
 import { Shield, Link2, RefreshCw } from "lucide-react";
 import { PrintButton } from "@/components/ui/print-button";
 import { cn } from "@/lib/utils";
-import { formatManYen } from "@/lib/format";
+import { formatYen } from "@/lib/format";
 import { useMfCashflow, useMfOffice } from "@/hooks/use-mf-data";
 import { AgentBanner } from "@/components/agent/agent-banner";
 import { AGENTS } from "@/lib/agent-voice";
@@ -20,12 +20,21 @@ import { QueryErrorState } from "@/components/ui/query-error-state";
 import { SentinelCard } from "@/components/dashboard/sentinel-card";
 import { api, isMfNotConnected } from "@/lib/api";
 import { usePeriodStore, getPeriodLabel } from "@/lib/period-store";
-import { useAuthStore } from "@/lib/auth";
+import {
+  PeriodSegmentControl,
+  usePeriodRange,
+} from "@/components/ui/period-segment-control";
+import { useScopedOrgId } from "@/hooks/use-scoped-org-id";
 import { useQuery } from "@tanstack/react-query";
 import {
   DEFAULT_CERTAINTY_RULES,
   type CertaintyLevel,
 } from "@/lib/cashflow-certainty";
+import {
+  RunwayModeToggle,
+  useRunwayMode,
+  pickRunwayVariant,
+} from "@/components/ui/runway-mode-toggle";
 
 const alertLevelConfig = {
   SAFE: {
@@ -65,8 +74,8 @@ export default function CashflowPage() {
   const office = useMfOffice();
   const { fiscalYear, month, periods } = usePeriodStore();
   const periodLabel = getPeriodLabel(fiscalYear, month, periods);
-  const user = useAuthStore((s) => s.user);
-  const orgId = user?.orgId || "";
+  const { isMonthInRange } = usePeriodRange();
+  const orgId = useScopedOrgId();
 
   const certaintyQuery = useQuery({
     queryKey: ["cashflow-certainty", orgId],
@@ -76,15 +85,23 @@ export default function CashflowPage() {
   });
 
   const runwayData = mfCashflow.data?.runway ?? null;
+  const [runwayMode, setRunwayMode] = useRunwayMode();
+  const variant = pickRunwayVariant(runwayData, runwayMode);
   const mfNotConnected = isMfNotConnected(mfCashflow.error);
   const isError = mfCashflow.isError && !mfNotConnected;
   const isLoading = mfCashflow.isLoading;
 
   const alertKey: AlertLevelKey =
-    runwayData && runwayData.alertLevel in alertLevelConfig
-      ? (runwayData.alertLevel as AlertLevelKey)
+    variant && variant.alertLevel in alertLevelConfig
+      ? (variant.alertLevel as AlertLevelKey)
       : "SAFE";
   const config = alertLevelConfig[alertKey];
+
+  const basisLabel: Record<typeof runwayMode, string> = {
+    netBurn: "Net Burn（構造的損失）",
+    worstCase: "Gross Burn（営業支出のみ）",
+    actual: "Actual（BS純減＋財務ネット）",
+  };
 
   const certaintyLevels: Record<string, CertaintyLevel> | undefined = mfCashflow.data
     ? {
@@ -97,8 +114,8 @@ export default function CashflowPage() {
     ? "idle"
     : isError
       ? "alert"
-      : runwayData
-        ? runwayData.alertLevel === "CRITICAL" || runwayData.alertLevel === "WARNING"
+      : variant
+        ? variant.alertLevel === "CRITICAL" || variant.alertLevel === "WARNING"
           ? "alert"
           : "ok"
         : "unknown";
@@ -109,7 +126,7 @@ export default function CashflowPage() {
 
   return (
     <DashboardShell>
-      <div className="space-y-6">
+      <div className="space-y-4">
         {/* 印刷専用ヘッダー */}
         <div className="print-only" data-print-block>
           <h1 className="text-xl font-bold">資金繰り報告書</h1>
@@ -147,12 +164,14 @@ export default function CashflowPage() {
           </div>
         </div>
 
+        <PeriodSegmentControl />
+
         <div className="screen-only">
           <AgentBanner
             agent={AGENTS.sentinel}
             status={bannerStatus}
             detectionCount={
-              runwayData && (runwayData.alertLevel === "CRITICAL" || runwayData.alertLevel === "WARNING")
+              variant && (variant.alertLevel === "CRITICAL" || variant.alertLevel === "WARNING")
                 ? 1
                 : 0
             }
@@ -177,7 +196,7 @@ export default function CashflowPage() {
           <MfEmptyState />
         ) : isError ? (
           <QueryErrorState onRetry={() => mfCashflow.refetch()} />
-        ) : !runwayData ? (
+        ) : !runwayData || !variant ? (
           <Card>
             <CardContent className="py-8 text-center text-sm text-muted-foreground">
               資金繰りデータが取得できませんでした。MF推移表の期間設定を確認してください。
@@ -185,7 +204,13 @@ export default function CashflowPage() {
           </Card>
         ) : (
           <Card className={cn("border-l-4", config.card)}>
-            <CardContent className="p-5">
+            <CardContent className="p-4">
+              <div className="mb-3 flex items-center justify-between">
+                <div className="text-sm font-medium text-[var(--color-text-primary)]">
+                  ランウェイ計算方式
+                </div>
+                <RunwayModeToggle mode={runwayMode} onChange={setRunwayMode} />
+              </div>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
                   <Shield className="h-10 w-10 text-[var(--color-text-primary)]" />
@@ -194,10 +219,16 @@ export default function CashflowPage() {
                       ランウェイ（想定月数）
                     </div>
                     <div className="text-3xl font-bold text-[var(--color-text-primary)] font-[family-name:var(--font-inter)]">
-                      {runwayData.months.toFixed(1)}
-                      <span className="ml-1 text-base font-normal text-muted-foreground">
-                        か月
-                      </span>
+                      {variant.months >= 999 ? (
+                        <>∞</>
+                      ) : (
+                        <>
+                          {variant.months.toFixed(1)}
+                          <span className="ml-1 text-base font-normal text-muted-foreground">
+                            か月
+                          </span>
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -209,8 +240,8 @@ export default function CashflowPage() {
                     {config.label}
                   </Badge>
                   <div className="space-y-0.5 text-right text-xs text-muted-foreground">
-                    <div>現預金残高: {formatManYen(runwayData.cashBalance)}</div>
-                    <div>月次バーンレート: {formatManYen(runwayData.monthlyBurnRate)}</div>
+                    <div>現預金残高: {formatYen(runwayData.cashBalance)}</div>
+                    <div>{basisLabel[runwayMode]}: {formatYen(variant.basis)}</div>
                   </div>
                 </div>
               </div>
@@ -224,23 +255,24 @@ export default function CashflowPage() {
                 </span>
                 {lastFetchedAt && <span>最終取得: {lastFetchedAt}</span>}
               </div>
-              {(runwayData.alertLevel === "CRITICAL" ||
-                runwayData.alertLevel === "WARNING" ||
-                runwayData.alertLevel === "CAUTION") && (
+              {(variant.alertLevel === "CRITICAL" ||
+                variant.alertLevel === "WARNING" ||
+                variant.alertLevel === "CAUTION") && (
                 <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
                   <ActionizeButton
                     sourceScreen="CASHFLOW"
                     sourceRef={{
-                      alertLevel: runwayData.alertLevel,
-                      runwayMonths: runwayData.months,
+                      alertLevel: variant.alertLevel,
+                      runwayMonths: variant.months,
+                      runwayMode,
                       kind: "runway",
                     }}
-                    defaultTitle={`資金繰りリスク対応（ランウェイ${runwayData.months.toFixed(1)}か月）`}
-                    defaultDescription={`ランウェイ警戒レベル: ${config.label}。現預金${formatManYen(runwayData.cashBalance)} / 月次バーンレート${formatManYen(runwayData.monthlyBurnRate)}。対応策（入金前倒し・支出繰延・融資）を検討。`}
+                    defaultTitle={`資金繰りリスク対応（ランウェイ${variant.months.toFixed(1)}か月・${basisLabel[runwayMode]}基準）`}
+                    defaultDescription={`ランウェイ警戒レベル: ${config.label}（${basisLabel[runwayMode]}基準）。現預金${formatYen(runwayData.cashBalance)} / ${basisLabel[runwayMode]}${formatYen(variant.basis)}。対応策（入金前倒し・支出繰延・融資）を検討。`}
                     defaultSeverity={
-                      runwayData.alertLevel === "CRITICAL"
+                      variant.alertLevel === "CRITICAL"
                         ? "CRITICAL"
-                        : runwayData.alertLevel === "WARNING"
+                        : variant.alertLevel === "WARNING"
                           ? "HIGH"
                           : "MEDIUM"
                     }
@@ -252,6 +284,8 @@ export default function CashflowPage() {
             </CardContent>
           </Card>
         )}
+
+        {runwayData?.composition && <BurnCompositionCard composition={runwayData.composition} />}
 
         {!mfNotConnected && !isError && (
           <>
@@ -273,6 +307,7 @@ export default function CashflowPage() {
                     months={mfCashflow.data?.months}
                     rows={mfCashflow.data?.rows}
                     certaintyLevels={certaintyLevels}
+                    isMonthInRange={isMonthInRange}
                   />
                 )}
               </CardContent>
@@ -281,10 +316,128 @@ export default function CashflowPage() {
             <CashflowChart
               months={mfCashflow.data?.months}
               cashBalances={mfCashflow.data?.cashBalances}
+              burnRate={variant?.basis}
+              burnLabel={basisLabel[runwayMode]}
+              currentMonth={month}
             />
           </>
         )}
       </div>
     </DashboardShell>
+  );
+}
+
+function BurnCompositionCard({ composition }: { composition: NonNullable<NonNullable<ReturnType<typeof useMfCashflow>['data']>['runway']['composition']> }) {
+  // 後方互換: 旧レスポンスで dataQuality/activeMonths が無い場合のフォールバック
+  const {
+    netBurn,
+    actualBurn,
+    financingNet,
+    realBalanceDrop,
+    otherWorkingCapital,
+    dataQuality = 'heuristic' as const,
+    activeMonths = [],
+  } = composition;
+
+  const formatSigned = (n: number) => {
+    if (n === 0) return "¥0";
+    const sign = n > 0 ? "−" : "+"; // バーン視点で n>0 は現金流出
+    return `${sign}${formatYen(Math.abs(n))}`;
+  };
+
+  const qualityBadge = (() => {
+    if (dataQuality === "settled") {
+      return { label: "信頼度 HIGH（月次締め済み）", className: "bg-green-100 text-green-700 border-green-300" };
+    }
+    if (dataQuality === "heuristic") {
+      return { label: "信頼度 MEDIUM（月次締め未設定・推定）", className: "bg-yellow-100 text-yellow-800 border-yellow-300" };
+    }
+    return { label: "信頼度 LOW（実績月特定不可）", className: "bg-red-100 text-red-700 border-red-300" };
+  })();
+
+  return (
+    <Card className="border-l-4 border-l-[var(--color-secondary)]">
+      <CardContent className="p-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div className="text-sm font-semibold text-[var(--color-text-primary)]">
+            Net Burn と実 Cash Burn の乖離内訳（直近3ヶ月平均）
+          </div>
+          <div className="flex items-center gap-2 text-xs">
+            <span className={cn("rounded-full border px-2 py-0.5 text-[10px]", qualityBadge.className)}>
+              {qualityBadge.label}
+            </span>
+            <span className="text-muted-foreground">
+              対象月: {activeMonths.length > 0 ? activeMonths.map((m) => `${m}月`).join(",") : "—"}
+            </span>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          {/* Net Burn → Actual Burn */}
+          <div className="rounded-md border border-[var(--color-border)] bg-muted/20 p-3">
+            <div className="mb-2 text-xs font-semibold text-[var(--color-text-secondary)]">
+              Net Burn → Actual Burn
+            </div>
+            <Row label="Net Burn（構造的損失）" value={formatSigned(netBurn)} bold />
+            <Row
+              label="± AR回収・前受金取崩し・税/CAPEX等"
+              value={formatSigned(otherWorkingCapital)}
+              muted={otherWorkingCapital === 0}
+            />
+            <div className="mt-1 border-t border-[var(--color-border)] pt-1">
+              <Row label="＝ Actual Burn" value={formatSigned(actualBurn)} bold />
+            </div>
+          </div>
+
+          {/* Actual Burn → 実残高変動 */}
+          <div className="rounded-md border border-[var(--color-border)] bg-muted/20 p-3">
+            <div className="mb-2 text-xs font-semibold text-[var(--color-text-secondary)]">
+              Actual Burn → BS実残高変動
+            </div>
+            <Row label="Actual Burn" value={formatSigned(actualBurn)} bold />
+            <Row
+              label="± 財務活動（借入・増資・返済）"
+              value={formatSigned(-financingNet)}
+              muted={financingNet === 0}
+            />
+            <div className="mt-1 border-t border-[var(--color-border)] pt-1">
+              <Row label="＝ BS現預金純減" value={formatSigned(realBalanceDrop)} bold />
+            </div>
+          </div>
+        </div>
+
+        <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+          Net Burn は経常損益に非資金費用を戻した構造的な事業消費。Actual
+          Burn は BS 現預金の純減に財務ネット（流入プラス/流出マイナス）を加えた実消費です。過年度 AR
+          回収や前受金取崩しで両者が乖離する場合は、差分に反映されます。
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
+function Row({
+  label,
+  value,
+  bold,
+  muted,
+}: {
+  label: string;
+  value: string;
+  bold?: boolean;
+  muted?: boolean;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex items-center justify-between py-0.5 text-xs",
+        bold && "font-semibold text-[var(--color-text-primary)]",
+        !bold && "text-[var(--color-text-secondary)]",
+        muted && "opacity-60",
+      )}
+    >
+      <span>{label}</span>
+      <span className="font-[family-name:var(--font-inter)] tabular-nums">{value}</span>
+    </div>
   );
 }

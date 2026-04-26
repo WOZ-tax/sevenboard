@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { Activity, CheckCircle2, AlertTriangle, HelpCircle } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import { useAuthStore } from "@/lib/auth";
+import { useScopedOrgId } from "@/hooks/use-scoped-org-id";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import {
@@ -37,8 +37,7 @@ function formatRelative(iso: string | null): string {
 }
 
 export function DataHealthBadge({ compact = false }: { compact?: boolean }) {
-  const user = useAuthStore((s) => s.user);
-  const orgId = user?.orgId || "";
+  const orgId = useScopedOrgId();
 
   const { data } = useQuery({
     queryKey: ["data-health", orgId],

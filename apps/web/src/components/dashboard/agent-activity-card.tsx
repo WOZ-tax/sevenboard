@@ -16,7 +16,7 @@ import {
   Play,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import { useAuthStore } from "@/lib/auth";
+import { useScopedOrgId } from "@/hooks/use-scoped-org-id";
 import { api } from "@/lib/api";
 
 type AgentKey = "BRIEF" | "SENTINEL" | "DRAFTER" | "AUDITOR" | "COPILOT";
@@ -44,8 +44,7 @@ function formatRelative(iso: string): string {
 }
 
 export function AgentActivityCard() {
-  const user = useAuthStore((s) => s.user);
-  const orgId = user?.orgId || "";
+  const orgId = useScopedOrgId();
 
   const { data } = useQuery({
     queryKey: ["agent-runs-recent", orgId],

@@ -16,7 +16,7 @@ import {
   RefreshCcw,
   Users,
 } from "lucide-react";
-import { useAuthStore } from "@/lib/auth";
+import { useScopedOrgId } from "@/hooks/use-scoped-org-id";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { LucideIcon } from "lucide-react";
@@ -123,82 +123,22 @@ const sourceLabels: Record<Source, string> = {
   BUSINESS_EVENT: "経営イベント",
 };
 
-/* ---------- mock fallback ---------- */
-
-const mockData = {
+const emptyPayload = {
   summary: {
-    urgent: 2,
-    thisWeek: 3,
-    monthly: 2,
-    noise: 1,
-    total: 8,
-    lastRunAt: new Date().toISOString(),
+    urgent: 0,
+    thisWeek: 0,
+    monthly: 0,
+    noise: 0,
+    total: 0,
+    lastRunAt: null as string | null,
   },
-  signals: [
-    {
-      id: "s1",
-      source: "ACTION" as Source,
-      bucket: "URGENT" as Bucket,
-      title: "月次レビュー：貸倒引当金の妥当性確認",
-      description: "売掛金残高増に伴い引当金見直しが必要",
-      severity: "CRITICAL" as Severity,
-      agentOwner: "auditor" as AgentKey,
-      reason: "重要度CRITICALのため",
-      evidenceSource: "Action: 月次レビュー · 作成 2026/04/05",
-      confidence: "HIGH" as const,
-      linkHref: "/actions",
-      detectedAt: "2026-04-05T00:00:00Z",
-    },
-    {
-      id: "s2",
-      source: "ALERT" as Source,
-      bucket: "URGENT" as Bucket,
-      title: "ランウェイ危険水域",
-      description: "ランウェイが3ヶ月です。早急な対策が必要です。",
-      severity: "CRITICAL" as Severity,
-      agentOwner: "sentinel" as AgentKey,
-      reason: "アラート重要度がCRITICALのため",
-      evidenceSource: "MFクラウド試算表 · 2026/04/20",
-      confidence: "HIGH" as const,
-      linkHref: "/alerts",
-      detectedAt: "2026-04-20T08:00:00Z",
-    },
-    {
-      id: "s3",
-      source: "ACTION" as Source,
-      bucket: "THIS_WEEK" as Bucket,
-      title: "売掛金回収サイト短縮の打診（A社）",
-      description: "DSOが前月比+8日",
-      severity: "HIGH" as Severity,
-      agentOwner: "sentinel" as AgentKey,
-      reason: "重要度HIGHのため",
-      evidenceSource: "Action: 資金繰り · 作成 2026/04/15",
-      confidence: "HIGH" as const,
-      linkHref: "/actions",
-      detectedAt: "2026-04-15T00:00:00Z",
-    },
-    {
-      id: "s4",
-      source: "ACTION" as Source,
-      bucket: "MONTHLY" as Bucket,
-      title: "広告費予算の見直し",
-      description: "Q4広告費が予算比+180%",
-      severity: "MEDIUM" as Severity,
-      agentOwner: "brief" as AgentKey,
-      reason: "重要度MEDIUMで期限に余裕があるため",
-      evidenceSource: "Action: 予実差異 · 作成 2026/04/16",
-      confidence: "HIGH" as const,
-      linkHref: "/actions",
-      detectedAt: "2026-04-16T00:00:00Z",
-    },
-  ] as Signal[],
+  signals: [] as Signal[],
 };
 
 /* ---------- component ---------- */
 
 export default function TriagePage() {
-  const user = useAuthStore((s) => s.user);
-  const orgId = user?.orgId || "";
+  const orgId = useScopedOrgId();
   const queryClient = useQueryClient();
 
   const [activeBucket, setActiveBucket] = useState<Bucket | "ALL">("ALL");
@@ -211,7 +151,7 @@ export default function TriagePage() {
     refetchInterval: 120_000,
   });
 
-  const payload = data ?? mockData;
+  const payload = data ?? emptyPayload;
   const signals = payload.signals as Signal[];
   const summary = payload.summary;
 
@@ -230,7 +170,7 @@ export default function TriagePage() {
 
   return (
     <DashboardShell>
-      <div className="space-y-6">
+      <div className="space-y-4">
         {/* header */}
         <div className="flex items-start justify-between gap-3 flex-wrap">
           <div>
@@ -246,7 +186,7 @@ export default function TriagePage() {
               アラート・Action・データ鮮度の信号を4バケツに分類。担当エージェントが分類理由を提示します。
             </p>
             <p className="mt-0.5 text-[11px] text-muted-foreground">
-              最終実行 {formatRelative(summary.lastRunAt)} · 検出{summary.total}件
+              最終実行 {summary.lastRunAt ? formatRelative(summary.lastRunAt) : "—"} · 検出{summary.total}件
             </p>
           </div>
           <div className="flex items-center gap-2">

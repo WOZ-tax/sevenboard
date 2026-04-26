@@ -3,14 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { useMutation } from "@tanstack/react-query";
-import { Send, Eye, MessageSquare, Zap } from "lucide-react";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetDescription,
-} from "@/components/ui/sheet";
+import { Send, Eye, MessageSquare, Zap, X, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -21,7 +14,7 @@ import {
   AgentLabel,
 } from "@/components/agent/evidence-chips";
 import type { Confidence } from "@/lib/agent-voice";
-import { useAuthStore } from "@/lib/auth";
+import { useScopedOrgId } from "@/hooks/use-scoped-org-id";
 import { usePeriodStore } from "@/lib/period-store";
 import {
   AGENTS,
@@ -33,18 +26,19 @@ import {
   type CopilotMode,
   type CopilotToolCallView,
 } from "@/lib/copilot-store";
+import { useRunwayMode } from "@/components/ui/runway-mode-toggle";
 
 const MODE_OPTIONS: { value: CopilotMode; label: string; icon: typeof Eye; hint: string }[] = [
-  { value: "observe", label: "観察", icon: Eye, hint: "現状の要点を確認" },
+  { value: "observe", label: "サマリー", icon: Eye, hint: "現在の画面の要点を抽出" },
   { value: "dialog", label: "対話", icon: MessageSquare, hint: "質問して深掘り" },
   { value: "execute", label: "実行", icon: Zap, hint: "Action案のドラフト" },
 ];
 
 export function CopilotPane() {
   const pathname = usePathname();
-  const user = useAuthStore((s) => s.user);
-  const orgId = user?.orgId || "";
+  const orgId = useScopedOrgId();
   const { fiscalYear, month } = usePeriodStore();
+  const [runwayMode] = useRunwayMode();
 
   const open = useCopilotStore((s) => s.open);
   const setOpen = useCopilotStore((s) => s.setOpen);
@@ -58,6 +52,7 @@ export function CopilotPane() {
   const setPending = useCopilotStore((s) => s.setPending);
   const seed = useCopilotStore((s) => s.seed);
   const consumeSeed = useCopilotStore((s) => s.consumeSeed);
+  const resetChat = useCopilotStore((s) => s.reset);
 
   const [draft, setDraft] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -92,6 +87,7 @@ export function CopilotPane() {
         pathname,
         fiscalYear,
         endMonth: month,
+        runwayMode,
         messages: [
           ...messages.map((m) => ({ role: m.role, content: m.content })),
           { role: "user" as const, content: draft },
@@ -136,26 +132,38 @@ export function CopilotPane() {
     chatMutation.mutate();
   };
 
+  // 非モーダル side-panel として描画。バックドロップ無し・モーダルガード無しなので
+  // 本体ページは引き続きクリック・スクロール・入力が可能。
+  // `open=false` のときは DOM ごと取り外してフォーカスや shortcut を奪わない。
+  if (!open) return null;
+
   return (
-    <Sheet open={open} onOpenChange={setOpen}>
-      <SheetContent
-        side="right"
-        className="flex w-full flex-col gap-0 p-0 sm:max-w-md"
-      >
-        <SheetHeader className="border-b border-[var(--color-border)] p-4">
+    <aside
+      role="complementary"
+      aria-label={`${activeAgent.roleName} アシスタント`}
+      className={cn(
+        "fixed inset-y-0 right-0 z-40 flex w-full flex-col gap-0 border-l border-[var(--color-border)]",
+        "bg-[var(--color-surface)] text-popover-foreground shadow-2xl",
+        "sm:max-w-md",
+      )}
+    >
+      <div className="flex items-start justify-between gap-2 border-b border-[var(--color-border)] p-4">
+        <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <ActiveIcon className="h-4 w-4 text-muted-foreground" />
-            <SheetTitle className="text-sm">{activeAgent.roleName}</SheetTitle>
+            <span className="truncate text-sm font-medium text-foreground">
+              {activeAgent.roleName}
+            </span>
             <Badge
               variant="secondary"
-              className="px-1.5 py-0 text-[10px] text-muted-foreground"
+              className="border-[var(--color-primary)]/30 bg-[var(--color-primary)]/10 px-1.5 py-0 text-[10px] text-[var(--color-primary)]"
             >
-              呼び出し型
+              β版
             </Badge>
           </div>
-          <SheetDescription className="text-xs text-muted-foreground">
+          <p className="mt-0.5 text-xs text-muted-foreground">
             {activeAgent.summary}
-          </SheetDescription>
+          </p>
 
           <div className="mt-2 flex gap-1">
             {MODE_OPTIONS.map((opt) => {
@@ -180,64 +188,95 @@ export function CopilotPane() {
               );
             })}
           </div>
-        </SheetHeader>
-
-        <div
-          ref={scrollRef}
-          className="flex-1 space-y-3 overflow-y-auto p-4"
-        >
-          {messages.length === 0 ? (
-            <EmptyHint mode={mode} />
-          ) : (
-            messages.map((m) => (
-              <MessageBubble
-                key={m.id}
-                message={m}
-                fallbackAgentKey={activeAgent.key}
-                pathname={pathname}
-              />
-            ))
-          )}
-          {pending && (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--color-info)]" />
-              応答を生成中…
-            </div>
-          )}
         </div>
+        <div className="flex shrink-0 items-center gap-1">
+          {/* チャット履歴をクリア。messages 空なら disabled。途中で誤クリックされる確率が
+              低いように pending 中もブロック。 */}
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => {
+              if (messages.length === 0) return;
+              if (
+                window.confirm(
+                  "チャット履歴をクリアします。よろしいですか？",
+                )
+              ) {
+                resetChat();
+                setDraft("");
+              }
+            }}
+            disabled={messages.length === 0 || pending}
+            aria-label="チャットをクリア"
+            title="チャットをクリア"
+            className="text-muted-foreground hover:text-[var(--color-error)]"
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => setOpen(false)}
+            aria-label="閉じる"
+            title="閉じる"
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
 
-        <div className="border-t border-[var(--color-border)] p-3">
-          <div className="flex gap-2">
-            <textarea
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                  e.preventDefault();
-                  handleSend();
-                }
-              }}
-              placeholder={placeholderFor(mode, activeAgent.key)}
-              rows={2}
-              className="flex-1 resize-none rounded-md border border-[var(--color-border)] bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
-              disabled={pending}
+      <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto p-4">
+        {messages.length === 0 ? (
+          <EmptyHint mode={mode} />
+        ) : (
+          messages.map((m) => (
+            <MessageBubble
+              key={m.id}
+              message={m}
+              fallbackAgentKey={activeAgent.key}
+              pathname={pathname}
             />
-            <Button
-              onClick={handleSend}
-              disabled={!draft.trim() || pending || !orgId}
-              size="icon"
-              className="shrink-0"
-            >
-              <Send className="h-4 w-4" />
-            </Button>
+          ))
+        )}
+        {pending && (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--color-info)]" />
+            応答を生成中…
           </div>
-          <p className="mt-1 text-[10px] text-muted-foreground">
-            Cmd/Ctrl + Enter で送信。履歴は直近{" "}
-            <span className="font-mono">6</span> 通のみ保持
-          </p>
+        )}
+      </div>
+
+      <div className="border-t border-[var(--color-border)] p-3">
+        <div className="flex gap-2">
+          <textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                handleSend();
+              }
+            }}
+            placeholder={placeholderFor(mode, activeAgent.key)}
+            rows={2}
+            className="flex-1 resize-none rounded-md border border-[var(--color-border)] bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
+            disabled={pending}
+          />
+          <Button
+            onClick={handleSend}
+            disabled={!draft.trim() || pending || !orgId}
+            size="icon"
+            className="shrink-0"
+          >
+            <Send className="h-4 w-4" />
+          </Button>
         </div>
-      </SheetContent>
-    </Sheet>
+        <p className="mt-1 text-[10px] text-muted-foreground">
+          Cmd/Ctrl + Enter で送信。履歴は直近{" "}
+          <span className="font-mono">6</span> 通のみ保持
+        </p>
+      </div>
+    </aside>
   );
 }
 
@@ -368,7 +407,7 @@ function toolLabel(c: CopilotToolCallView): string {
 }
 
 function modeLabel(mode: CopilotMode): string {
-  if (mode === "observe") return "観察";
+  if (mode === "observe") return "サマリー";
   if (mode === "dialog") return "対話";
   return "実行";
 }
@@ -438,7 +477,7 @@ function deriveActionTitle(text: string): string {
 function EmptyHint({ mode }: { mode: CopilotMode }) {
   const hint =
     mode === "observe"
-      ? "例: 『今朝の注目点を3行で』『現在の資金リスクは？』"
+      ? "例: 『この画面の要点を3行で』『現在の資金リスクは？』"
       : mode === "dialog"
         ? "例: 『人件費急増の要因を詳しく』『A社依存の影響は？』"
         : "例: 『資金対策のAction案をドラフト』『顧問への報告文案を生成』";
@@ -457,7 +496,7 @@ function EmptyHint({ mode }: { mode: CopilotMode }) {
 
 function placeholderFor(mode: CopilotMode, agent: AgentKey): string {
   const agentLabel = AGENTS[agent].roleName;
-  if (mode === "observe") return `${agentLabel}に観察を依頼…`;
+  if (mode === "observe") return `${agentLabel}にサマリーを依頼…`;
   if (mode === "dialog") return `${agentLabel}に質問…`;
   return `${agentLabel}にAction案の起案を依頼…`;
 }

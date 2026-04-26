@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
-import { useAuthStore } from "@/lib/auth";
+import { useScopedOrgId } from "@/hooks/use-scoped-org-id";
 import { useSidebarConfig, ALWAYS_VISIBLE } from "@/lib/sidebar-config";
 import { menuItems } from "@/components/layout/sidebar";
 import {
@@ -74,7 +74,7 @@ const initialNotifications: NotificationSetting[] = [
   { id: "budget", label: "予算超過アラート", enabled: true },
   { id: "cashflow", label: "資金繰りアラート", enabled: true },
   { id: "kpi", label: "KPI未達アラート", enabled: false },
-  { id: "ai-report", label: "AIレポート自動生成", enabled: true },
+  { id: "ai-report", label: "AI CFOレポート自動生成", enabled: true },
 ];
 
 const PROVIDER_META: Record<string, { name: string; description: string }> = {
@@ -100,12 +100,6 @@ const users: UserRecord[] = [
   { name: "鈴木 一郎", email: "suzuki@example.com", role: "閲覧者", lastLogin: "2026-04-01 09:00" },
 ];
 
-function useOrgId() {
-  const user = useAuthStore((s) => s.user);
-  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
-  if (!isAuthenticated) return "";
-  return user?.orgId || "";
-}
 
 function formatDateTime(iso: string | null): string {
   if (!iso) return "";
@@ -214,13 +208,21 @@ function IntegrationCard({
 
 export default function SettingsPage() {
   const [notifications, setNotifications] = useState(initialNotifications);
-  const orgId = useOrgId();
+  const orgId = useScopedOrgId();
   const mfOffice = useMfOffice();
   const queryClient = useQueryClient();
   const searchParams = useSearchParams();
   const [syncingProviders, setSyncingProviders] = useState<Set<string>>(new Set());
   const [connectingProviders, setConnectingProviders] = useState<Set<string>>(new Set());
   const [disconnectingProviders, setDisconnectingProviders] = useState<Set<string>>(new Set());
+  const [connectError, setConnectError] = useState<{
+    provider: string;
+    message: string;
+  } | null>(null);
+  // OAuth コールバック由来のエラーは URL から派生させ、ユーザーが閉じるまで保持する。
+  // useEffect 内で setState すると React 19 の react-hooks/set-state-in-effect に弾かれるため、
+  // useMemo で derive + dismiss flag で消す方式にする。
+  const [callbackErrorDismissed, setCallbackErrorDismissed] = useState(false);
 
   const { data: integrations } = useQuery({
     queryKey: ["integrations", orgId],
@@ -229,19 +231,45 @@ export default function SettingsPage() {
     staleTime: 30 * 1000,
   });
 
-  // MF OAuth コールバック後の処理
+  const mfStatus = searchParams.get("mf");
+  const mfReason = searchParams.get("reason");
+
+  // OAuth コールバック由来のエラーを URL から derive。
+  // history.replaceState で URL を消しても useSearchParams は再評価されないので、
+  // ユーザーが「閉じる」を押すまで mfStatus は "error" のまま残り続けてバナー表示が保たれる。
+  const callbackError = useMemo(() => {
+    if (mfStatus !== "error" || callbackErrorDismissed) return null;
+    const reasonLabel: Record<string, string> = {
+      access_denied: "対象の顧問先への access 権限がありません",
+      invalid_state: "認証 state の検証に失敗しました（時間切れ・再送など）",
+      missing_params: "認可サーバーからのパラメータが欠落しています",
+      token_exchange: "MF Cloud のトークン交換に失敗しました",
+    };
+    const reason = mfReason || "unknown";
+    return {
+      provider: "MF_CLOUD",
+      message: `MF Cloud 接続に失敗: ${reasonLabel[reason] ?? reason}`,
+    };
+  }, [mfStatus, mfReason, callbackErrorDismissed]);
+
+  const displayError = connectError ?? callbackError;
+
+  // 副作用: integrations キャッシュ破棄 + URL クエリ除去のみ。
+  // setState はここでは呼ばない（react-hooks/set-state-in-effect 対策）。
   useEffect(() => {
-    const mfStatus = searchParams.get("mf");
     if (mfStatus === "connected" || mfStatus === "error") {
-      // Integration ステータスをリフレッシュ
       queryClient.invalidateQueries({ queryKey: ["integrations", orgId] });
-      // URLからクエリパラメータを除去
       const url = new URL(window.location.href);
       url.searchParams.delete("mf");
       url.searchParams.delete("reason");
       window.history.replaceState({}, "", url.pathname);
     }
-  }, [searchParams, queryClient, orgId]);
+  }, [mfStatus, queryClient, orgId]);
+
+  const dismissError = useCallback(() => {
+    setConnectError(null);
+    setCallbackErrorDismissed(true);
+  }, []);
 
   const statusMap = new Map<string, IntegrationStatus>();
   if (integrations) {
@@ -267,21 +295,44 @@ export default function SettingsPage() {
 
   // MF_CLOUD の場合は OAuth フローを使う
   const handleConnect = useCallback(async (provider: string) => {
+    setConnectError(null);
+    setCallbackErrorDismissed(true);
+    if (!orgId) {
+      setConnectError({
+        provider,
+        message:
+          "顧問先が選択されていません。ヘッダーの「顧問先一覧」から接続したい顧問先を開いてから接続してください。",
+      });
+      return;
+    }
     if (provider === "MF_CLOUD") {
       setConnectingProviders((prev) => new Set(prev).add(provider));
       try {
         const { authUrl } = await api.mfOAuth.getAuthUrl(orgId);
         window.location.href = authUrl;
-      } catch {
+      } catch (err) {
         setConnectingProviders((prev) => {
           const next = new Set(prev);
           next.delete(provider);
           return next;
         });
+        const message =
+          err instanceof Error && err.message
+            ? err.message
+            : "MF Cloud の認可URLを取得できませんでした。時間を置いて再度お試しください。";
+        setConnectError({ provider, message });
       }
       return;
     }
-    connectMutation.mutate(provider);
+    connectMutation.mutate(provider, {
+      onError: (err) => {
+        const message =
+          err instanceof Error && err.message
+            ? err.message
+            : `${provider} への接続に失敗しました。`;
+        setConnectError({ provider, message });
+      },
+    });
   }, [orgId, connectMutation]);
 
   const disconnectMutation = useMutation({
@@ -318,7 +369,7 @@ export default function SettingsPage() {
 
   return (
     <DashboardShell>
-      <div className="space-y-6">
+      <div className="space-y-4">
         <div className="flex items-center gap-3">
           <Settings className="h-6 w-6 text-[var(--color-tertiary)]" />
           <div>
@@ -348,6 +399,8 @@ export default function SettingsPage() {
             )}
           </CardContent>
         </Card>
+
+        <CostAccountingCard orgId={orgId} />
 
         <BriefingPushCard orgId={orgId} />
 
@@ -391,6 +444,26 @@ export default function SettingsPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
+            {!orgId && (
+              <div className="mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                顧問先が選択されていません。ヘッダーの「顧問先一覧」から接続したい顧問先を開いてください。
+              </div>
+            )}
+            {displayError && (
+              <div className="mb-3 flex items-start justify-between gap-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">
+                <div className="flex items-start gap-2">
+                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span>{displayError.message}</span>
+                </div>
+                <button
+                  type="button"
+                  className="text-xs text-red-700 underline"
+                  onClick={dismissError}
+                >
+                  閉じる
+                </button>
+              </div>
+            )}
             <div className="space-y-3">
               {ALL_PROVIDERS.map((provider) => (
                 <IntegrationCard
@@ -444,6 +517,89 @@ export default function SettingsPage() {
         <MenuVisibilitySettings />
       </div>
     </DashboardShell>
+  );
+}
+
+/**
+ * 顧問先の「原価計算を運用しているか」トグル。
+ *
+ * 中小企業では原価計算を実運用していないことが多く、その場合 売上総利益率
+ * （grossProfitMargin）は実態を反映しないため、UI / AI レポートで参照を控える。
+ * 既定 OFF（= 原価計算なし）。owner / advisor が ON に切替えると、指標ページの
+ * 売上総利益率カードと AI コメントが grossProfitMargin を含めて分析するようになる。
+ */
+function CostAccountingCard({ orgId }: { orgId: string }) {
+  const queryClient = useQueryClient();
+  const orgQuery = useQuery({
+    queryKey: ["organization", orgId],
+    queryFn: () => api.getOrganization(orgId),
+    enabled: !!orgId,
+    staleTime: 60_000,
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: (next: boolean) =>
+      api.updateOrganization(orgId, { usesCostAccounting: next }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["organization", orgId] });
+      // AI レポート系もキャッシュ破棄して再生成（原価計算前提が変わるため）
+      queryClient.invalidateQueries({ queryKey: ["ai"] });
+      queryClient.invalidateQueries({
+        queryKey: ["mf", "financial-indicators"],
+      });
+    },
+  });
+
+  if (!orgId) return null;
+
+  const enabled = orgQuery.data?.usesCostAccounting ?? false;
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center gap-2 text-base font-semibold text-[var(--color-text-primary)]">
+          <Gauge className="h-4 w-4" />
+          分析設定
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {orgQuery.isLoading ? (
+          <div className="h-16 animate-pulse rounded bg-muted" />
+        ) : (
+          <div className="flex items-center justify-between rounded-md border px-4 py-3">
+            <div className="pr-4">
+              <div className="text-sm text-[var(--color-text-primary)]">
+                原価計算を運用している
+              </div>
+              <div className="mt-1 text-xs text-muted-foreground">
+                ON にすると財務指標 / AI レポートで「売上総利益率」を分析対象に含めます。
+                原価計算を実運用していない場合は OFF のままにしてください
+                （売上総利益率は信頼できないため非表示・AI も言及しません）。
+              </div>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={enabled}
+              disabled={updateMutation.isPending}
+              onClick={() => updateMutation.mutate(!enabled)}
+              className={cn(
+                "relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors",
+                enabled ? "bg-[var(--color-primary)]" : "bg-gray-200",
+                updateMutation.isPending && "opacity-50",
+              )}
+            >
+              <span
+                className={cn(
+                  "inline-block h-5 w-5 rounded-full bg-white shadow transition-transform",
+                  enabled ? "translate-x-5" : "translate-x-0",
+                )}
+              />
+            </button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

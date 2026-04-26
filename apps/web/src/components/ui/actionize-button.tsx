@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Zap, Check } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useAuthStore } from "@/lib/auth";
+import { useScopedOrgId } from "@/hooks/use-scoped-org-id";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import {
@@ -77,8 +77,7 @@ export function ActionizeButton({
   iconOnly = false,
   className,
 }: ActionizeButtonProps) {
-  const user = useAuthStore((s) => s.user);
-  const orgId = user?.orgId || "";
+  const orgId = useScopedOrgId();
   const queryClient = useQueryClient();
 
   const [open, setOpen] = useState(false);

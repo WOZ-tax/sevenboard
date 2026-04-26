@@ -14,14 +14,15 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { formatManYen, getValueColor } from "@/lib/format";
+import { formatYen, getValueColor } from "@/lib/format";
 import { FileText, FlaskConical } from "lucide-react";
 import { PrintButton } from "@/components/ui/print-button";
+import { PeriodSegmentControl } from "@/components/ui/period-segment-control";
 import { useMfPL, useMfBS, useMfCashflow, useMfOffice } from "@/hooks/use-mf-data";
 import { usePeriodStore, getPeriodLabel } from "@/lib/period-store";
 import { api } from "@/lib/api";
 import type { LinkedStatementsInput, LinkedStatementsResult } from "@/lib/api-types";
-import { useAuthStore } from "@/lib/auth";
+import { useScopedOrgId } from "@/hooks/use-scoped-org-id";
 
 type UnitKey = "yen" | "thousand" | "million";
 type TabKey = "pl" | "bs" | "cf";
@@ -108,6 +109,92 @@ function FinancialTable({
   );
 }
 
+/**
+ * CF 専用の月別推移テーブル。N 列（月別）を横展開する。
+ *  - balance 行（前月繰越 / 期末残高）はその月の残高を表示
+ *  - flow 行（売上回収 / 仕入支払 等）は各月の単月値を表示
+ *  - header 行は category だけを colSpan で見出し表示
+ *  - totals 行は太字＋背景色
+ *
+ * 「当期 vs 前期」の擬似 2 列比較は実務的に使い物にならないので採用しない。
+ */
+function CashflowMonthlyTable({
+  rows,
+  monthLabels,
+  unit = "yen",
+}: {
+  rows: {
+    category: string;
+    values: (number | null)[];
+    isTotal?: boolean;
+    isHeader?: boolean;
+    isDiff?: boolean;
+  }[];
+  monthLabels: string[];
+  unit?: UnitKey;
+}) {
+  const fmt = (v: number) => formatByUnit(v, unit);
+  const totalCols = monthLabels.length + 1; // 勘定科目列含む
+  return (
+    <div className="overflow-x-auto">
+      <Table>
+        <TableHeader>
+          <TableRow className="bg-[var(--color-background)] border-b-2 border-[var(--color-border)]">
+            <TableHead className="sticky left-0 z-10 bg-[var(--color-background)] w-48 font-semibold text-[var(--color-text-primary)]">
+              勘定科目
+            </TableHead>
+            {monthLabels.map((label) => (
+              <TableHead
+                key={label}
+                className="w-24 text-right font-semibold text-[var(--color-text-primary)]"
+              >
+                {label}
+              </TableHead>
+            ))}
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rows.map((row, index) => {
+            if (row.isHeader) {
+              return (
+                <TableRow key={index} className="bg-muted/30">
+                  <TableCell
+                    colSpan={totalCols}
+                    className="text-sm font-semibold text-[var(--color-text-primary)]"
+                  >
+                    {row.category}
+                  </TableCell>
+                </TableRow>
+              );
+            }
+            return (
+              <TableRow
+                key={index}
+                className={cn(row.isTotal && "bg-muted/50 font-semibold")}
+              >
+                <TableCell
+                  className={cn(
+                    "sticky left-0 z-10 bg-[var(--color-surface)] text-sm",
+                    row.isTotal &&
+                      "bg-muted/50 font-bold text-[var(--color-text-primary)]",
+                  )}
+                >
+                  {row.category}
+                </TableCell>
+                {row.values.map((v, i) => (
+                  <TableCell key={i} className="text-right text-sm">
+                    {typeof v === "number" ? fmt(v) : "—"}
+                  </TableCell>
+                ))}
+              </TableRow>
+            );
+          })}
+        </TableBody>
+      </Table>
+    </div>
+  );
+}
+
 function TableSkeleton() {
   return (
     <div className="space-y-2">
@@ -128,8 +215,7 @@ export default function FinancialStatementsPage() {
   const [sgaOverride, setSgaOverride] = useState("");
   const [simResult, setSimResult] = useState<LinkedStatementsResult | null>(null);
 
-  const user = useAuthStore((s) => s.user);
-  const orgId = user?.orgId || "";
+  const orgId = useScopedOrgId();
 
   const mfPL = useMfPL();
   const mfBS = useMfBS();
@@ -142,6 +228,7 @@ export default function FinancialStatementsPage() {
   const effectiveBsAssets = mfBS.data?.assets;
   const effectiveBsLiabilitiesEquity = mfBS.data?.liabilitiesEquity;
   const effectiveCfData = mfCF.data?.rows;
+  const effectiveCfMonths = mfCF.data?.months ?? [];
   const hasError = mfPL.isError || mfBS.isError;
   const hasNoMfData = !mfPL.isLoading && !mfBS.isLoading && !hasError && !effectivePlData && !effectiveBsAssets;
 
@@ -169,10 +256,57 @@ export default function FinancialStatementsPage() {
   const displayBsLE = simMode && simResult ? simResult.bs.liabilitiesEquity : effectiveBsLiabilitiesEquity;
   const displayCfData = simMode && simResult ? simResult.cf : effectiveCfData;
 
+  // ─────────────────────────────────────────────────────────
+  // CF は本来「月別推移」または「期首→期末の区分別内訳」で見るもの。
+  // 旧実装の「当期 / 前期」二列比較は擬似的すぎて BS と食い違う事故も出ていたため、
+  // ここでは「期首〜選択月」または「選択月含む直近3ヶ月」の月別列に展開する。
+  //  - balance 行（前月繰越 / 期末残高）はその月の残高をそのまま表示
+  //  - flow 行（売上回収・仕入支払 等）は各月の単月値を表示（合計は取らない）
+  //  - header 行は category だけ
+  // ─────────────────────────────────────────────────────────
+  type CfRangeMode = "ytd" | "trailing3";
+  const [cfRangeMode, setCfRangeMode] = useState<CfRangeMode>("ytd");
+
+  const monthNum = (label: string): number => {
+    const m = label.match(/(\d+)月/);
+    return m ? Number(m[1]) : 0;
+  };
+
+  const cfDisplay = (() => {
+    if (!displayCfData) return null;
+    const allMonths = simMode && simResult ? [] : effectiveCfMonths;
+    if (allMonths.length === 0) {
+      return null;
+    }
+
+    // 選択月の index を特定
+    const lastIdx = month
+      ? (() => {
+          const idx = allMonths.findIndex((l) => monthNum(l) === month);
+          return idx >= 0 ? idx : allMonths.length - 1;
+        })()
+      : allMonths.length - 1;
+
+    const startIdx =
+      cfRangeMode === "trailing3" ? Math.max(0, lastIdx - 2) : 0;
+
+    const monthLabels = allMonths.slice(startIdx, lastIdx + 1);
+
+    const rows = displayCfData.map((r) => ({
+      category: r.category,
+      values: (r.values ?? []).slice(startIdx, lastIdx + 1) as (number | null)[],
+      isTotal: r.isTotal,
+      isHeader: r.isHeader,
+      isDiff: r.isDiff,
+    }));
+
+    return { monthLabels, rows };
+  })();
+
   if (hasError && !simMode) {
     return (
       <DashboardShell>
-        <div className="space-y-6">
+        <div className="space-y-4">
           <div className="flex items-center gap-3">
             <FileText className="h-6 w-6 text-[var(--color-tertiary)]" />
             <div>
@@ -188,7 +322,7 @@ export default function FinancialStatementsPage() {
   if (hasNoMfData && !simMode) {
     return (
       <DashboardShell>
-        <div className="space-y-6">
+        <div className="space-y-4">
           <div className="flex items-center gap-3">
             <FileText className="h-6 w-6 text-[var(--color-tertiary)]" />
             <div>
@@ -204,7 +338,7 @@ export default function FinancialStatementsPage() {
 
   return (
     <DashboardShell>
-      <div className="space-y-6">
+      <div className="space-y-4">
         {/* 印刷専用ヘッダー */}
         <div className="print-only" data-print-block>
           <h1 className="text-xl font-bold">財務諸表</h1>
@@ -248,6 +382,8 @@ export default function FinancialStatementsPage() {
             </Button>
           </div>
         </div>
+
+        <PeriodSegmentControl />
 
         {/* シミュレーション入力パネル */}
         {simMode && (
@@ -300,7 +436,7 @@ export default function FinancialStatementsPage() {
                 {simResult && (() => {
                   const profitImpact = simResult.summary.profitImpact ?? simResult.summary.cashImpact;
                   const cashImpact = simResult.summary.cashImpact;
-                  const fmt = (v: number) => `${v > 0 ? "+" : ""}${formatManYen(v)}`;
+                  const fmt = (v: number) => `${v > 0 ? "+" : ""}${formatYen(v)}`;
                   return (
                     <div className="flex gap-4 text-sm">
                       <span className="text-muted-foreground">
@@ -393,12 +529,59 @@ export default function FinancialStatementsPage() {
         {activeTab === "cf" && (
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-base font-semibold text-[var(--color-text-primary)]">
-                キャッシュフロー計算書（C/F）{simMode && simResult ? " - シミュレーション" : ""}
-              </CardTitle>
+              <div className="flex items-center justify-between gap-3">
+                <CardTitle className="text-base font-semibold text-[var(--color-text-primary)]">
+                  キャッシュフロー計算書（C/F）{simMode && simResult ? " - シミュレーション" : ""}
+                </CardTitle>
+                {/* 期間切替トグル */}
+                <div
+                  role="tablist"
+                  aria-label="表示期間"
+                  className="inline-flex overflow-hidden rounded-md border border-[var(--color-border)] bg-[var(--color-surface)]"
+                >
+                  <button
+                    role="tab"
+                    type="button"
+                    aria-selected={cfRangeMode === "ytd"}
+                    onClick={() => setCfRangeMode("ytd")}
+                    className={cn(
+                      "h-8 px-3 text-xs transition-colors",
+                      cfRangeMode === "ytd"
+                        ? "bg-[var(--color-primary)] text-white"
+                        : "text-muted-foreground hover:bg-muted",
+                    )}
+                  >
+                    期首〜選択月
+                  </button>
+                  <button
+                    role="tab"
+                    type="button"
+                    aria-selected={cfRangeMode === "trailing3"}
+                    onClick={() => setCfRangeMode("trailing3")}
+                    className={cn(
+                      "h-8 px-3 text-xs transition-colors",
+                      cfRangeMode === "trailing3"
+                        ? "bg-[var(--color-primary)] text-white"
+                        : "text-muted-foreground hover:bg-muted",
+                    )}
+                  >
+                    直近3ヶ月
+                  </button>
+                </div>
+              </div>
             </CardHeader>
             <CardContent>
-              {mfCF.isLoading ? <TableSkeleton /> : displayCfData ? <FinancialTable rows={displayCfData.map((r) => ({ category: r.category, current: r.values?.[0] ?? 0, prior: r.values?.[1] ?? 0, isTotal: r.isTotal, isHeader: r.isHeader }))} periodLabels={simMode && simResult ? ["シミュレーション", "実績"] : ["当期", "前期"]} unit={unit} /> : <MfEmptyState title="CF データなし" />}
+              {mfCF.isLoading ? (
+                <TableSkeleton />
+              ) : cfDisplay ? (
+                <CashflowMonthlyTable
+                  rows={cfDisplay.rows}
+                  monthLabels={cfDisplay.monthLabels}
+                  unit={unit}
+                />
+              ) : (
+                <MfEmptyState title="CF データなし" />
+              )}
             </CardContent>
           </Card>
         )}

@@ -1,6 +1,10 @@
 "use client";
 
-import { useState, useCallback } from "react";
+export const dynamic = "force-dynamic";
+
+import { Suspense, useState, useCallback, useEffect } from "react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -11,7 +15,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -22,9 +26,9 @@ import {
   SelectItem,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { Landmark, Calculator, Plus, X } from "lucide-react";
+import { Landmark, Calculator, Plus, X, ArrowLeft } from "lucide-react";
 import { api } from "@/lib/api";
-import { useAuthStore } from "@/lib/auth";
+import { useScopedOrgId } from "@/hooks/use-scoped-org-id";
 import { useMfOffice } from "@/hooks/use-mf-data";
 import { usePeriodStore, getPeriodLabel } from "@/lib/period-store";
 import { PrintButton } from "@/components/ui/print-button";
@@ -62,6 +66,12 @@ interface LoanResult {
 }
 
 type RepaymentType = "EQUAL_INSTALLMENT" | "EQUAL_PRINCIPAL" | "BULLET";
+
+const REPAYMENT_LABELS: Record<RepaymentType, string> = {
+  EQUAL_INSTALLMENT: "元利均等",
+  EQUAL_PRINCIPAL: "元金均等",
+  BULLET: "一括返済",
+};
 
 interface LoanScenario {
   id: string;
@@ -102,25 +112,65 @@ function createScenario(index: number): LoanScenario {
 }
 
 export default function LoanPage() {
-  const user = useAuthStore((s) => s.user);
-  const orgId = user?.orgId || "";
+  return (
+    <Suspense fallback={null}>
+      <LoanPageInner />
+    </Suspense>
+  );
+}
+
+function LoanPageInner() {
+  const orgId = useScopedOrgId();
   const office = useMfOffice();
   const { fiscalYear, month, periods } = usePeriodStore();
   const periodLabel = getPeriodLabel(fiscalYear, month, periods);
+  const searchParams = useSearchParams();
 
-  const [scenarios, setScenarios] = useState<LoanScenario[]>([
-    createScenario(0),
-  ]);
+  // 資金調達レポートからの引き継ぎ（URL params）で初期シナリオをプリセット
+  const [scenarios, setScenarios] = useState<LoanScenario[]>(() => {
+    const s = createScenario(0);
+    const qpPrincipal = searchParams.get("principal");
+    const qpRate = searchParams.get("interestRate");
+    const qpMonths = searchParams.get("termMonths");
+    const qpType = searchParams.get("repaymentType") as RepaymentType | null;
+    const qpName = searchParams.get("name");
+    if (qpPrincipal) s.principal = String(Number(qpPrincipal));
+    if (qpRate) s.interestRate = String(qpRate);
+    if (qpMonths) s.termMonths = String(qpMonths);
+    if (qpType && ["EQUAL_INSTALLMENT", "EQUAL_PRINCIPAL", "BULLET"].includes(qpType)) {
+      s.repaymentType = qpType;
+    }
+    if (qpName) s.name = qpName;
+    return [s];
+  });
 
   const isSingle = scenarios.length === 1;
 
   const updateScenario = useCallback(
     (id: string, patch: Partial<LoanScenario>) => {
       setScenarios((prev) =>
-        prev.map((s) => (s.id === id ? { ...s, ...patch } : s))
+        prev.map((s) => {
+          if (s.id !== id) return s;
+          // 入力系（principal/interestRate/termMonths/graceMonths/repaymentType）が変われば
+          // 古い result は無効化する（元金だけ新しく月額返済は旧値、の不整合を防ぐ）
+          const inputChanged = (
+            [
+              "principal",
+              "interestRate",
+              "termMonths",
+              "graceMonths",
+              "repaymentType",
+            ] as const
+          ).some((k) => k in patch && patch[k] !== s[k]);
+          return {
+            ...s,
+            ...patch,
+            ...(inputChanged && !("result" in patch) ? { result: null } : {}),
+          };
+        }),
       );
     },
-    []
+    [],
   );
 
   const addScenario = useCallback(() => {
@@ -136,6 +186,26 @@ export default function LoanPage() {
       return prev.filter((s) => s.id !== id);
     });
   }, []);
+
+  // シミュ結果を sessionStorage に保存 → 資金調達レポートに引き継ぐ。
+  // 0件時は古い値が残らないよう削除する。
+  useEffect(() => {
+    const seeds = scenarios
+      .filter((s) => s.result)
+      .map((s) => ({
+        name: s.name,
+        principal: Number(s.principal),
+        monthlyPayment: s.result!.monthlyPayment,
+        totalInterest: s.result!.totalInterest,
+        termMonths: Number(s.termMonths),
+        interestRate: Number(s.interestRate),
+      }));
+    if (seeds.length > 0) {
+      sessionStorage.setItem("funding-scenarios", JSON.stringify(seeds));
+    } else {
+      sessionStorage.removeItem("funding-scenarios");
+    }
+  }, [scenarios]);
 
   const handleSimulate = useCallback(
     async (scenario: LoanScenario) => {
@@ -216,7 +286,7 @@ export default function LoanPage() {
 
   return (
     <DashboardShell>
-      <div className="space-y-6">
+      <div className="space-y-4">
         {/* 印刷専用ヘッダー */}
         <div className="print-only" data-print-block>
           <h1 className="text-xl font-bold">融資シミュレーション</h1>
@@ -231,6 +301,16 @@ export default function LoanPage() {
 
         <div className="flex items-center justify-between screen-only">
           <div className="flex items-center gap-3">
+            <Link
+              href="/funding-report"
+              className={cn(
+                buttonVariants({ variant: "ghost", size: "sm" }),
+                "gap-1",
+              )}
+            >
+              <ArrowLeft className="h-4 w-4" />
+              資金調達レポートへ
+            </Link>
             <Landmark className="h-6 w-6 text-[var(--color-tertiary)]" />
             <div>
               <h1 className="text-xl font-bold text-[var(--color-text-primary)]">
@@ -373,7 +453,9 @@ export default function LoanPage() {
                       }
                     >
                       <SelectTrigger>
-                        <SelectValue />
+                        <SelectValue>
+                          {(v) => REPAYMENT_LABELS[v as RepaymentType] ?? ""}
+                        </SelectValue>
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="EQUAL_INSTALLMENT">

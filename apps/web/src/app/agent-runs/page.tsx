@@ -23,7 +23,7 @@ import {
   Play,
   Clock3,
 } from "lucide-react";
-import { useAuthStore } from "@/lib/auth";
+import { useScopedOrgId } from "@/hooks/use-scoped-org-id";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 
@@ -72,8 +72,7 @@ function countToolCalls(raw: unknown): number {
 }
 
 export default function AgentRunsPage() {
-  const user = useAuthStore((s) => s.user);
-  const orgId = user?.orgId || "";
+  const orgId = useScopedOrgId();
   const [filter, setFilter] = useState<"ALL" | AgentKey>("ALL");
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
@@ -107,7 +106,7 @@ export default function AgentRunsPage() {
 
   return (
     <DashboardShell>
-      <div className="space-y-6">
+      <div className="space-y-4">
         <div className="flex items-center gap-3">
           <Activity className="h-6 w-6 text-[var(--color-tertiary)]" />
           <div>

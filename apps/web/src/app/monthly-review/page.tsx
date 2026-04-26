@@ -8,32 +8,20 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
-import { useAuthStore } from "@/lib/auth";
+import { useScopedOrgId } from "@/hooks/use-scoped-org-id";
+import { useCurrentOrg } from "@/contexts/current-org";
 import { usePeriodStore, getPeriodLabel } from "@/lib/period-store";
-import {
-  useMfDashboard,
-  useMfPL,
-  useMfBS,
-  useMfCashflow,
-  useMfFinancialIndicators,
-  useMfOffice,
-} from "@/hooks/use-mf-data";
-import { formatManYen } from "@/lib/format";
+import { PeriodSegmentControl } from "@/components/ui/period-segment-control";
+import { useMfOffice } from "@/hooks/use-mf-data";
 import {
   ClipboardCheck,
   FileText,
-  BarChart3,
-  Wallet,
-  Gauge,
   AlertTriangle,
   ChevronRight,
   Play,
   Loader2,
   Printer,
 } from "lucide-react";
-import { MfEmptyState } from "@/components/ui/mf-empty-state";
-import { QueryErrorState } from "@/components/ui/query-error-state";
-import { isMfNotConnected } from "@/lib/api";
 import { AgentBanner } from "@/components/agent/agent-banner";
 import { AGENTS } from "@/lib/agent-voice";
 import { CopilotOpenButton } from "@/components/copilot/copilot-open-button";
@@ -53,15 +41,11 @@ import type {
   ReviewTaxMismatch,
 } from "@/lib/mf-types";
 
-type TabKey = "checklist" | "review" | "pl" | "bs" | "cashflow" | "indicators";
+type TabKey = "checklist" | "review";
 
 const tabs: { key: TabKey; label: string; icon: typeof FileText }[] = [
-  { key: "checklist", label: "チェックリスト", icon: ClipboardCheck },
   { key: "review", label: "経理レビュー", icon: AlertTriangle },
-  { key: "pl", label: "P/L", icon: BarChart3 },
-  { key: "bs", label: "B/S", icon: FileText },
-  { key: "cashflow", label: "資金繰り", icon: Wallet },
-  { key: "indicators", label: "財務指標", icon: Gauge },
+  { key: "checklist", label: "チェックリスト", icon: ClipboardCheck },
 ];
 
 const STATUS_STEPS = [
@@ -85,39 +69,14 @@ function getNextStatus(current: string): string | null {
 }
 
 export default function MonthlyReviewPage() {
-  const [activeTab, setActiveTab] = useState<TabKey>("checklist");
-  const user = useAuthStore((s) => s.user);
+  const [activeTab, setActiveTab] = useState<TabKey>("review");
+  const orgId = useScopedOrgId();
+  const { currentOrgId } = useCurrentOrg();
   const { fiscalYear, month, periods } = usePeriodStore();
   const periodLabel = getPeriodLabel(fiscalYear, month, periods);
   const queryClient = useQueryClient();
 
   const office = useMfOffice();
-  const dashboard = useMfDashboard();
-  const mfPL = useMfPL({ enabled: activeTab === "pl" });
-  const mfBS = useMfBS({ enabled: activeTab === "bs" });
-  const mfCF = useMfCashflow({ enabled: activeTab === "cashflow" });
-  const indicators = useMfFinancialIndicators({ enabled: activeTab === "indicators" });
-
-  const mfPLError = isMfNotConnected(mfPL.error)
-    ? "disconnected"
-    : mfPL.isError
-      ? "error"
-      : null;
-  const mfBSError = isMfNotConnected(mfBS.error)
-    ? "disconnected"
-    : mfBS.isError
-      ? "error"
-      : null;
-  const mfCFError = isMfNotConnected(mfCF.error)
-    ? "disconnected"
-    : mfCF.isError
-      ? "error"
-      : null;
-  const indicatorsError = isMfNotConnected(indicators.error)
-    ? "disconnected"
-    : indicators.isError
-      ? "error"
-      : null;
 
   // kintone月次進捗をMF事業者番号で取得
   const mfCode = office.data?.code || "";
@@ -142,9 +101,28 @@ export default function MonthlyReviewPage() {
   const currentStatus = kintoneProgress.data?.monthlyStatus?.[currentMonth] || "0.未作業";
   const statusInfo = getStatusBadge(currentStatus);
 
+  // SevenBoard MonthlyClose ステータス
+  const monthlyClosesQuery = useQuery({
+    queryKey: ["monthly-close", "list", orgId, fiscalYear ?? null],
+    queryFn: () => api.monthlyClose.list(orgId, fiscalYear as number),
+    enabled: !!orgId && !!fiscalYear,
+    staleTime: 60 * 1000,
+  });
+  const currentClose = monthlyClosesQuery.data?.find((c) => c.month === currentMonth);
+  const currentCloseStatus = currentClose?.status ?? "OPEN";
+
+  const setCloseStatus = useMutation({
+    mutationFn: (next: "OPEN" | "IN_REVIEW" | "CLOSED") =>
+      api.monthlyClose.setStatus(orgId, fiscalYear as number, currentMonth, next),
+    onSuccess: () => {
+      // 一覧 + デフォルト月解決の両方を更新
+      queryClient.invalidateQueries({ queryKey: ["monthly-close"] });
+    },
+  });
+
   return (
     <DashboardShell>
-      <div className="space-y-6">
+      <div className="space-y-4">
         {/* 印刷専用ヘッダー */}
         <div className="print-only" data-print-block>
           <h1 className="text-xl font-bold">月次レビュー報告書</h1>
@@ -158,56 +136,83 @@ export default function MonthlyReviewPage() {
         </div>
 
         {/* ヘッダー */}
-        <div className="flex items-center justify-between screen-only">
-          <div>
+        <div className="flex items-start justify-between gap-3 screen-only">
+          <div className="min-w-0">
             <h1 className="text-xl font-bold text-[var(--color-text-primary)]">
               月次レビュー
             </h1>
-            <p className="text-sm text-muted-foreground">
-              {office.data?.name || "—"} — {periodLabel}
-            </p>
-          </div>
-          <div className="flex items-center gap-3">
-            {/* 進捗ステータス */}
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground">{currentMonth}月:</span>
-              <Badge className={cn("border text-xs", statusInfo.color)}>
-                {statusInfo.label}
-              </Badge>
-              {kintoneProgress.data && getNextStatus(currentStatus) && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-7 gap-1 text-xs"
-                  disabled={updateStatus.isPending}
-                  onClick={() => {
-                    const next = getNextStatus(currentStatus);
-                    if (next && kintoneProgress.data) {
-                      updateStatus.mutate({
-                        recordId: kintoneProgress.data.recordId,
-                        month: currentMonth,
-                        status: next,
-                      });
-                    }
-                  }}
+            <div className="mt-0.5 flex flex-wrap items-center gap-2">
+              <p className="text-sm text-muted-foreground">
+                {office.data?.name || "—"} — {periodLabel}
+              </p>
+              {/* SevenBoard 月次締めステータス（社名・期間の右隣に配置） */}
+              <div className="flex items-center gap-1.5">
+                <select
+                  value={currentCloseStatus}
+                  onChange={(e) =>
+                    setCloseStatus.mutate(
+                      e.target.value as "OPEN" | "IN_REVIEW" | "CLOSED",
+                    )
+                  }
+                  disabled={setCloseStatus.isPending || !orgId || !fiscalYear}
+                  className="h-7 rounded-md border border-input bg-background px-2 text-xs font-medium focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)]"
+                  aria-label={`${currentMonth}月の月次締めステータス`}
                 >
-                  次へ進める
-                  <ChevronRight className="h-3 w-3" />
-                </Button>
+                  <option value="OPEN">未完了</option>
+                  <option value="IN_REVIEW">レビュー中</option>
+                  <option value="CLOSED">完了</option>
+                </select>
+                {setCloseStatus.isPending && (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                )}
+              </div>
+              {/* kintone進捗（連携時のみ） */}
+              {kintoneProgress.data && (
+                <div className="flex items-center gap-1.5 border-l pl-2">
+                  <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                    kintone
+                  </span>
+                  <Badge className={cn("border text-xs", statusInfo.color)}>
+                    {statusInfo.label}
+                  </Badge>
+                  {getNextStatus(currentStatus) && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-6 gap-1 text-[11px]"
+                      disabled={updateStatus.isPending}
+                      onClick={() => {
+                        const next = getNextStatus(currentStatus);
+                        if (next && kintoneProgress.data) {
+                          updateStatus.mutate({
+                            recordId: kintoneProgress.data.recordId,
+                            month: currentMonth,
+                            status: next,
+                          });
+                        }
+                      }}
+                    >
+                      次へ
+                      <ChevronRight className="h-3 w-3" />
+                    </Button>
+                  )}
+                </div>
               )}
             </div>
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-7 gap-1 text-xs"
-              onClick={() => window.print()}
-              aria-label="このタブをPDFとして出力"
-            >
-              <Printer className="h-3 w-3" />
-              PDF出力
-            </Button>
           </div>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 gap-1 text-xs shrink-0"
+            onClick={() => window.print()}
+            aria-label="このタブをPDFとして出力"
+          >
+            <Printer className="h-3 w-3" />
+            PDF出力
+          </Button>
         </div>
+
+        <PeriodSegmentControl showAllPeriod={false} label="対象月（単月）" highlightRange={false} />
 
         <div className="screen-only">
           <AgentBanner
@@ -235,25 +240,8 @@ export default function MonthlyReviewPage() {
           <AuditorCard />
         </div>
 
-        {user?.orgId && fiscalYear && (
-          <ApprovalCard orgId={user.orgId} fiscalYear={fiscalYear} month={currentMonth} />
-        )}
-
-        {/* KPIサマリーバー */}
-        {dashboard.data && (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            {[
-              { label: "売上高", value: `${Math.round(dashboard.data.revenue / 10000).toLocaleString()}万` },
-              { label: "営業利益", value: `${Math.round(dashboard.data.operatingProfit / 10000).toLocaleString()}万` },
-              { label: "現預金", value: `${Math.round(dashboard.data.cashBalance / 10000).toLocaleString()}万` },
-              { label: "ランウェイ", value: `${dashboard.data.runway}ヶ月` },
-            ].map((kpi) => (
-              <div key={kpi.label} className="rounded-lg border bg-muted/20 px-3 py-2">
-                <div className="text-[10px] text-muted-foreground">{kpi.label}</div>
-                <div className="text-sm font-bold text-[var(--color-text-primary)]">{kpi.value}</div>
-              </div>
-            ))}
-          </div>
+        {currentOrgId && fiscalYear && (
+          <ApprovalCard orgId={currentOrgId} fiscalYear={fiscalYear} month={currentMonth} />
         )}
 
         {/* タブ */}
@@ -310,116 +298,10 @@ export default function MonthlyReviewPage() {
         {activeTab === "review" && (
           <div role="tabpanel" id="monthly-panel-review" aria-labelledby="monthly-tab-review">
             <ReviewTab
-              orgId={user?.orgId || ""}
+              orgId={orgId}
               fiscalYear={fiscalYear}
               month={month}
             />
-          </div>
-        )}
-
-        {activeTab === "pl" && (
-          <div role="tabpanel" id="monthly-panel-pl" aria-labelledby="monthly-tab-pl">
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base">損益計算書（P/L）</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {mfPL.isLoading ? (
-                  <div className="space-y-2">{Array.from({ length: 8 }).map((_, i) => <div key={i} className="h-8 animate-pulse rounded bg-muted" />)}</div>
-                ) : mfPLError === "disconnected" ? (
-                  <MfEmptyState />
-                ) : mfPLError === "error" ? (
-                  <QueryErrorState onRetry={() => mfPL.refetch()} />
-                ) : !mfPL.data || mfPL.data.length === 0 ? (
-                  <p className="py-6 text-center text-sm text-muted-foreground">データがありません</p>
-                ) : (
-                  <SimpleTable rows={mfPL.data} />
-                )}
-              </CardContent>
-            </Card>
-          </div>
-        )}
-
-        {activeTab === "bs" && (
-          <div role="tabpanel" id="monthly-panel-bs" aria-labelledby="monthly-tab-bs" className="space-y-4">
-            {mfBSError === "disconnected" ? (
-              <MfEmptyState />
-            ) : mfBSError === "error" ? (
-              <QueryErrorState onRetry={() => mfBS.refetch()} />
-            ) : (
-              <>
-                <Card>
-                  <CardHeader className="pb-2"><CardTitle className="text-base">資産の部</CardTitle></CardHeader>
-                  <CardContent>
-                    {mfBS.isLoading ? <div className="h-32 animate-pulse rounded bg-muted" /> : !mfBS.data?.assets ? <p className="py-6 text-center text-sm text-muted-foreground">データがありません</p> : <SimpleTable rows={mfBS.data.assets} />}
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardHeader className="pb-2"><CardTitle className="text-base">負債・純資産の部</CardTitle></CardHeader>
-                  <CardContent>
-                    {!mfBS.data?.liabilitiesEquity ? null : <SimpleTable rows={mfBS.data.liabilitiesEquity} />}
-                  </CardContent>
-                </Card>
-              </>
-            )}
-          </div>
-        )}
-
-        {activeTab === "cashflow" && (
-          <div role="tabpanel" id="monthly-panel-cashflow" aria-labelledby="monthly-tab-cashflow">
-            <Card>
-              <CardHeader className="pb-2"><CardTitle className="text-base">資金繰り</CardTitle></CardHeader>
-              <CardContent>
-                {mfCF.isLoading ? (
-                  <div className="h-32 animate-pulse rounded bg-muted" />
-                ) : mfCFError === "disconnected" ? (
-                  <MfEmptyState />
-                ) : mfCFError === "error" ? (
-                  <QueryErrorState onRetry={() => mfCF.refetch()} />
-                ) : !mfCF.data ? (
-                  <p className="py-6 text-center text-sm text-muted-foreground">資金繰りデータがありません</p>
-                ) : (
-                  <p className="text-sm text-muted-foreground">
-                    ランウェイ: {mfCF.data.runway?.months}ヶ月 / 現預金: {formatManYen(mfCF.data.runway?.cashBalance || 0)} / 月次バーン: {formatManYen(mfCF.data.runway?.monthlyBurnRate || 0)}
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-        )}
-
-        {activeTab === "indicators" && (
-          <div role="tabpanel" id="monthly-panel-indicators" aria-labelledby="monthly-tab-indicators">
-            <Card>
-              <CardHeader className="pb-2"><CardTitle className="text-base">財務指標</CardTitle></CardHeader>
-              <CardContent>
-                {indicators.isLoading ? (
-                  <div className="h-32 animate-pulse rounded bg-muted" />
-                ) : indicatorsError === "disconnected" ? (
-                  <MfEmptyState />
-                ) : indicatorsError === "error" ? (
-                  <QueryErrorState onRetry={() => indicators.refetch()} />
-                ) : !indicators.data ? (
-                  <p className="py-6 text-center text-sm text-muted-foreground">データがありません</p>
-                ) : (
-                  <div className="grid grid-cols-3 gap-4">
-                    {[
-                      { label: "流動比率", value: `${indicators.data.currentRatio?.toFixed(1)}%` },
-                      { label: "自己資本比率", value: `${indicators.data.equityRatio?.toFixed(1)}%` },
-                      { label: "売上総利益率", value: `${indicators.data.grossProfitMargin?.toFixed(1)}%` },
-                      { label: "営業利益率", value: `${indicators.data.operatingProfitMargin?.toFixed(1)}%` },
-                      { label: "ROA", value: `${indicators.data.roa?.toFixed(1)}%` },
-                      { label: "総資産回転率", value: `${indicators.data.totalAssetTurnover?.toFixed(2)}回` },
-                    ].map((ind) => (
-                      <div key={ind.label} className="rounded-lg border p-3">
-                        <div className="text-xs text-muted-foreground">{ind.label}</div>
-                        <div className="text-lg font-bold">{ind.value}</div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
           </div>
         )}
       </div>
@@ -930,27 +812,3 @@ function ReviewTab({
   );
 }
 
-function SimpleTable({ rows }: { rows: { category: string; current: number; prior?: number; isTotal?: boolean; isHeader?: boolean }[] }) {
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b-2 border-[var(--color-border)]">
-            <th className="w-56 py-2 text-left font-semibold text-[var(--color-text-primary)]">勘定科目</th>
-            <th className="w-32 py-2 text-right font-semibold text-[var(--color-text-primary)]">当期</th>
-            <th className="w-32 py-2 text-right font-semibold text-[var(--color-text-primary)]">前期</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row, i) => (
-            <tr key={i} className={cn(row.isTotal && "bg-muted/50 font-semibold", row.isHeader && "bg-muted/30")}>
-              <td className={cn("py-1.5 text-sm", row.isTotal && "font-bold")}>{row.category}</td>
-              <td className="py-1.5 text-right tabular-nums">{row.isHeader ? "" : `¥${row.current.toLocaleString()}`}</td>
-              <td className="py-1.5 text-right tabular-nums text-muted-foreground">{row.isHeader ? "" : row.prior != null ? `¥${row.prior.toLocaleString()}` : "—"}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}

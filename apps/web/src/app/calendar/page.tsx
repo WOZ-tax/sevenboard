@@ -18,7 +18,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useAuthStore } from "@/lib/auth";
+import { useScopedOrgId } from "@/hooks/use-scoped-org-id";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { UpdateCalendarEventInput } from "@/lib/api-types";
@@ -36,20 +36,6 @@ interface CalendarEvent {
   status: EventStatus;
   description?: string | null;
 }
-
-/* ---------- mock data ---------- */
-
-const mockEvents: CalendarEvent[] = [
-  { id: "1", date: "2026-04-05", title: "月次決算締め", type: "deadline", status: "completed" },
-  { id: "2", date: "2026-04-10", title: "予算会議", type: "meeting", status: "upcoming" },
-  { id: "3", date: "2026-04-15", title: "MF会計データ同期", type: "task", status: "upcoming" },
-  { id: "4", date: "2026-04-20", title: "顧問先レビュー（A社）", type: "meeting", status: "upcoming" },
-  { id: "5", date: "2026-04-25", title: "給与支払い", type: "deadline", status: "upcoming" },
-  { id: "6", date: "2026-04-30", title: "源泉所得税納付", type: "deadline", status: "upcoming" },
-  { id: "7", date: "2026-05-10", title: "法人税中間申告", type: "deadline", status: "upcoming" },
-  { id: "8", date: "2026-03-15", title: "確定申告期限", type: "deadline", status: "completed" },
-  { id: "9", date: "2026-03-31", title: "年度決算", type: "deadline", status: "completed" },
-];
 
 /* ---------- event type config ---------- */
 
@@ -113,8 +99,7 @@ function isToday(year: number, month: number, day: number) {
 /* ---------- component ---------- */
 
 export default function CalendarPage() {
-  const user = useAuthStore((s) => s.user);
-  const orgId = user?.orgId || "";
+  const orgId = useScopedOrgId();
   const queryClient = useQueryClient();
 
   const [currentDate, setCurrentDate] = useState(() => new Date());
@@ -143,8 +128,10 @@ export default function CalendarPage() {
     enabled: !!orgId,
   });
 
-  // Use API data if available, otherwise fallback to mock
-  const events: CalendarEvent[] = apiEvents && apiEvents.length > 0 ? apiEvents : mockEvents;
+  const events: CalendarEvent[] = useMemo(
+    () => apiEvents ?? [],
+    [apiEvents],
+  );
 
   // Mutations
   const createMutation = useMutation({
@@ -275,7 +262,7 @@ export default function CalendarPage() {
 
   return (
     <DashboardShell>
-      <div className="space-y-6">
+      <div className="space-y-4">
         {/* header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">

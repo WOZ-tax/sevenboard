@@ -27,6 +27,7 @@ import {
   Bot,
 } from "lucide-react";
 import { useAuthStore } from "@/lib/auth";
+import { useScopedOrgId } from "@/hooks/use-scoped-org-id";
 import { useAiSummary } from "@/hooks/use-mf-data";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
@@ -65,29 +66,6 @@ const priorityConfig: Record<string, { label: string; color: string }> = {
   },
 };
 
-const mockComments = [
-  {
-    id: "1",
-    content:
-      "売上は堅調に推移していますが、人件費の増加傾向に注意が必要です。採用計画の見直しを推奨します。",
-    status: "APPROVED",
-    priority: "HIGH",
-    reviewer: { id: "r1", name: "七海 太郎", role: "ADVISOR" },
-    createdAt: "2026-04-05T10:30:00Z",
-    cellRef: null,
-  },
-  {
-    id: "2",
-    content:
-      "主要顧客への売上依存度が高まっています。新規顧客開拓の優先度を上げてください。",
-    status: "PENDING",
-    priority: "MEDIUM",
-    reviewer: null,
-    createdAt: "2026-04-04T15:00:00Z",
-    cellRef: "trade_receivable",
-  },
-];
-
 function generateMonthOptions(): { label: string; value: string }[] {
   const options: { label: string; value: string }[] = [];
   const now = new Date();
@@ -102,9 +80,10 @@ function generateMonthOptions(): { label: string; value: string }[] {
 
 export default function CommentsPage() {
   const user = useAuthStore((s) => s.user);
-  const orgId = user?.orgId || "";
-  const isAdvisor = user?.role === "ADVISOR";
-  const canPost = ["ADMIN", "CFO", "ADVISOR"].includes(user?.role || "");
+  const orgId = useScopedOrgId();
+  const isAdvisor = user?.role === "advisor";
+  // G-1 strict: CL は viewer 限定。コメント投稿は内部スタッフ (owner/advisor) のみ
+  const canPost = ["owner", "advisor"].includes(user?.role || "");
   const queryClient = useQueryClient();
 
   const monthOptions = generateMonthOptions();
@@ -124,7 +103,7 @@ export default function CommentsPage() {
   });
 
   const { data: aiData } = useAiSummary();
-  const comments = isError || !commentsData ? mockComments : commentsData;
+  const comments = isError || !commentsData ? [] : commentsData;
 
   const createMutation = useMutation({
     mutationFn: (data: { content: string; month?: string; priority?: string }) =>
@@ -177,7 +156,7 @@ export default function CommentsPage() {
 
   return (
     <DashboardShell>
-      <div className="space-y-6">
+      <div className="space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <MessageSquare className="h-6 w-6 text-[var(--color-tertiary)]" />
@@ -438,7 +417,7 @@ export default function CommentsPage() {
                               </Button>
                             </>
                           )}
-                          {(isAdvisor || user?.role === "ADMIN") && (
+                          {(isAdvisor || user?.role === "owner") && (
                             <Button
                               size="sm"
                               variant="ghost"

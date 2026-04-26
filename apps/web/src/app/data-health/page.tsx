@@ -12,7 +12,7 @@ import {
   Clock,
   XCircle,
 } from "lucide-react";
-import { useAuthStore } from "@/lib/auth";
+import { useScopedOrgId } from "@/hooks/use-scoped-org-id";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 
@@ -78,71 +78,20 @@ function formatDuration(ms: number | null): string {
   return `${Math.round(ms / 1000 / 60)}分`;
 }
 
-/* mock fallback */
-
-const mockStatus = {
-  overall: "HEALTHY" as Overall,
+/* APIが取れない場合は UNKNOWN とする。SUCCESS を偽装しない */
+const emptyStatus = {
+  overall: "UNKNOWN" as Overall,
   sources: [
-    {
-      source: "MF_CLOUD",
-      lastSyncAt: new Date(Date.now() - 15 * 60_000).toISOString(),
-      status: "SUCCESS" as const,
-      errorMessage: null,
-      durationMs: 2840,
-    },
-    {
-      source: "KINTONE",
-      lastSyncAt: new Date(Date.now() - 2 * 60 * 60_000).toISOString(),
-      status: "SUCCESS" as const,
-      errorMessage: null,
-      durationMs: 1120,
-    },
-    {
-      source: "SLACK",
-      lastSyncAt: null,
-      status: null,
-      errorMessage: null,
-      durationMs: null,
-    },
-    {
-      source: "TAX_PLUGIN",
-      lastSyncAt: null,
-      status: null,
-      errorMessage: null,
-      durationMs: null,
-    },
-    {
-      source: "BOOKKEEPING_PLUGIN",
-      lastSyncAt: null,
-      status: null,
-      errorMessage: null,
-      durationMs: null,
-    },
+    { source: "MF_CLOUD", lastSyncAt: null, status: null, errorMessage: null, durationMs: null },
+    { source: "KINTONE", lastSyncAt: null, status: null, errorMessage: null, durationMs: null },
+    { source: "SLACK", lastSyncAt: null, status: null, errorMessage: null, durationMs: null },
+    { source: "TAX_PLUGIN", lastSyncAt: null, status: null, errorMessage: null, durationMs: null },
+    { source: "BOOKKEEPING_PLUGIN", lastSyncAt: null, status: null, errorMessage: null, durationMs: null },
   ],
 };
 
-const mockLogs: SyncLog[] = [
-  {
-    id: "l1",
-    source: "MF_CLOUD",
-    status: "SUCCESS",
-    errorMessage: null,
-    syncedAt: new Date(Date.now() - 15 * 60_000).toISOString(),
-    durationMs: 2840,
-  },
-  {
-    id: "l2",
-    source: "KINTONE",
-    status: "SUCCESS",
-    errorMessage: null,
-    syncedAt: new Date(Date.now() - 2 * 60 * 60_000).toISOString(),
-    durationMs: 1120,
-  },
-];
-
 export default function DataHealthPage() {
-  const user = useAuthStore((s) => s.user);
-  const orgId = user?.orgId || "";
+  const orgId = useScopedOrgId();
 
   const { data: statusData } = useQuery({
     queryKey: ["data-health", orgId],
@@ -157,12 +106,12 @@ export default function DataHealthPage() {
     enabled: !!orgId,
   });
 
-  const status = statusData ?? mockStatus;
-  const logs: SyncLog[] = (logsData as SyncLog[] | undefined) ?? mockLogs;
+  const status = statusData ?? emptyStatus;
+  const logs: SyncLog[] = (logsData as SyncLog[] | undefined) ?? [];
 
   return (
     <DashboardShell>
-      <div className="space-y-6">
+      <div className="space-y-4">
         <div className="flex items-center gap-3">
           <Activity className="h-6 w-6 text-[var(--color-tertiary)]" />
           <div>

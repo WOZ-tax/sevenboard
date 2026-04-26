@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { useAuthStore } from "@/lib/auth";
+import { useScopedOrgId } from "@/hooks/use-scoped-org-id";
 import type {
   BudgetEntry,
   BudgetEntryInput,
@@ -30,15 +30,8 @@ export interface NormalizedVarianceRow {
   priorYear?: number;
 }
 
-function useOrgId() {
-  const user = useAuthStore((s) => s.user);
-  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
-  if (!isAuthenticated) return "";
-  return user?.orgId || "";
-}
-
 export function useBudgetContext() {
-  const orgId = useOrgId();
+  const orgId = useScopedOrgId();
 
   const fiscalYearsQuery = useQuery({
     queryKey: ["fiscal-years", orgId],
@@ -177,6 +170,9 @@ export function useNormalizedVarianceRows(
       current.budget += Number(row.budgetAmount);
       current.actual += Number(row.actualAmount);
       current.variance += Number(row.varianceAmount);
+      if (row.priorYearAmount != null) {
+        current.priorYear = (current.priorYear ?? 0) + Number(row.priorYearAmount);
+      }
     }
 
     return Array.from(grouped.values()).map((row) => ({

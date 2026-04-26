@@ -24,7 +24,7 @@ import {
   CalendarDays,
   Sparkles,
 } from "lucide-react";
-import { useAuthStore } from "@/lib/auth";
+import { useScopedOrgId } from "@/hooks/use-scoped-org-id";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 
@@ -157,44 +157,6 @@ const eventTypeOptions: { value: EventType; label: string }[] = (
 
 const impactTagOptions: ImpactTag[] = ["sales", "cost", "cash", "headcount"];
 
-/* ---------- mock fallback ---------- */
-
-const mockEvents: BusinessEvent[] = [
-  {
-    id: "e1",
-    eventDate: "2026-04-01",
-    eventType: "HIRE",
-    title: "営業2名採用（中途）",
-    note: "新規開拓加速。月間人件費 +120万円想定。",
-    impactTags: ["headcount", "cost"],
-    createdBy: "mock",
-    createdAt: "2026-04-01T00:00:00Z",
-    updatedAt: "2026-04-01T00:00:00Z",
-  },
-  {
-    id: "e2",
-    eventDate: "2026-03-15",
-    eventType: "PRICE_CHANGE",
-    title: "スタンダードプラン +10%",
-    note: "既存顧客は6月から適用。新規は即時。",
-    impactTags: ["sales"],
-    createdBy: "mock",
-    createdAt: "2026-03-15T00:00:00Z",
-    updatedAt: "2026-03-15T00:00:00Z",
-  },
-  {
-    id: "e3",
-    eventDate: "2026-04-15",
-    eventType: "CONTRACT_WIN",
-    title: "B社大型案件獲得（年間1,200万円）",
-    note: "5月より売上計上開始。",
-    impactTags: ["sales", "cash"],
-    createdBy: "mock",
-    createdAt: "2026-04-15T00:00:00Z",
-    updatedAt: "2026-04-15T00:00:00Z",
-  },
-];
-
 /* ---------- helpers ---------- */
 
 function formatDate(iso: string): string {
@@ -210,8 +172,7 @@ function todayIso(): string {
 /* ---------- component ---------- */
 
 export default function BusinessEventsPage() {
-  const user = useAuthStore((s) => s.user);
-  const orgId = user?.orgId || "";
+  const orgId = useScopedOrgId();
   const queryClient = useQueryClient();
 
   const [showForm, setShowForm] = useState(false);
@@ -232,17 +193,13 @@ export default function BusinessEventsPage() {
     enabled: !!orgId,
   });
 
-  const rawEvents: BusinessEvent[] =
-    (apiEvents as BusinessEvent[] | undefined) ?? mockEvents;
-
   const events = useMemo(() => {
-    let list = rawEvents.slice().sort((a, b) =>
-      b.eventDate.localeCompare(a.eventDate),
-    );
+    const raw: BusinessEvent[] = (apiEvents as BusinessEvent[] | undefined) ?? [];
+    let list = raw.slice().sort((a, b) => b.eventDate.localeCompare(a.eventDate));
     if (filterType) list = list.filter((e) => e.eventType === filterType);
     if (filterTag) list = list.filter((e) => e.impactTags.includes(filterTag));
     return list;
-  }, [rawEvents, filterType, filterTag]);
+  }, [apiEvents, filterType, filterTag]);
 
   const createMutation = useMutation({
     mutationFn: (data: Parameters<typeof api.businessEvents.create>[1]) =>
@@ -328,7 +285,7 @@ export default function BusinessEventsPage() {
 
   return (
     <DashboardShell>
-      <div className="space-y-6">
+      <div className="space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Briefcase className="h-6 w-6 text-[var(--color-tertiary)]" />

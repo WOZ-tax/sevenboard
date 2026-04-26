@@ -19,7 +19,7 @@ import {
   ExternalLink,
   Filter,
 } from "lucide-react";
-import { useAuthStore } from "@/lib/auth";
+import { useScopedOrgId } from "@/hooks/use-scoped-org-id";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 
@@ -115,7 +115,7 @@ const sourceScreenLabels: Record<ActionSourceScreen, string> = {
   ALERTS: "アラート",
   CASHFLOW: "資金繰り",
   MONTHLY_REVIEW: "月次レビュー",
-  AI_REPORT: "AIレポート",
+  AI_REPORT: "AI CFOレポート",
   VARIANCE: "予実差異",
   KPI: "KPI",
   MANUAL: "手動作成",
@@ -146,71 +146,12 @@ const sourceScreenOptions: { value: ActionSourceScreen; label: string }[] = [
   { value: "ALERTS", label: "アラート" },
   { value: "CASHFLOW", label: "資金繰り" },
   { value: "MONTHLY_REVIEW", label: "月次レビュー" },
-  { value: "AI_REPORT", label: "AIレポート" },
+  { value: "AI_REPORT", label: "AI CFOレポート" },
   { value: "VARIANCE", label: "予実差異" },
   { value: "KPI", label: "KPI" },
 ];
 
-/* ---------- mock fallback ---------- */
-
-const mockActions: Action[] = [
-  {
-    id: "m1",
-    title: "売掛金回収サイト短縮の打診（A社）",
-    description: "DSOが前月比+8日。主要取引先A社との支払サイト再交渉を検討。",
-    sourceScreen: "CASHFLOW",
-    sourceRef: null,
-    severity: "HIGH",
-    ownerRole: "EXECUTIVE",
-    ownerUserId: null,
-    createdBy: "mock",
-    dueDate: "2026-04-25",
-    status: "IN_PROGRESS",
-    linkedSlackThreadUrl: null,
-    closedAt: null,
-    isOverdue: false,
-    createdAt: "2026-04-15T00:00:00Z",
-    updatedAt: "2026-04-18T00:00:00Z",
-  },
-  {
-    id: "m2",
-    title: "広告費予算の見直し",
-    description: "Q4広告費が予算比+180%。次月の配分を再設計。",
-    sourceScreen: "VARIANCE",
-    sourceRef: null,
-    severity: "MEDIUM",
-    ownerRole: "ACCOUNTING",
-    ownerUserId: null,
-    createdBy: "mock",
-    dueDate: "2026-04-30",
-    status: "NOT_STARTED",
-    linkedSlackThreadUrl: null,
-    closedAt: null,
-    isOverdue: false,
-    createdAt: "2026-04-16T00:00:00Z",
-    updatedAt: "2026-04-16T00:00:00Z",
-  },
-  {
-    id: "m3",
-    title: "月次レビュー：貸倒引当金の妥当性確認",
-    description: "売掛金残高増に伴い引当金見直しが必要。",
-    sourceScreen: "MONTHLY_REVIEW",
-    sourceRef: null,
-    severity: "CRITICAL",
-    ownerRole: "ADVISOR",
-    ownerUserId: null,
-    createdBy: "mock",
-    dueDate: "2026-04-10",
-    status: "NOT_STARTED",
-    linkedSlackThreadUrl: null,
-    closedAt: null,
-    isOverdue: true,
-    createdAt: "2026-04-05T00:00:00Z",
-    updatedAt: "2026-04-05T00:00:00Z",
-  },
-];
-
-const mockSummary = { total: 3, notStarted: 2, inProgress: 1, overdue: 1 };
+const emptySummary = { total: 0, notStarted: 0, inProgress: 0, overdue: 0 };
 
 /* ---------- helpers ---------- */
 
@@ -232,8 +173,7 @@ function daysUntil(iso: string | null): number | null {
 /* ---------- component ---------- */
 
 export default function ActionsPage() {
-  const user = useAuthStore((s) => s.user);
-  const orgId = user?.orgId || "";
+  const orgId = useScopedOrgId();
   const queryClient = useQueryClient();
 
   // Filters
@@ -283,12 +223,11 @@ export default function ActionsPage() {
     enabled: !!orgId,
   });
 
-  const rawActions: Action[] = (apiActions as Action[] | undefined) ?? mockActions;
-  const summary = apiSummary ?? mockSummary;
+  const summary = apiSummary ?? emptySummary;
 
   // Client-side severity / copilot filter (server doesn't support these yet)
   const actions = useMemo(() => {
-    let list = rawActions;
+    let list: Action[] = (apiActions as Action[] | undefined) ?? [];
     if (filterSeverity) list = list.filter((a) => a.severity === filterSeverity);
     if (copilotOnly) {
       list = list.filter(
@@ -298,7 +237,7 @@ export default function ActionsPage() {
       );
     }
     return list;
-  }, [rawActions, filterSeverity, copilotOnly]);
+  }, [apiActions, filterSeverity, copilotOnly]);
 
   // Mutations
   const createMutation = useMutation({
@@ -393,7 +332,7 @@ export default function ActionsPage() {
 
   return (
     <DashboardShell>
-      <div className="space-y-6">
+      <div className="space-y-4">
         {/* header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
