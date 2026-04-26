@@ -225,7 +225,12 @@ export default function DashboardPage() {
   const isLoading = dashboard.isLoading;
   const mfNotConnected = isMfNotConnected(dashboard.error);
   const isError = dashboard.isError && !mfNotConnected;
-  const canQueryDependents = !mfNotConnected && !isError;
+  // KPI を最優先で表示するため、二次クエリは dashboard 取得完了後に発火する。
+  // 旧実装は !mfNotConnected && !isError だけだったので初回ロードで MF 系すべて
+  // (dashboard / PL / AI / alerts / triage / actions) が同時発火し、
+  // alerts/triage の中で MF を再取得する構造と相まって rate-limit backoff に
+  // 突入しページ全体が重くなっていた。
+  const canQueryDependents = !!dashboard.data && !mfNotConnected && !isError;
   const [runwayMode, setRunwayMode] = useRunwayMode();
 
   const plTransition = useMfPLTransition({ enabled: canQueryDependents });
@@ -235,14 +240,14 @@ export default function DashboardPage() {
   const actionsSummary = useQuery({
     queryKey: ["actions-summary", orgId],
     queryFn: () => api.actions.summary(orgId),
-    enabled: !!orgId,
+    enabled: !!orgId && canQueryDependents,
     staleTime: 60_000,
   });
 
   const triageQuery = useQuery({
     queryKey: ["triage-classify", orgId],
     queryFn: () => api.triage.classify(orgId),
-    enabled: !!orgId,
+    enabled: !!orgId && canQueryDependents,
     staleTime: 60_000,
   });
 
@@ -429,9 +434,9 @@ export default function DashboardPage() {
             }
           />
 
-          <BriefingCard />
+          <BriefingCard enabled={canQueryDependents} />
 
-          <AgentActivityCard />
+          <AgentActivityCard enabled={canQueryDependents} />
         </div>
 
         {canQueryDependents && (

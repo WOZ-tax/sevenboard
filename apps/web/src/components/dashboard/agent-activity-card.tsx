@@ -43,13 +43,13 @@ function formatRelative(iso: string): string {
   return `${days}日前`;
 }
 
-export function AgentActivityCard() {
+export function AgentActivityCard({ enabled = true }: { enabled?: boolean } = {}) {
   const orgId = useScopedOrgId();
 
   const { data } = useQuery({
     queryKey: ["agent-runs-recent", orgId],
     queryFn: () => api.agentRuns.list(orgId, { limit: 5, days: 7 }),
-    enabled: !!orgId,
+    enabled: !!orgId && enabled,
     refetchInterval: 60_000,
   });
 

@@ -72,17 +72,19 @@ const severityStyle: Record<
   },
 };
 
-export function BriefingCard() {
+export function BriefingCard({ enabled = true }: { enabled?: boolean } = {}) {
   const orgId = useCurrentOrg().currentOrgId ?? "";
   const { fiscalYear, month } = usePeriodStore();
   const [showHistory, setShowHistory] = useState(false);
   const [openSnapshotId, setOpenSnapshotId] = useState<string | null>(null);
 
+  // 親 (dashboard) が KPI 取得完了するまで AI ブリーフ取得を待つ。
+  // 同時発火すると alerts/triage が連鎖して MF rate-limit に当たり遅くなる。
   const { data, isLoading } = useQuery({
     queryKey: ["briefing-today", orgId, fiscalYear, month],
     queryFn: () =>
       api.briefing.today(orgId, { fiscalYear, endMonth: month }),
-    enabled: !!orgId,
+    enabled: !!orgId && enabled,
     staleTime: 5 * 60_000,
     refetchOnWindowFocus: false,
   });
