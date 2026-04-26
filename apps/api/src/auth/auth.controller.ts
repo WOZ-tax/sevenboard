@@ -78,6 +78,17 @@ export class AuthController {
     return this.authService.getUserOrganizations(req.user.id, req.user.role);
   }
 
+  /**
+   * factory-hybrid と整合する membership 形式のレスポンス。
+   * `[{ orgId, role, orgName, orgCode, ... }]`
+   * フロントの `current-org` context が消費する。
+   */
+  @Get('me/memberships')
+  @UseGuards(JwtAuthGuard)
+  async myMemberships(@Request() req) {
+    return this.authService.getUserMemberships(req.user.id, req.user.role);
+  }
+
   @Post('switch-org')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)

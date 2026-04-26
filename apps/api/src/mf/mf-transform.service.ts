@@ -320,11 +320,13 @@ export class MfTransformService {
   }
 
   // ============================
-  // 資金繰り導出（BS推移 + PL推移）
+  // 資金繰り導出（BS推移 + PL推移 + BS試算表(期首残高用)）
   // ============================
   deriveCashflow(
     bsTransition: MfTransition,
     plTransition: MfTransition,
+    bsTrial?: MfTrialBalance | null,
+    settledMonths?: number[],
   ): CashflowDerived {
     const monthLabels = buildMonthLabels(bsTransition.columns);
     const mc = monthLabels.length; // 月数
@@ -333,9 +335,11 @@ export class MfTransformService {
     const cashRow = this.findRowByPartial(bsTransition.rows, '現金及び預金');
     const cashBalances = this.monthlyValues(cashRow, mc);
 
-    // 前期末残高: 前期BS試算表がないため、推移表の初月値から推定不可
-    // settlement_balanceは当期末値なので前期末には使えない → 0とする
-    const priorCash = 0;
+    // 期首残高（前期末残高）: BS試算表の opening_balance 列が前期末値そのもの
+    // bsTrial が無い場合のみ 0 にフォールバック
+    const priorCash = bsTrial
+      ? this.val(this.findRowByPartial(bsTrial.rows, '現金及び預金'), TB_COL.OPENING)
+      : 0;
 
     // 2. 月次ネットCF
     const netCf = cashBalances.map((v, i) =>
@@ -350,19 +354,47 @@ export class MfTransformService {
       this.findRowByPartial(bsTransition.rows, '売上債権合計') ||
       this.findRow(bsTransition.rows, '売掛金');
     const arBalances = this.monthlyValues(arRow, mc);
+    // 期首AR残高: BS試算表の opening_balance（前期末売掛）
+    const priorAr = bsTrial
+      ? this.val(
+          this.findRowByPartial(bsTrial.rows, '売上債権合計') ||
+            this.findRow(bsTrial.rows, '売掛金'),
+          TB_COL.OPENING,
+        )
+      : 0;
     const salesCollection = revMonthly.map((rev, i) => {
-      if (i === 0) {
-        // First month: no prior AR data, use revenue as cash-basis approximation
-        return rev;
-      }
-      return rev + arBalances[i - 1] - arBalances[i];
+      const prev = i === 0 ? priorAr : arBalances[i - 1];
+      return rev + prev - arBalances[i];
     });
 
+    // その他収入（営業外収益・特別利益）を現金ベースに変換
+    //   = 発生主義(PL) + 期首未収入金 − 期末未収入金
+    //   未収入金行が無ければ発生主義のままフォールバック
     const nonOpIncRow = this.findRowByPartial(plTransition.rows, '営業外収益');
     const extraIncRow = this.findRowByPartial(plTransition.rows, '特別利益');
-    const otherIncome = Array.from({ length: mc }, (_, i) =>
+    const otherIncomeAccrual = Array.from({ length: mc }, (_, i) =>
       this.val(nonOpIncRow, i) + this.val(extraIncRow, i),
     );
+    const otherReceivableRow =
+      this.findRowByPartial(bsTransition.rows, '未収入金') ||
+      this.findRowByPartial(bsTransition.rows, '未収収益');
+    const hasOtherReceivable = otherReceivableRow !== null;
+    const otherReceivableBalances = hasOtherReceivable
+      ? this.monthlyValues(otherReceivableRow, mc)
+      : new Array<number>(mc).fill(0);
+    const priorOtherReceivable =
+      hasOtherReceivable && bsTrial
+        ? this.val(
+            this.findRowByPartial(bsTrial.rows, '未収入金') ||
+              this.findRowByPartial(bsTrial.rows, '未収収益'),
+            TB_COL.OPENING,
+          )
+        : 0;
+    const otherIncome = otherIncomeAccrual.map((inc, i) => {
+      if (!hasOtherReceivable) return inc;
+      const prev = i === 0 ? priorOtherReceivable : otherReceivableBalances[i - 1];
+      return inc + prev - otherReceivableBalances[i];
+    });
 
     const shortBorrow = this.findRow(bsTransition.rows, '短期借入金');
     const longBorrow = this.findRow(bsTransition.rows, '長期借入金');
@@ -370,13 +402,40 @@ export class MfTransformService {
     const borrowBalances = Array.from({ length: mc }, (_, i) =>
       this.val(shortBorrow, i) + this.val(longBorrow, i) + this.val(officerBorrow, i),
     );
+    const priorBorrow = bsTrial
+      ? this.val(this.findRow(bsTrial.rows, '短期借入金'), TB_COL.OPENING) +
+        this.val(this.findRow(bsTrial.rows, '長期借入金'), TB_COL.OPENING) +
+        this.val(this.findRow(bsTrial.rows, '役員借入金'), TB_COL.OPENING)
+      : 0;
     const borrowInflow = borrowBalances.map((v, i) => {
-      const prev = i === 0 ? 0 : borrowBalances[i - 1];
+      const prev = i === 0 ? priorBorrow : borrowBalances[i - 1];
       return Math.max(0, v - prev);
     });
 
+    // 増資（資本金純増）。減資は無視（純増のみ財務調達としてカウント）
+    const capitalRow = this.findRow(bsTransition.rows, '資本金');
+    const capitalSurplusRow = this.findRowByPartial(bsTransition.rows, '資本剰余金');
+    const capitalBalances = Array.from({ length: mc }, (_, i) =>
+      this.val(capitalRow, i) + this.val(capitalSurplusRow, i),
+    );
+    const priorCapital = bsTrial
+      ? this.val(this.findRow(bsTrial.rows, '資本金'), TB_COL.OPENING) +
+        this.val(this.findRowByPartial(bsTrial.rows, '資本剰余金'), TB_COL.OPENING)
+      : 0;
+    const equityInflow = capitalBalances.map((v, i) => {
+      const prev = i === 0 ? priorCapital : capitalBalances[i - 1];
+      return Math.max(0, v - prev);
+    });
+
+    // 借入＋増資 = 財務調達inflow
+    const financingInflow = borrowInflow.map((b, i) => b + equityInflow[i]);
+
+    // 営業現金収入（財務活動・投資活動を除く）
+    const operatingIncome = Array.from({ length: mc }, (_, i) =>
+      salesCollection[i] + otherIncome[i],
+    );
     const incomeTotal = Array.from({ length: mc }, (_, i) =>
-      salesCollection[i] + otherIncome[i] + borrowInflow[i],
+      operatingIncome[i] + financingInflow[i],
     );
 
     // 4. 支出側
@@ -387,12 +446,16 @@ export class MfTransformService {
       this.findRowByPartial(bsTransition.rows, '仕入債務合計') ||
       this.findRow(bsTransition.rows, '買掛金');
     const apBalances = this.monthlyValues(apRow, mc);
+    const priorAp = bsTrial
+      ? this.val(
+          this.findRowByPartial(bsTrial.rows, '仕入債務合計') ||
+            this.findRow(bsTrial.rows, '買掛金'),
+          TB_COL.OPENING,
+        )
+      : 0;
     const purchasePayment = cogsMonthly.map((cogs, i) => {
-      if (i === 0) {
-        // First month: no prior AP data, use COGS as cash-basis approximation
-        return cogs;
-      }
-      return cogs + apBalances[i - 1] - apBalances[i];
+      const prev = i === 0 ? priorAp : apBalances[i - 1];
+      return cogs + prev - apBalances[i];
     });
 
     const sgaRow = this.findRowByPartial(plTransition.rows, '販売費及び一般管理費');
@@ -406,22 +469,59 @@ export class MfTransformService {
 
     const faRow = this.findRowByPartial(bsTransition.rows, '固定資産');
     const faBalances = this.monthlyValues(faRow, mc);
+    const priorFa = bsTrial
+      ? this.val(this.findRowByPartial(bsTrial.rows, '固定資産'), TB_COL.OPENING)
+      : 0;
     const capex = faBalances.map((v, i) => {
-      const prev = i === 0 ? 0 : faBalances[i - 1];
+      const prev = i === 0 ? priorFa : faBalances[i - 1];
       return Math.max(0, (v - prev) + nonCashMonthly[i]);
     });
 
     const borrowOutflow = borrowBalances.map((v, i) => {
-      const prev = i === 0 ? 0 : borrowBalances[i - 1];
+      const prev = i === 0 ? priorBorrow : borrowBalances[i - 1];
       return Math.max(0, prev - v);
     });
 
+    // 法人税納付額: 期首未払法人税等 + PL計上 − 期末未払法人税等
+    //   未払法人税等行が無ければ PL計上額をそのまま使用（フォールバック）
     const taxRow = this.findRow(plTransition.rows, '法人税等');
     const taxMonthly = this.monthlyValues(taxRow, mc);
+    const taxPayableRow =
+      this.findRowByPartial(bsTransition.rows, '未払法人税等') ||
+      this.findRowByPartial(bsTransition.rows, '未払法人税');
+    const hasTaxPayable = taxPayableRow !== null;
+    const taxPayableBalances = hasTaxPayable
+      ? this.monthlyValues(taxPayableRow, mc)
+      : new Array<number>(mc).fill(0);
+    const priorTaxPayable =
+      hasTaxPayable && bsTrial
+        ? this.val(
+            this.findRowByPartial(bsTrial.rows, '未払法人税等') ||
+              this.findRowByPartial(bsTrial.rows, '未払法人税'),
+            TB_COL.OPENING,
+          )
+        : 0;
+    const taxPaid = taxMonthly.map((tax, i) => {
+      if (!hasTaxPayable) return tax;
+      const prev = i === 0 ? priorTaxPayable : taxPayableBalances[i - 1];
+      return tax + prev - taxPayableBalances[i];
+    });
+
+    // 支出を区分:
+    //   営業現金支出（純）= 仕入支払 + 人件費 + その他経費 ← Burn の主計算用、税は除く
+    //   税金納付         = 法人税納付（業界標準では Net Burn に含めない）
+    //   投資現金支出     = CAPEX（設備投資）
+    //   財務現金支出     = 借入返済
+    //   ※ 消費税納付は BS差分調整（未払消費税の動き）で吸収
+    const operatingCashOutPure = Array.from({ length: mc }, (_, i) =>
+      purchasePayment[i] + payrollMonthly[i] + otherExpense[i],
+    );
+    const taxPayment = taxPaid; // 法人税納付（別建て）
+    const investingCashOut = capex;
+    const financingCashOut = borrowOutflow;
 
     const expenseTotal = Array.from({ length: mc }, (_, i) =>
-      purchasePayment[i] + payrollMonthly[i] + otherExpense[i] +
-      capex[i] + borrowOutflow[i] + taxMonthly[i],
+      operatingCashOutPure[i] + taxPayment[i] + investingCashOut[i] + financingCashOut[i],
     );
 
     // 5. 収支差額
@@ -429,10 +529,93 @@ export class MfTransformService {
       incomeTotal[i] - expenseTotal[i],
     );
 
-    // 6. 調整差額
+    // 6. 調整差額（BS実残高変動 − 推移表からの収支差額。未捕捉項目の残差）
     const adjustment = Array.from({ length: mc }, (_, i) =>
       netCf[i] - calculatedNet[i],
     );
+
+    // 6b. 調整差額の内訳: 既に資金繰り表で扱っていない BS 勘定の月次変動を抽出
+    //   - 資産の増 → 現金減 (符号 -1)
+    //   - 負債/純資産の増 → 現金増 (符号 +1)
+    type AdjCandidate = {
+      readonly search: string;
+      readonly label: string;
+      readonly sign: 1 | -1;
+      readonly exact?: boolean;
+    };
+    const adjCandidates: AdjCandidate[] = [
+      // 流動負債（仕入債務・借入金・未払法人税以外）
+      { search: '未払金', label: '未払金増減', sign: 1, exact: true },
+      { search: '未払費用', label: '未払費用増減', sign: 1, exact: true },
+      { search: '預り金', label: '預り金増減（源泉等）', sign: 1, exact: true },
+      { search: '前受金', label: '前受金増減', sign: 1, exact: true },
+      { search: '前受収益', label: '前受収益増減', sign: 1, exact: true },
+      { search: '仮受消費税', label: '仮受消費税増減', sign: 1 },
+      // 流動資産（売掛金・固定資産・現預金・未収入金以外）
+      { search: '棚卸資産', label: '棚卸資産増減', sign: -1 },
+      { search: '商品', label: '商品増減', sign: -1, exact: true },
+      { search: '製品', label: '製品増減', sign: -1, exact: true },
+      { search: '原材料', label: '原材料増減', sign: -1, exact: true },
+      { search: '前払費用', label: '前払費用増減', sign: -1, exact: true },
+      { search: '立替金', label: '立替金増減', sign: -1, exact: true },
+      { search: '仮払金', label: '仮払金増減', sign: -1, exact: true },
+      { search: '仮払消費税', label: '仮払消費税増減', sign: -1 },
+      // 投資その他の資産
+      { search: '敷金', label: '敷金増減', sign: -1, exact: true },
+      { search: '長期前払費用', label: '長期前払費用増減', sign: -1 },
+      { search: '保証金', label: '保証金増減', sign: -1, exact: true },
+      { search: '投資有価証券', label: '投資有価証券増減', sign: -1 },
+      // 固定負債（借入金以外）
+      { search: '社債', label: '社債増減', sign: 1, exact: true },
+      { search: '退職給付引当金', label: '退職給付引当金増減', sign: 1 },
+      { search: '長期未払金', label: '長期未払金増減', sign: 1, exact: true },
+    ];
+
+    const adjustmentBreakdown: { category: string; values: number[] }[] = [];
+    const seenLabels = new Set<string>();
+    for (const c of adjCandidates) {
+      const row = c.exact
+        ? this.findRow(bsTransition.rows, c.search)
+        : this.findRow(bsTransition.rows, c.search) ||
+          this.findRowByPartial(bsTransition.rows, c.search);
+      if (!row) continue;
+      // 同じ親科目を partial で複数回ヒットさせない
+      if (seenLabels.has(row.name)) continue;
+      seenLabels.add(row.name);
+
+      const balances = this.monthlyValues(row, mc);
+      const priorBal =
+        bsTrial != null
+          ? this.val(
+              c.exact
+                ? this.findRow(bsTrial.rows, c.search)
+                : this.findRow(bsTrial.rows, c.search) ||
+                    this.findRowByPartial(bsTrial.rows, c.search),
+              TB_COL.OPENING,
+            )
+          : 0;
+      const contribution = balances.map((v, i) => {
+        const prev = i === 0 ? priorBal : balances[i - 1];
+        return c.sign * (v - prev);
+      });
+
+      // 全月ゼロ（その勘定は不使用）または極小値だけの場合は除外
+      const hasMaterial = contribution.some((v) => Math.abs(v) >= 1);
+      if (!hasMaterial) continue;
+      adjustmentBreakdown.push({ category: c.label, values: contribution });
+    }
+
+    // 残差（未捕捉分）
+    const capturedSum = Array.from({ length: mc }, (_, i) =>
+      adjustmentBreakdown.reduce((s, item) => s + item.values[i], 0),
+    );
+    const uncaptured = adjustment.map((v, i) => v - capturedSum[i]);
+    if (uncaptured.some((v) => Math.abs(v) >= 1)) {
+      adjustmentBreakdown.push({
+        category: 'その他（未捕捉）',
+        values: uncaptured,
+      });
+    }
 
     // 7. 資金繰り表
     const rows: CashflowRow[] = [
@@ -440,23 +623,35 @@ export class MfTransformService {
       { category: '【収入の部】', values: new Array(mc).fill(null), isHeader: true },
       { category: '  売上回収', values: salesCollection },
       { category: '  その他収入', values: otherIncome },
-      { category: '  借入・増資', values: borrowInflow },
+      { category: '  借入・増資', values: financingInflow },
       { category: '収入合計', values: incomeTotal, isTotal: true },
       { category: '【支出の部】', values: new Array(mc).fill(null), isHeader: true },
+      // 営業活動
       { category: '  仕入支払', values: purchasePayment },
       { category: '  人件費', values: payrollMonthly },
       { category: '  その他経費', values: otherExpense },
+      // 投資活動
       { category: '  設備投資', values: capex },
+      // 税金（営業バーンには含めないが現金は出ていく）
+      { category: '  法人税等納付', values: taxPaid },
+      // 財務活動
       { category: '  借入返済', values: borrowOutflow },
-      { category: '  法人税等', values: taxMonthly },
       { category: '支出合計', values: expenseTotal, isTotal: true },
       { category: '収支差額', values: calculatedNet, isTotal: true, isDiff: true },
-      { category: '調整額', values: adjustment },
+      { category: 'BS差分調整', values: adjustment, isTotal: true },
+      // 内訳（インデント付き）
+      ...adjustmentBreakdown.map((item) => ({
+        category: `    ${item.category}`,
+        values: item.values,
+      })),
       { category: '期末残高', values: cashBalances, isTotal: true },
     ];
 
-    // 8. ランウェイ（非資金項目を除外した実キャッシュバーン）
-    // settlement_balance列に集約された非資金（減価償却費等）を月次按分
+    // 8. ランウェイ
+    //   - Gross Burn  = 営業現金支出のみ（売上回収ゼロの保守ケース）
+    //   - Net Burn    = -(PL経常利益 + 非資金費用)。AR回収など一時的な cash basis 入金を除く構造的損失
+    //   - Actual Burn = BS現預金純減 + 財務ネット（流入プラス/流出マイナス）。実際の営業+投資キャッシュ消費
+    //   - 借入・増資・借入返済（財務活動）は Actual Burn から除外
     const settlementIdx = plTransition.columns.indexOf('settlement_balance');
     let annualNonCash = 0;
     if (settlementIdx >= 0 && sgaRow?.rows) {
@@ -466,49 +661,319 @@ export class MfTransformService {
         }
       }
     }
-    // 月次で既に計上済みの非資金を差し引き、settlement固有分のみ按分（二重控除防止）
     const monthlyNonCashSum = nonCashMonthly.reduce((a, b) => a + b, 0);
     const settlementOnlyNonCash = Math.max(0, annualNonCash - monthlyNonCashSum);
-    const monthlyNonCashAdjust = mc > 0 ? settlementOnlyNonCash / mc : 0;
 
-    const latestCash = [...cashBalances].reverse().find((v) => v !== 0) || 0;
-    // 月次の非資金 + settlement按分（重複なし）を除外
-    const cashExpenses = expenseTotal.map((exp, i) => exp - nonCashMonthly[i] - monthlyNonCashAdjust);
-    const nonZeroCashExp = cashExpenses.filter((v) => v > 0);
-    const recentExpenses = nonZeroCashExp.slice(-3);
-    const avgBurn =
-      recentExpenses.length > 0
-        ? recentExpenses.reduce((a, b) => a + b, 0) / recentExpenses.length
-        : 0;
-    const runwayMonths =
-      avgBurn > 0 ? Math.round((latestCash / avgBurn) * 10) / 10 : Infinity;
+    // Burn rate はレビュー中/締め済みの月だけを実績として扱う。
+    // 月締めステータスが未設定の環境では、営業活動がある月へフォールバックする。
+    const activityMonths: number[] = [];
+    for (let i = 0; i < mc; i++) {
+      const hasActivity =
+        payrollMonthly[i] !== 0 ||
+        otherExpense[i] !== 0 ||
+        cogsMonthly[i] !== 0;
+      if (hasActivity) activityMonths.push(i);
+    }
+    const settledMonthSet = settledMonths?.length ? new Set(settledMonths) : null;
+    const settledIdxs = settledMonthSet
+      ? monthLabels
+          .map((label, i) => ({ i, month: parseInt(label, 10) }))
+          .filter(({ month }) => settledMonthSet.has(month))
+          .map(({ i }) => i)
+      : [];
+    const activeMonths = settledIdxs.length > 0 ? settledIdxs : activityMonths;
 
-    let alertLevel: 'SAFE' | 'CAUTION' | 'WARNING' | 'CRITICAL';
-    if (runwayMonths >= 12) alertLevel = 'SAFE';
-    else if (runwayMonths >= 6) alertLevel = 'CAUTION';
-    else if (runwayMonths >= 3) alertLevel = 'WARNING';
-    else alertLevel = 'CRITICAL';
+    // 営業現金収入 = 売上回収 + その他現金収入
+    const operatingCashIn = operatingIncome;
+
+    // 営業現金支出（既に非資金は otherExpense で除外済み、ここでは決算非資金の按分のみ補正）
+    //   ※ operatingCashOutPure = purchasePayment + payroll + otherExpense
+    //      otherExpense = sga - payroll - nonCash なので operatingCashOutPure = cogs+ΔAP + sga - nonCash
+    //      → ここで再度 nonCashMonthly を引くと二重控除になるので引かない
+    //   決算非資金（settlement_balance に集約された繰延償却等）は active 月に按分
+    const activeCount = Math.max(1, activeMonths.length);
+    const monthlyNonCashAdjustActive = settlementOnlyNonCash / activeCount;
+    const operatingCashOut = operatingCashOutPure.map((exp, i) => {
+      const adjust = activeMonths.includes(i) ? monthlyNonCashAdjustActive : 0;
+      return exp - adjust;
+    });
+    const nonCashForBurn = nonCashMonthly.map((amount, i) => {
+      const adjust = activeMonths.includes(i) ? monthlyNonCashAdjustActive : 0;
+      return amount + adjust;
+    });
+    const recentIdx = activeMonths.slice(-3);
+    const avgOf = (arr: number[], idxs: number[]) =>
+      idxs.length > 0 ? idxs.reduce((s, i) => s + arr[i], 0) / idxs.length : 0;
+
+    const avgOpCashOut = avgOf(operatingCashOut, recentIdx);
+    const avgInvCashOut = avgOf(investingCashOut, recentIdx);
+    const avgTaxPayment = avgOf(taxPayment, recentIdx);
+    const ordinaryProfitRow =
+      this.findRow(plTransition.rows, '経常利益') ||
+      this.findRow(plTransition.rows, '経常損失');
+    // フォールバック: 経常利益行が無い場合は PL 等価式で計算
+    //   経常利益 = 売上 − 売上原価 − 販管費 + 営業外収益 − 営業外費用
+    //   ※ 売上回収(cash basis)ではなく PL 売上を使う（PL 等価のため）
+    const nonOpExpRow = this.findRowByPartial(plTransition.rows, '営業外費用');
+    const nonOpExpMonthly = this.monthlyValues(nonOpExpRow, mc);
+    const ordinaryProfitMonthly = ordinaryProfitRow
+      ? this.monthlyValues(ordinaryProfitRow, mc).map((v) =>
+          ordinaryProfitRow.name === '経常損失' && v > 0 ? -v : v,
+        )
+      : Array.from({ length: mc }, (_, i) => {
+          const otherIncomeAccrualVal = this.val(nonOpIncRow, i) + this.val(extraIncRow, i);
+          return revMonthly[i] - cogsMonthly[i] - sgaMonthly[i]
+            + otherIncomeAccrualVal - nonOpExpMonthly[i];
+        });
+    const structuralCashProfit = ordinaryProfitMonthly.map(
+      (profit, i) => profit + nonCashForBurn[i],
+    );
+
+    const grossBurn = Math.max(0, avgOpCashOut);
+    const netBurnRate = -avgOf(structuralCashProfit, recentIdx);
+
+    // BS残高変動から計算した「実バーン（純）」：これと actualBurn の差が「未捕捉」差分
+    const avgFinancingNet = avgOf(
+      borrowInflow.map((b, i) => b + equityInflow[i] - borrowOutflow[i]),
+      recentIdx,
+    );
+    const avgRealBalanceDrop = (() => {
+      const drops: number[] = [];
+      for (let i = 0; i < mc; i++) {
+        const prev = i === 0 ? priorCash : cashBalances[i - 1];
+        drops.push(prev - cashBalances[i]); // プラス=減少
+      }
+      return avgOf(drops, recentIdx);
+    })();
+    const actualBurn = avgRealBalanceDrop + avgFinancingNet;
+    const otherWorkingCapital = actualBurn - netBurnRate; // AR回収・前受金取崩し・税/CAPEX等による乖離
+
+    // 最新月の現金残高 = 直近の active な月の月末残高
+    //   activeMonths.slice(-1) を使うことで、未経過月（前月末からの carry forward）を除外
+    const latestCash =
+      activeMonths.length > 0
+        ? cashBalances[activeMonths[activeMonths.length - 1]]
+        : (() => {
+            // 念のため active 月がゼロの場合のフォールバック
+            for (let i = mc - 1; i >= 0; i--) {
+              if (cashBalances[i] !== 0) return cashBalances[i];
+            }
+            return 0;
+          })();
+
+    const round1 = (v: number) =>
+      Number.isFinite(v) ? Math.round(v * 10) / 10 : 999;
+    const monthsToAlert = (m: number): 'SAFE' | 'CAUTION' | 'WARNING' | 'CRITICAL' => {
+      if (m >= 12) return 'SAFE';
+      if (m >= 6) return 'CAUTION';
+      if (m >= 3) return 'WARNING';
+      return 'CRITICAL';
+    };
+
+    // ∞(=999) は「Burn ≤ 0（= 営業/FCF 黒字）」の場合のみ
+    const worstMonths = grossBurn > 0 ? round1(latestCash / grossBurn) : 999;
+    const netBurnMonths =
+      netBurnRate <= 0 ? 999 : round1(latestCash / netBurnRate);
+    const actualMonths = actualBurn <= 0 ? 999 : round1(latestCash / actualBurn);
+
+    const variants = {
+      worstCase: {
+        months: worstMonths,
+        basis: Math.round(grossBurn),
+        alertLevel: monthsToAlert(worstMonths),
+      },
+      netBurn: {
+        months: netBurnMonths,
+        basis: Math.round(netBurnRate),
+        alertLevel: monthsToAlert(netBurnMonths),
+      },
+      actual: {
+        months: actualMonths,
+        basis: Math.round(actualBurn),
+        alertLevel: monthsToAlert(actualMonths),
+      },
+    };
+
+    // dataQuality: active 月の判定ソース
+    //   - settled: MonthlyClose の締め済み月を採用（信頼度 HIGH）
+    //   - heuristic: 月次締め未設定。人件費等の有無で推定（信頼度 MEDIUM）
+    //   - none: active 月が特定できない（信頼度 LOW、数値は参考値）
+    const dataQuality: 'settled' | 'heuristic' | 'none' =
+      settledIdxs.length > 0
+        ? 'settled'
+        : activeMonths.length > 0
+          ? 'heuristic'
+          : 'none';
+    // active 月のカレンダー月番号（1-12）に変換
+    const activeMonthNumbers = activeMonths
+      .map((i) => parseInt((monthLabels[i] ?? '').replace('月', ''), 10))
+      .filter((m) => Number.isFinite(m));
+
+    const composition = {
+      netBurn: Math.round(netBurnRate),
+      capex: Math.round(avgInvCashOut),
+      taxPayment: Math.round(avgTaxPayment),
+      actualBurn: Math.round(actualBurn),
+      financingNet: Math.round(avgFinancingNet),
+      realBalanceDrop: Math.round(avgRealBalanceDrop),
+      otherWorkingCapital: Math.round(otherWorkingCapital),
+      dataQuality,
+      activeMonths: activeMonthNumbers,
+    };
+
+    // 既定は構造的な事業消費を示す Net Burn。
+    const defaultMode: 'worstCase' | 'netBurn' | 'actual' = 'netBurn';
+    const def = variants[defaultMode];
 
     return {
       months: monthLabels,
       cashBalances,
       rows,
       runway: {
-        months: runwayMonths === Infinity ? 999 : runwayMonths,
+        months: def.months,
         cashBalance: latestCash,
-        monthlyBurnRate: Math.round(avgBurn),
-        alertLevel,
+        monthlyBurnRate: def.basis,
+        alertLevel: def.alertLevel,
+        defaultMode,
+        variants,
+        composition,
       },
     };
   }
 
   // ============================
+  // AI プロンプト用 Burn コンテキスト
+  // ============================
+  /**
+   * AI プロンプトに渡すためのランウェイ/バーン情報を文字列化。
+   * - **主指標 = ユーザーが資金繰りページで選択中のモード**（userMode）。
+   *   未指定時は Net Burn を主指標とする
+   * - 経営判断のアンカーとして Net Burn は常に併記（Actual と乖離があれば構造的体力を見失わせないため）
+   * - composition で乖離原因（運転資本変動・財務）を伝える
+   */
+  formatBurnContextForPrompt(
+    cashflowDerived: CashflowDerived,
+    userMode?: 'worstCase' | 'netBurn' | 'actual',
+  ): string {
+    const r = cashflowDerived.runway;
+    const cash = r.cashBalance;
+    const fmtMonths = (m: number) => (m >= 999 ? '∞' : `${m.toFixed(1)}ヶ月`);
+    const fmtYen = (n: number) => `${Math.round(n / 10000).toLocaleString('ja-JP')}万円`;
+    const labels: Record<'worstCase' | 'netBurn' | 'actual', string> = {
+      worstCase: 'Gross Burn(営業支出のみ・売上ゼロ最悪ケース)',
+      netBurn: 'Net Burn(事業の構造的損失=−経常利益−非資金費用、つまり経常損失から非資金分を差し引いた実質損失)',
+      actual: 'Actual Burn(BS現預金純減から財務ネット流入分を差し引いた実際の op+inv 消費=BS純減−財務ネット)',
+    };
+    const fmtMode = (mode: 'worstCase' | 'netBurn' | 'actual') => {
+      const v = r.variants[mode];
+      const burnSign = v.basis > 0 ? `${fmtYen(v.basis)}/月の消費` : v.basis < 0 ? `${fmtYen(Math.abs(v.basis))}/月の純流入` : '0';
+      return `${labels[mode]}: ランウェイ ${fmtMonths(v.months)} (${burnSign}, ${v.alertLevel})`;
+    };
+
+    const lines: string[] = [];
+    lines.push(`## ランウェイ（最新現預金 ${fmtYen(cash)}）`);
+    if (r.composition?.dataQuality === 'heuristic') {
+      lines.push(
+        `※ データ信頼度 MEDIUM: 月次締め(MonthlyClose)が未設定のため、人件費・経費が動いた月をヒューリスティックに「実績月」と推定しています。月次締めを行うと信頼度が HIGH になります。`,
+      );
+    } else if (r.composition?.dataQuality === 'none') {
+      lines.push(
+        `※ データ信頼度 LOW: 実績月が特定できませんでした。月次締め(MonthlyClose)の運用開始 or PL データの入力状態を確認してください。`,
+      );
+    }
+    // 主指標は資金繰りページのトグルに合わせる（ユーザーがページで見ている数字と AI レポートの主指標を一致させる）
+    const primaryMode: 'worstCase' | 'netBurn' | 'actual' = userMode ?? 'netBurn';
+    lines.push(`**主指標（ユーザー選択: ${primaryMode}）** ${fmtMode(primaryMode)}`);
+    // 構造的体力のアンカーとして Net Burn は常に併記（主指標が Net Burn の場合は省略）
+    if (primaryMode !== 'netBurn') {
+      lines.push(`参考(構造的損失基準): ${fmtMode('netBurn')}`);
+    }
+    if (primaryMode !== 'worstCase') {
+      lines.push(`参考(売上ゼロ最悪): ${fmtMode('worstCase')}`);
+    }
+    if (primaryMode !== 'actual') {
+      lines.push(`参考(BS純減基準): ${fmtMode('actual')}`);
+    }
+
+    if (r.composition) {
+      const c = r.composition;
+      const wcSign = c.otherWorkingCapital > 0 ? '＋' : '−';
+      const wcAbs = Math.abs(c.otherWorkingCapital);
+      // 財務ネット流出 = -financingNet（プラス=純流出）
+      // BS純減 = Actual Burn - financingNet なので「ActualBurn + 財務純流出 = BS純減」と表現する
+      const finOut = -c.financingNet;
+      const finOutSign = finOut > 0 ? '＋' : '−';
+      const finOutAbs = Math.abs(finOut);
+      lines.push(`乖離内訳（直近3ヶ月平均、Burn視点でプラス=現金消費）:`);
+      lines.push(`- Net Burn(構造的損失=経常損失−非資金費用): ${fmtYen(c.netBurn)}/月`);
+      lines.push(`- ${wcSign} 運転資本変動・税/CAPEX等: ${fmtYen(wcAbs)}/月 (${c.otherWorkingCapital < 0 ? 'AR回収・前受金等の追い風' : '消費税納付等の重し'})`);
+      lines.push(`= Actual Burn: ${fmtYen(c.actualBurn)}/月`);
+      lines.push(`- ${finOutSign} 財務純流出(借入返済−借入流入−増資): ${fmtYen(finOutAbs)}/月`);
+      lines.push(`= BS現預金純減: ${fmtYen(c.realBalanceDrop)}/月`);
+      lines.push(`(恒等式: BS純減 = Actual Burn − 財務ネット流入 = Actual Burn + 財務純流出)`);
+    }
+
+    const netMonths = r.variants.netBurn.months;
+    const actualMonths = r.variants.actual.months;
+    if (Number.isFinite(netMonths) && Number.isFinite(actualMonths) && Math.abs(netMonths - actualMonths) >= 3) {
+      const lead = primaryMode === 'actual'
+        ? '主指標 Actual Burn は楽観に振れている可能性があります。'
+        : primaryMode === 'worstCase'
+          ? '主指標 Gross Burn は最悪ケースで、現実は Net Burn / Actual Burn の中間に着地する想定です。'
+          : '主指標 Net Burn と Actual Burn に乖離があります。';
+      lines.push(
+        `\n**注意**: ${lead} Net Burn と Actual Burn の乖離 ${Math.abs(netMonths - actualMonths).toFixed(1)}ヶ月。Actual の楽観値は AR 回収・前受金取崩しなど一時的要因に依存するため、それらが枯渇すると Net Burn ベースのペース(${fmtMonths(netMonths)})に収束します。**構造的判断のアンカーは Net Burn**。`,
+      );
+    }
+
+    return lines.join('\n');
+  }
+
+  // ============================
   // ダッシュボードサマリー
   // ============================
+  /**
+   * 前年同期（YoY）の主要指標を抽出する小ヘルパー。
+   * 前年 PL/BS が無ければ undefined を返す。
+   */
+  private extractPrevYearSummary(
+    prevPl: MfTrialBalance | null,
+    prevBs: MfTrialBalance | null,
+  ): DashboardSummary['prevYear'] | undefined {
+    if (!prevPl?.rows || !prevBs?.rows) return undefined;
+    const revenue = this.val(this.findRow(prevPl.rows, '売上高合計'), TB_COL.CLOSING);
+    const opRow = this.findRow(prevPl.rows, '営業利益');
+    const opProfit = opRow
+      ? this.val(opRow, TB_COL.CLOSING)
+      : this.val(this.findRow(prevPl.rows, '営業損失'), TB_COL.CLOSING);
+    const ordRow = this.findRow(prevPl.rows, '経常利益');
+    const ordProfit = ordRow
+      ? this.val(ordRow, TB_COL.CLOSING)
+      : this.val(this.findRow(prevPl.rows, '経常損失'), TB_COL.CLOSING);
+    const netRow = this.findRow(prevPl.rows, '当期純利益');
+    const netIncome = netRow
+      ? this.val(netRow, TB_COL.CLOSING)
+      : this.val(this.findRow(prevPl.rows, '当期純損失'), TB_COL.CLOSING);
+    const cashBalance = this.val(
+      this.findRowByPartial(prevBs.rows, '現金及び預金'),
+      TB_COL.CLOSING,
+    );
+    return {
+      revenue,
+      operatingProfit: opProfit,
+      ordinaryProfit: ordProfit,
+      netIncome,
+      cashBalance,
+      fiscalYear: parseInt(prevPl.start_date.slice(0, 4)),
+    };
+  }
+
   buildDashboardSummary(
     pl: MfTrialBalance,
     bs: MfTrialBalance,
-    bsTransition?: MfTransition,
+    cashflowDerived?: CashflowDerived,
+    prevPl?: MfTrialBalance | null,
+    prevBs?: MfTrialBalance | null,
   ): DashboardSummary {
     const revenue = this.val(
       this.findRow(pl.rows, '売上高合計'),
@@ -535,37 +1000,49 @@ export class MfTransformService {
       TB_COL.CLOSING,
     );
 
-    // ランウェイ（推移表があれば精密計算、なければ簡易計算）
+    // ランウェイ: 推移データがあれば資金繰り由来の全キャッシュバーン（仕入・CAPEX・借入返済・税を含む）を優先。
+    // なければ販管費のみの簡易計算にフォールバック。
     let runway = 999;
     let alertLevel: DashboardSummary['alertLevel'] = 'SAFE';
+    let runwayVariants: DashboardSummary['runwayVariants'] | undefined;
 
-    // 販管費から非資金を除外してキャッシュバーンを計算
-    const sgaDash = this.findRowByPartial(pl.rows, '販売費及び一般管理費');
-    const sgaTotal = this.val(sgaDash, TB_COL.CLOSING);
-    // 非資金を除外
-    let nonCashTotal = 0;
-    if (sgaDash?.rows) {
-      for (const child of sgaDash.rows) {
-        if (NON_CASH_ACCOUNTS.has(child.name)) {
-          nonCashTotal += this.val(child, TB_COL.CLOSING);
+    if (cashflowDerived) {
+      runway = cashflowDerived.runway.months;
+      alertLevel = cashflowDerived.runway.alertLevel;
+      runwayVariants = {
+        defaultMode: cashflowDerived.runway.defaultMode,
+        worstCase: cashflowDerived.runway.variants.worstCase,
+        netBurn: cashflowDerived.runway.variants.netBurn,
+        actual: cashflowDerived.runway.variants.actual,
+      };
+    } else {
+      const sgaDash = this.findRowByPartial(pl.rows, '販売費及び一般管理費');
+      const sgaTotal = this.val(sgaDash, TB_COL.CLOSING);
+      let nonCashTotal = 0;
+      if (sgaDash?.rows) {
+        for (const child of sgaDash.rows) {
+          if (NON_CASH_ACCOUNTS.has(child.name)) {
+            nonCashTotal += this.val(child, TB_COL.CLOSING);
+          }
         }
       }
-    }
-    // 経過月数で割る（期中の場合、12で割ると過小になる）
-    const startDate = new Date(pl.start_date);
-    const endDate = new Date(pl.end_date);
-    const elapsedMonths = Math.max(1,
-      (endDate.getFullYear() - startDate.getFullYear()) * 12 +
-      (endDate.getMonth() - startDate.getMonth()) + 1,
-    );
-    const monthlyBurn = (sgaTotal - nonCashTotal) / elapsedMonths;
-    if (monthlyBurn > 0) {
-      runway = Math.round((cashBalance / monthlyBurn) * 10) / 10;
+      const startDate = new Date(pl.start_date);
+      const endDate = new Date(pl.end_date);
+      const elapsedMonths = Math.max(1,
+        (endDate.getFullYear() - startDate.getFullYear()) * 12 +
+        (endDate.getMonth() - startDate.getMonth()) + 1,
+      );
+      const monthlyBurn = (sgaTotal - nonCashTotal) / elapsedMonths;
+      if (monthlyBurn > 0) {
+        runway = Math.round((cashBalance / monthlyBurn) * 10) / 10;
+      }
+
+      if (runway < 3) alertLevel = 'CRITICAL';
+      else if (runway < 6) alertLevel = 'WARNING';
+      else if (runway < 12) alertLevel = 'CAUTION';
     }
 
-    if (runway < 3) alertLevel = 'CRITICAL';
-    else if (runway < 6) alertLevel = 'WARNING';
-    else if (runway < 12) alertLevel = 'CAUTION';
+    const prevYear = this.extractPrevYearSummary(prevPl ?? null, prevBs ?? null);
 
     return {
       revenue,
@@ -576,8 +1053,12 @@ export class MfTransformService {
       totalAssets,
       runway,
       alertLevel,
+      runwayVariants,
+      // 信頼度: cashflowDerived 経由なら composition.dataQuality を反映、無ければ legacy fallback
+      runwayDataQuality: cashflowDerived?.runway.composition?.dataQuality ?? 'none',
       fiscalYear: parseInt(pl.start_date.slice(0, 4)),
       period: { start: pl.start_date, end: pl.end_date },
+      prevYear,
     };
   }
 

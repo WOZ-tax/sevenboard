@@ -35,7 +35,7 @@ export class CalendarController {
   }
 
   @Post()
-  @Roles('ADMIN', 'CFO', 'ADVISOR')
+  @Roles('owner', 'advisor')
   @UseGuards(RolesGuard)
   async createEvent(
     @Param('orgId') orgId: string,
@@ -46,7 +46,7 @@ export class CalendarController {
   }
 
   @Put(':eventId')
-  @Roles('ADMIN', 'CFO', 'ADVISOR')
+  @Roles('owner', 'advisor')
   @UseGuards(RolesGuard)
   async updateEvent(
     @Param('orgId') orgId: string,
@@ -57,7 +57,7 @@ export class CalendarController {
   }
 
   @Delete(':eventId')
-  @Roles('ADMIN', 'CFO', 'ADVISOR')
+  @Roles('owner', 'advisor')
   @UseGuards(RolesGuard)
   async deleteEvent(
     @Param('orgId') orgId: string,

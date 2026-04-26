@@ -21,6 +21,16 @@ import { UpdateDepartmentDto } from './dto/update-department.dto';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 
+/**
+ * 顧問先 (organization) のマスタ管理。
+ *
+ * G-1 ロール設計：
+ * - 読み取り (GET) は OrgAccessGuard でアクセス制御。CL 側ユーザーも自社のマスタは閲覧可能
+ * - 書き込み (POST/PUT/DELETE) は **内部スタッフ (owner / advisor) のみ**
+ *   - org-aware RolesGuard により、advisor は OrganizationMembership を持つ顧問先のみで write 可
+ *   - CL 側 admin / member / viewer は write 不可（masters は事務所主体で管理する設計）
+ * - CL ユーザー作成は CreateUserDto / service で role='viewer' 固定
+ */
 @Controller('organizations/:orgId/masters')
 @UseGuards(JwtAuthGuard, OrgAccessGuard)
 export class MastersController {
@@ -34,7 +44,7 @@ export class MastersController {
   }
 
   @Post('accounts')
-  @Roles('ADMIN')
+  @Roles('owner', 'advisor')
   @UseGuards(RolesGuard)
   async createAccount(
     @Param('orgId') orgId: string,
@@ -44,7 +54,7 @@ export class MastersController {
   }
 
   @Put('accounts/:accountId')
-  @Roles('ADMIN')
+  @Roles('owner', 'advisor')
   @UseGuards(RolesGuard)
   async updateAccount(
     @Param('orgId') orgId: string,
@@ -55,13 +65,31 @@ export class MastersController {
   }
 
   @Delete('accounts/:accountId')
-  @Roles('ADMIN')
+  @Roles('owner', 'advisor')
   @UseGuards(RolesGuard)
   async deleteAccount(
     @Param('orgId') orgId: string,
     @Param('accountId') accountId: string,
   ) {
     return this.mastersService.deleteAccount(orgId, accountId);
+  }
+
+  /**
+   * 勘定科目の固定/変動フラグをまとめて保存（変動損益分析画面用）。
+   * ADMIN/ADVISOR 限定（同じ事務所のユーザーのみ分類を調整できる）。
+   * EXECUTIVE(顧客側) からは AccountMaster を書き換えられないように制限。
+   */
+  @Put('accounts/variable-cost-flags')
+  @Roles('owner', 'advisor')
+  @UseGuards(RolesGuard)
+  async bulkUpdateVariableCostFlags(
+    @Param('orgId') orgId: string,
+    @Body() body: { updates: Array<{ name: string; isVariableCost: boolean }> },
+  ) {
+    return this.mastersService.bulkUpdateVariableCostFlags(
+      orgId,
+      Array.isArray(body?.updates) ? body.updates : [],
+    );
   }
 
   // --- 部門 ---
@@ -72,7 +100,7 @@ export class MastersController {
   }
 
   @Post('departments')
-  @Roles('ADMIN')
+  @Roles('owner', 'advisor')
   @UseGuards(RolesGuard)
   async createDepartment(
     @Param('orgId') orgId: string,
@@ -82,7 +110,7 @@ export class MastersController {
   }
 
   @Put('departments/:deptId')
-  @Roles('ADMIN')
+  @Roles('owner', 'advisor')
   @UseGuards(RolesGuard)
   async updateDepartment(
     @Param('orgId') orgId: string,
@@ -93,7 +121,7 @@ export class MastersController {
   }
 
   @Delete('departments/:deptId')
-  @Roles('ADMIN')
+  @Roles('owner', 'advisor')
   @UseGuards(RolesGuard)
   async deleteDepartment(
     @Param('orgId') orgId: string,
@@ -110,7 +138,7 @@ export class MastersController {
   }
 
   @Post('users')
-  @Roles('ADMIN')
+  @Roles('owner', 'advisor')
   @UseGuards(RolesGuard)
   async createUser(
     @Param('orgId') orgId: string,
@@ -120,7 +148,7 @@ export class MastersController {
   }
 
   @Put('users/:userId')
-  @Roles('ADMIN')
+  @Roles('owner', 'advisor')
   @UseGuards(RolesGuard)
   async updateUser(
     @Param('orgId') orgId: string,
@@ -131,7 +159,7 @@ export class MastersController {
   }
 
   @Delete('users/:userId')
-  @Roles('ADMIN')
+  @Roles('owner', 'advisor')
   @UseGuards(RolesGuard)
   async deleteUser(
     @Param('orgId') orgId: string,

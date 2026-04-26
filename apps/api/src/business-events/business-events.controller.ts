@@ -33,7 +33,7 @@ export class BusinessEventsController {
   }
 
   @Post()
-  @Roles('ADMIN', 'CFO', 'ADVISOR')
+  @Roles('owner', 'advisor')
   @UseGuards(RolesGuard)
   async create(
     @Param('orgId') orgId: string,
@@ -44,7 +44,7 @@ export class BusinessEventsController {
   }
 
   @Patch(':eventId')
-  @Roles('ADMIN', 'CFO', 'ADVISOR')
+  @Roles('owner', 'advisor')
   @UseGuards(RolesGuard)
   async update(
     @Param('orgId') orgId: string,
@@ -55,7 +55,7 @@ export class BusinessEventsController {
   }
 
   @Delete(':eventId')
-  @Roles('ADMIN', 'CFO', 'ADVISOR')
+  @Roles('owner', 'advisor')
   @UseGuards(RolesGuard)
   async remove(
     @Param('orgId') orgId: string,

@@ -6,7 +6,20 @@ import {
 } from '@nestjs/common';
 import { PATH_METADATA } from '@nestjs/common/constants';
 import { PrismaService } from '../prisma/prisma.service';
+import { isInternalAdvisor, isInternalOwner } from './staff.helpers';
 
+/**
+ * 顧問先 org への アクセス制御。
+ *
+ * 重要: `user.role === 'owner'` だけで全 org アクセスを許すと、顧問先側 owner
+ * （CL 管理者）も全顧問先に到達できる。必ず内部スタッフ条件
+ * (`user.orgId === null`) と併用すること。
+ *
+ * ロール体系:
+ * - 内部 owner (orgId=NULL, role=owner): 全顧問先アクセス
+ * - 内部 advisor (orgId=NULL, role=advisor): OrganizationMembership で紐付いた先のみ
+ * - 顧問先側ユーザー (orgId!=NULL, 任意 role): 自社 org のみ
+ */
 @Injectable()
 export class OrgAccessGuard implements CanActivate {
   constructor(private prisma: PrismaService) {}
@@ -28,9 +41,14 @@ export class OrgAccessGuard implements CanActivate {
       return true;
     }
 
-    // ADVISORロール: AdvisorAssignmentで確認
-    if (user.role === 'ADVISOR') {
-      const assignment = await this.prisma.advisorAssignment.findUnique({
+    // 内部 owner: 全顧問先アクセス可
+    if (isInternalOwner(user)) {
+      return true;
+    }
+
+    // 内部 advisor: OrganizationMembership で紐付いた顧問先のみ
+    if (isInternalAdvisor(user)) {
+      const assignment = await this.prisma.organizationMembership.findUnique({
         where: { userId_orgId: { userId: user.id, orgId } },
       });
       if (!assignment)
@@ -40,7 +58,7 @@ export class OrgAccessGuard implements CanActivate {
       return true;
     }
 
-    // 一般ユーザー: 自分の組織のみ
+    // 顧問先側ユーザー (orgId 持ち。role に関わらず): 自社のみ
     if (user.orgId !== orgId) {
       throw new ForbiddenException('この組織へのアクセス権限がありません');
     }

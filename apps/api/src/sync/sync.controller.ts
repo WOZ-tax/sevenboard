@@ -17,7 +17,7 @@ export class SyncController {
   constructor(private syncService: SyncService) {}
 
   @Post('run')
-  @Roles('ADMIN', 'ADVISOR')
+  @Roles('owner', 'advisor')
   @UseGuards(RolesGuard)
   async runSync(@Param('orgId') orgId: string) {
     return this.syncService.runSync(orgId);

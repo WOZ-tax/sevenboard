@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { MfApiService } from '../mf/mf-api.service';
 import { MfTransformService } from '../mf/mf-transform.service';
+import { MonthlyCloseService } from '../monthly-close/monthly-close.service';
 import { TB_COL } from '../mf/types/mf-api.types';
 import { LoanSimulationDto } from './dto/loan-simulation.dto';
 import { LinkedStatementsDto } from './dto/linked-statements.dto';
@@ -33,6 +34,7 @@ export class SimulationService {
   constructor(
     private mfApi: MfApiService,
     private mfTransform: MfTransformService,
+    private monthlyClose: MonthlyCloseService,
   ) {}
 
   // =========================================
@@ -141,14 +143,23 @@ export class SimulationService {
       }
     }
 
-    // BS現預金からランウェイ影響を計算
+    // BS現預金からランウェイ影響を計算（Net Burn 基準で他経路と整合）
     let runwayImpact: LoanSimulationResult['runwayImpact'];
     try {
-      const [pl, bs] = await Promise.all([
+      const [pl, bs, bsT, plT, office] = await Promise.all([
         this.mfApi.getTrialBalancePL(orgId),
         this.mfApi.getTrialBalanceBS(orgId),
+        this.mfApi.getTransitionBS(orgId).catch(() => null),
+        this.mfApi.getTransitionPL(orgId).catch(() => null),
+        this.mfApi.getOffice(orgId).catch(() => null as unknown as { accounting_periods?: { fiscal_year: number }[] } | null),
       ]);
-      const dashboard = this.mfTransform.buildDashboardSummary(pl, bs);
+      const fy = office?.accounting_periods?.[0]?.fiscal_year;
+      const settledMonths = fy
+        ? await this.monthlyClose.getSettledMonths(orgId, fy).catch(() => undefined)
+        : undefined;
+      const cashflowDerived =
+        bsT && plT ? this.mfTransform.deriveCashflow(bsT, plT, bs, settledMonths) : undefined;
+      const dashboard = this.mfTransform.buildDashboardSummary(pl, bs, cashflowDerived);
       const currentCash = dashboard.cashBalance;
       const monthlyBurn = dashboard.runway < 999 ? currentCash / dashboard.runway : 0;
       const monthlyPaymentBurden = firstRepaymentPayment;
@@ -335,11 +346,14 @@ export class SimulationService {
   // What-if シミュレーション
   // =========================================
   async whatIf(orgId: string, dto: WhatIfDto, fiscalYear?: number) {
-    const [pl, bs, plT, bsT] = await Promise.all([
+    const [pl, bs, plT, bsT, settledMonths] = await Promise.all([
       this.mfApi.getTrialBalancePL(orgId, fiscalYear),
       this.mfApi.getTrialBalanceBS(orgId, fiscalYear),
       this.mfApi.getTransitionPL(orgId, fiscalYear),
       this.mfApi.getTransitionBS(orgId, fiscalYear),
+      fiscalYear
+        ? this.monthlyClose.getSettledMonths(orgId, fiscalYear)
+        : Promise.resolve(undefined),
     ]);
 
     const findRow = (rows: any[], name: string): any => {
@@ -383,8 +397,8 @@ export class SimulationService {
     const cashRow = findRow(bs.rows, '現金及び預金');
     const cashBalance = val(cashRow, TB_COL.CLOSING);
 
-    // 現在のランウェイ
-    const cashflow = this.mfTransform.deriveCashflow(bsT, plT);
+    // 現在のランウェイ（期首残高は当期BS試算表の opening_balance から、settledMonths も尊重）
+    const cashflow = this.mfTransform.deriveCashflow(bsT, plT, bs, settledMonths);
     const currentRunway = cashflow.runway.months;
 
     // --- シミュレーション計算 ---

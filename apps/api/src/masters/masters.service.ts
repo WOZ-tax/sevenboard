@@ -52,6 +52,46 @@ export class MastersService {
     });
   }
 
+  /**
+   * 変動費フラグの一括更新。MFから来る勘定科目名(name)で引いて、なければupsertする。
+   * 変動損益分析画面のトグル保存に使う。category 不明な場合は ADMIN_EXPENSE で作成。
+   */
+  async bulkUpdateVariableCostFlags(
+    orgId: string,
+    updates: Array<{ name: string; isVariableCost: boolean }>,
+  ) {
+    const results: Array<{ name: string; updated: boolean }> = [];
+    for (const u of updates) {
+      if (!u.name || typeof u.isVariableCost !== 'boolean') continue;
+      const existing = await this.prisma.accountMaster.findFirst({
+        where: { orgId, name: u.name },
+        select: { id: true, isVariableCost: true },
+      });
+      if (existing) {
+        if (existing.isVariableCost !== u.isVariableCost) {
+          await this.prisma.accountMaster.update({
+            where: { id: existing.id },
+            data: { isVariableCost: u.isVariableCost },
+          });
+        }
+        results.push({ name: u.name, updated: true });
+      } else {
+        await this.prisma.accountMaster.create({
+          data: {
+            orgId,
+            code: u.name, // MFのname を unique 制約用にコードとして流用
+            name: u.name,
+            category: 'ADMIN_EXPENSE' as any,
+            isVariableCost: u.isVariableCost,
+            displayOrder: 0,
+          },
+        });
+        results.push({ name: u.name, updated: true });
+      }
+    }
+    return { ok: true, count: results.length };
+  }
+
   async deleteAccount(orgId: string, accountId: string) {
     const account = await this.prisma.accountMaster.findFirst({
       where: { id: accountId, orgId },
@@ -197,13 +237,14 @@ export class MastersService {
   async createUser(orgId: string, dto: CreateUserDto) {
     const hashedPassword = await bcrypt.hash(dto.password, 12);
 
+    // CL 側ユーザーは role に関わらず viewer 固定（G-1 ロール設計）
     return this.prisma.user.create({
       data: {
         orgId,
         email: dto.email,
         name: dto.name,
         password: hashedPassword,
-        role: dto.role as any,
+        role: 'viewer',
       },
       select: {
         id: true,

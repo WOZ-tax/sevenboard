@@ -86,15 +86,24 @@ export class CommentsService {
   }
 
   async updateStatus(
+    orgId: string,
     commentId: string,
     dto: UpdateCommentStatusDto,
     reviewerId: string,
   ) {
     const comment = await this.prisma.aiComment.findUnique({
       where: { id: commentId },
+      include: { report: { select: { orgId: true } } },
     });
 
     if (!comment) {
+      throw new NotFoundException('コメントが見つかりません');
+    }
+
+    // route の :orgId とコメント所属 org が一致するか検証（IDOR 対策）。
+    // OrgAccessGuard で route の orgId は user の権限内であることが既に保証されているため、
+    // ここで両者一致を確認すれば「他 org のコメントを自 org 経由で更新」を遮断できる。
+    if (comment.report.orgId !== orgId) {
       throw new NotFoundException('コメントが見つかりません');
     }
 

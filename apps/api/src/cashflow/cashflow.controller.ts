@@ -42,7 +42,7 @@ export class CashflowController {
   }
 
   @Post('categories')
-  @Roles('ADMIN', 'CFO')
+  @Roles('owner', 'advisor')
   @UseGuards(RolesGuard)
   async createCategory(
     @Param('orgId') orgId: string,

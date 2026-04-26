@@ -42,10 +42,10 @@ export class ReviewService {
     private mfApi: MfApiService,
     private kintoneApi: KintoneApiService,
   ) {
-    // analyze.py: process.cwd() = /app (Docker) or project root
+    // analyze.py: apps/api/scripts/analyze.py（apiはapps/api から起動される想定）
     this.scriptPath = path.resolve(
       process.env.REVIEW_SCRIPT_PATH ||
-        path.join(process.cwd(), 'apps', 'api', 'scripts', 'analyze.py'),
+        path.join(process.cwd(), 'scripts', 'analyze.py'),
     );
   }
 
@@ -196,12 +196,18 @@ export class ReviewService {
     const rows: string[][] = [header];
 
     this.walkRows(transition.rows || [], (row: any, depth: number) => {
-      const name = row.name || '';
+      const rawName = row.name || '';
+      // MF は「売上原価」「当期純利益」など中間集計行の名前に「合計」を付けない。
+      // analyze.py の parse_pl_structure は名前に「合計/利益/損益」を含むもののみ
+      // subtotals 扱いするため、financial_statement_item 型でそれらを含まない行は
+      // 「○○合計」へ名称寄せする。
+      const isSubtotalType = row.type === 'financial_statement_item';
+      const alreadyMarked = /合計|利益|損益/.test(rawName);
+      const name = isSubtotalType && !alreadyMarked ? `${rawName}合計` : rawName;
       const values = columns.map((c: string) => {
         const origIdx = transition.columns?.indexOf(c) ?? -1;
         return String(origIdx >= 0 ? ((row.values?.[origIdx] as number) || 0) : 0);
       });
-      const settlementIdx = transition.columns?.indexOf('settlement_balance');
       const totalIdx = transition.columns?.indexOf('total');
       const total = totalIdx >= 0 ? String((row.values?.[totalIdx] as number) || 0) : '0';
 

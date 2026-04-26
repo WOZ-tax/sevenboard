@@ -57,7 +57,7 @@ export class ActionsController {
   }
 
   @Post()
-  @Roles('ADMIN', 'CFO', 'ADVISOR')
+  @Roles('owner', 'advisor')
   @UseGuards(RolesGuard)
   async create(
     @Param('orgId') orgId: string,
@@ -68,7 +68,7 @@ export class ActionsController {
   }
 
   @Patch(':actionId')
-  @Roles('ADMIN', 'CFO', 'ADVISOR')
+  @Roles('owner', 'advisor')
   @UseGuards(RolesGuard)
   async update(
     @Param('orgId') orgId: string,
@@ -80,7 +80,7 @@ export class ActionsController {
   }
 
   @Delete(':actionId')
-  @Roles('ADMIN', 'CFO', 'ADVISOR')
+  @Roles('owner', 'advisor')
   @UseGuards(RolesGuard)
   async remove(
     @Param('orgId') orgId: string,

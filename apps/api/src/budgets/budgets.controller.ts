@@ -15,6 +15,7 @@ import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { CreateBudgetVersionDto } from './dto/create-budget-version.dto';
 import { UpdateBudgetEntriesDto } from './dto/update-budget-entries.dto';
+import { ResolveOrgFromBudgetParam } from './resolve-org-param.interceptor';
 
 @Controller()
 @UseGuards(JwtAuthGuard)
@@ -28,33 +29,39 @@ export class BudgetsController {
   }
 
   @Get('fiscal-years/:fyId/budget-versions')
-  async getBudgetVersions(@Param('fyId') fyId: string) {
-    return this.budgetsService.getBudgetVersions(fyId);
+  @UseGuards(ResolveOrgFromBudgetParam, OrgAccessGuard)
+  async getBudgetVersions(@Param('fyId') fyId: string, @Request() req) {
+    return this.budgetsService.getBudgetVersions(req.user, fyId);
   }
 
   @Post('fiscal-years/:fyId/budget-versions')
-  @Roles('ADMIN', 'CFO')
-  @UseGuards(RolesGuard)
+  // ResolveOrgFromBudgetParam: fyId から親 orgId を params に流し込み、後段の RolesGuard を
+  // org-aware に駆動。OrgAccessGuard も並走させて二重防御。
+  @UseGuards(ResolveOrgFromBudgetParam, OrgAccessGuard, RolesGuard)
+  @Roles('owner', 'advisor')
   async createBudgetVersion(
     @Param('fyId') fyId: string,
     @Body() dto: CreateBudgetVersionDto,
     @Request() req,
   ) {
-    return this.budgetsService.createBudgetVersion(fyId, dto, req.user.id);
+    return this.budgetsService.createBudgetVersion(req.user, fyId, dto);
   }
 
   @Get('budget-versions/:bvId/entries')
-  async getBudgetEntries(@Param('bvId') bvId: string) {
-    return this.budgetsService.getBudgetEntries(bvId);
+  @UseGuards(ResolveOrgFromBudgetParam, OrgAccessGuard)
+  async getBudgetEntries(@Param('bvId') bvId: string, @Request() req) {
+    return this.budgetsService.getBudgetEntries(req.user, bvId);
   }
 
   @Put('budget-versions/:bvId/entries')
-  @Roles('ADMIN', 'CFO')
-  @UseGuards(RolesGuard)
+  // bvId → 親 orgId を解決して RolesGuard / OrgAccessGuard を org-aware に動かす
+  @UseGuards(ResolveOrgFromBudgetParam, OrgAccessGuard, RolesGuard)
+  @Roles('owner', 'advisor')
   async updateBudgetEntries(
     @Param('bvId') bvId: string,
     @Body() dto: UpdateBudgetEntriesDto,
+    @Request() req,
   ) {
-    return this.budgetsService.updateBudgetEntries(bvId, dto);
+    return this.budgetsService.updateBudgetEntries(req.user, bvId, dto);
   }
 }

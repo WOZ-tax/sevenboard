@@ -22,7 +22,7 @@ export class IntegrationsController {
   }
 
   @Post(':provider/connect')
-  @Roles('ADMIN', 'ADVISOR')
+  @Roles('owner', 'advisor')
   @UseGuards(RolesGuard)
   async connect(
     @Param('orgId') orgId: string,
@@ -32,7 +32,7 @@ export class IntegrationsController {
   }
 
   @Post(':provider/disconnect')
-  @Roles('ADMIN', 'ADVISOR')
+  @Roles('owner', 'advisor')
   @UseGuards(RolesGuard)
   async disconnect(
     @Param('orgId') orgId: string,
@@ -42,7 +42,7 @@ export class IntegrationsController {
   }
 
   @Post(':provider/sync')
-  @Roles('ADMIN', 'CFO', 'ADVISOR')
+  @Roles('owner', 'advisor')
   @UseGuards(RolesGuard)
   async sync(
     @Param('orgId') orgId: string,

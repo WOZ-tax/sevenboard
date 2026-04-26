@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { json } from 'express';
@@ -51,5 +52,7 @@ async function bootstrap() {
   await app.listen(port);
   console.log(`SevenBoard API running on http://localhost:${port}`);
   console.log(`Swagger UI available at http://localhost:${port}/api-docs`);
+  // 資格情報の prefix も本番ログに載せない（有/無のみ）
+  console.log(`MF token loaded: ${process.env.MF_ACCESS_TOKEN ? 'yes' : 'no'}`);
 }
 bootstrap();

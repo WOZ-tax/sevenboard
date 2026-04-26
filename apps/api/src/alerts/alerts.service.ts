@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { MfApiService } from '../mf/mf-api.service';
 import { MfTransformService } from '../mf/mf-transform.service';
+import { MonthlyCloseService } from '../monthly-close/monthly-close.service';
 
 export interface AlertItem {
   id: string;
@@ -17,6 +18,7 @@ export class AlertsService {
   constructor(
     private mfApi: MfApiService,
     private mfTransform: MfTransformService,
+    private monthlyClose: MonthlyCloseService,
   ) {}
 
   async detectAlerts(orgId: string, fiscalYear?: number, endMonth?: number): Promise<AlertItem[]> {
@@ -24,11 +26,14 @@ export class AlertsService {
     const now = new Date().toISOString();
 
     try {
-      const [plT, bsT, pl, bs] = await Promise.all([
+      const [plT, bsT, pl, bs, settledMonths] = await Promise.all([
         this.mfApi.getTransitionPL(orgId, fiscalYear, endMonth),
         this.mfApi.getTransitionBS(orgId, fiscalYear, endMonth),
         this.mfApi.getTrialBalancePL(orgId, fiscalYear, endMonth),
         this.mfApi.getTrialBalanceBS(orgId, fiscalYear, endMonth),
+        fiscalYear
+          ? this.monthlyClose.getSettledMonths(orgId, fiscalYear)
+          : Promise.resolve(undefined),
       ]);
 
       // 月ラベルをMCP推移表のcolumnsから動的生成
@@ -39,22 +44,30 @@ export class AlertsService {
       // 1. 月次変動 > 30% の科目検知
       this.detectMonthlyVariance(plT.rows, alerts, now, 0.3, monthLabels);
 
-      // 2. ランウェイ
-      const cashflow = this.mfTransform.deriveCashflow(bsT, plT);
-      if (cashflow.runway.months < 6) {
+      // 2. ランウェイ（Net Burn 基準。期首残高は当期BS試算表の opening_balance から、settledMonths も尊重）
+      const cashflow = this.mfTransform.deriveCashflow(bsT, plT, bs, settledMonths);
+      const netBurn = cashflow.runway.variants.netBurn;
+      const actual = cashflow.runway.variants.actual;
+      const formatMonths = (m: number) => (m >= 999 ? '∞' : `${m.toFixed(1)}ヶ月`);
+      const divergence =
+        Number.isFinite(actual.months) && Number.isFinite(netBurn.months) &&
+        Math.abs(actual.months - netBurn.months) >= 3
+          ? `（Actual基準では${formatMonths(actual.months)}と猶予に見えるが、AR回収/前受金取崩し等の一時要因が消えると Net Burn ペースに収束）`
+          : '';
+      if (netBurn.months < 6) {
         alerts.push({
           id: `runway-critical-${Date.now()}`,
           severity: 'critical',
-          title: 'ランウェイ危険水域',
-          description: `ランウェイが${cashflow.runway.months}ヶ月です。現預金${Math.round(cashflow.runway.cashBalance / 10000).toLocaleString()}万円、月次支出平均${Math.round(cashflow.runway.monthlyBurnRate / 10000).toLocaleString()}万円。早急な対策が必要です。`,
+          title: 'ランウェイ危険水域（Net Burn基準）',
+          description: `Net Burn ランウェイ ${formatMonths(netBurn.months)}。現預金${Math.round(cashflow.runway.cashBalance / 10000).toLocaleString()}万円、構造的バーン${Math.round(netBurn.basis / 10000).toLocaleString()}万円/月${divergence}。早急な対策が必要です。`,
           detectedAt: now,
         });
-      } else if (cashflow.runway.months < 12) {
+      } else if (netBurn.months < 12) {
         alerts.push({
           id: `runway-warning-${Date.now()}`,
           severity: 'warning',
-          title: 'ランウェイ注意',
-          description: `ランウェイが${cashflow.runway.months}ヶ月です。資金計画の見直しを推奨します。`,
+          title: 'ランウェイ注意（Net Burn基準）',
+          description: `Net Burn ランウェイ ${formatMonths(netBurn.months)}${divergence}。資金計画の見直しを推奨します。`,
           detectedAt: now,
         });
       }

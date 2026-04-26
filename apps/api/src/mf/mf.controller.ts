@@ -11,6 +11,7 @@ import { OrgAccessGuard } from '../auth/org-access.guard';
 import { MfApiService } from './mf-api.service';
 import { MfTransformService } from './mf-transform.service';
 import { ReviewService } from './review.service';
+import { MonthlyCloseService } from '../monthly-close/monthly-close.service';
 
 @Controller('organizations/:orgId/mf')
 @UseGuards(JwtAuthGuard, OrgAccessGuard)
@@ -19,6 +20,7 @@ export class MfController {
     private mfApi: MfApiService,
     private mfTransform: MfTransformService,
     private reviewService: ReviewService,
+    private monthlyCloseService: MonthlyCloseService,
   ) {}
 
   private parseFiscalYear(value?: string): number | undefined {
@@ -50,16 +52,36 @@ export class MfController {
     @Query('fiscalYear') fiscalYear?: string,
     @Query('endMonth') endMonth?: string,
   ) {
+    // 注: dashboard サマリーは Net Burn 基準で固定（主指標）。runway モードは UI 切替で variants から選ぶ。
     const fy = this.parseFiscalYear(fiscalYear);
     const em = this.parseMonth(endMonth);
-    const [pl, bs] = await Promise.all([
+    const prevFy = fy ? fy - 1 : undefined;
+    const [pl, bs, bsT, plT, settledMonths, prevPl, prevBs] = await Promise.all([
       this.mfApi.getTrialBalancePL(orgId, fy, em),
       this.mfApi.getTrialBalanceBS(orgId, fy, em),
+      this.mfApi.getTransitionBS(orgId, fy, em).catch(() => null),
+      this.mfApi.getTransitionPL(orgId, fy, em).catch(() => null),
+      fy ? this.monthlyCloseService.getSettledMonths(orgId, fy) : Promise.resolve(undefined),
+      // 前年同期（YoY 比較用）。失敗しても dashboard 全体は壊さない
+      prevFy
+        ? this.mfApi.getTrialBalancePL(orgId, prevFy, em).catch(() => null)
+        : Promise.resolve(null),
+      prevFy
+        ? this.mfApi.getTrialBalanceBS(orgId, prevFy, em).catch(() => null)
+        : Promise.resolve(null),
     ]);
     if (!pl?.rows || !bs?.rows) {
       throw new BadRequestException('MF returned empty trial balance data');
     }
-    return this.mfTransform.buildDashboardSummary(pl, bs);
+    const cashflowDerived =
+      bsT && plT ? this.mfTransform.deriveCashflow(bsT, plT, bs, settledMonths) : undefined;
+    return this.mfTransform.buildDashboardSummary(
+      pl,
+      bs,
+      cashflowDerived,
+      prevPl,
+      prevBs,
+    );
   }
 
   @Get('financial-statements/pl')
@@ -104,11 +126,15 @@ export class MfController {
     @Query('fiscalYear') fiscalYear?: string,
   ) {
     const fy = this.parseFiscalYear(fiscalYear);
-    const [bsT, plT] = await Promise.all([
+    // 期首残高（前月繰越の初月）を確実に拾うため、BS試算表を先に取得してから推移表を並列取得
+    // .catch(()=>null) で握りつぶすと priorCash=0 にデグレるので、失敗時はエラーを返す
+    const bsTrial = await this.mfApi.getTrialBalanceBS(orgId, fy);
+    const [bsT, plT, settledMonths] = await Promise.all([
       this.mfApi.getTransitionBS(orgId, fy),
       this.mfApi.getTransitionPL(orgId, fy),
+      fy ? this.monthlyCloseService.getSettledMonths(orgId, fy) : Promise.resolve(undefined),
     ]);
-    return this.mfTransform.deriveCashflow(bsT, plT);
+    return this.mfTransform.deriveCashflow(bsT, plT, bsTrial, settledMonths);
   }
 
   @Get('pl-transition')

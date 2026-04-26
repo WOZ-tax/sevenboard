@@ -33,7 +33,7 @@ export class ActualsController {
   }
 
   @Post('import')
-  @Roles('ADMIN', 'CFO')
+  @Roles('owner', 'advisor')
   @UseGuards(RolesGuard)
   async importCsv(
     @Param('orgId') orgId: string,

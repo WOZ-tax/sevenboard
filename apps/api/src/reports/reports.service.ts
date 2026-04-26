@@ -1,6 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { Decimal } from '@prisma/client/runtime/library';
+import { MfApiService } from '../mf/mf-api.service';
+import { MfReportRow, TB_COL } from '../mf/types/mf-api.types';
 
 export interface VarianceRow {
   accountId: string;
@@ -12,6 +14,7 @@ export interface VarianceRow {
   actualAmount: number;
   varianceAmount: number;
   variancePercent: number | null;
+  priorYearAmount: number | null;
 }
 
 export interface PlRow {
@@ -24,7 +27,10 @@ export interface PlRow {
 
 @Injectable()
 export class ReportsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private mfApi: MfApiService,
+  ) {}
 
   async getVarianceReport(
     orgId: string,
@@ -35,6 +41,22 @@ export class ReportsService {
     },
   ): Promise<VarianceRow[]> {
     const { budgetVersionId, startMonth, endMonth } = query;
+
+    // IDOR 対策: budgetVersionId が route の orgId と同じ org に属することを必ず検証。
+    // OrgAccessGuard が orgId への access は保証しているが、別 org の bvId が渡されても
+    // org-bv の親子関係を確認しない限り、別 org の予算明細が漏れる。
+    const bv = await this.prisma.budgetVersion.findUnique({
+      where: { id: budgetVersionId },
+      include: { fiscalYear: { select: { orgId: true } } },
+    });
+    if (!bv) {
+      throw new NotFoundException('Budget version not found');
+    }
+    if (bv.fiscalYear.orgId !== orgId) {
+      throw new ForbiddenException(
+        '指定された budgetVersionId はこの組織に属していません',
+      );
+    }
 
     // Get budget entries
     const budgetWhere: any = { budgetVersionId };
@@ -51,13 +73,6 @@ export class ReportsService {
         account: true,
       },
     });
-
-    // Get the fiscal year to determine orgId scope
-    const bv = await this.prisma.budgetVersion.findUnique({
-      where: { id: budgetVersionId },
-      include: { fiscalYear: true },
-    });
-    if (!bv) return [];
 
     // Get actual entries for the same period
     const actualWhere: any = { orgId };
@@ -82,6 +97,28 @@ export class ReportsService {
       actualMap.set(key, ae.amount);
     }
 
+    // 前年同月の実績を取得（予算期間を12ヶ月シフト）
+    const budgetMonths = budgetEntries.map((be) => be.month);
+    const priorYearMap = new Map<string, Decimal>();
+    if (budgetMonths.length > 0) {
+      const minMonth = new Date(Math.min(...budgetMonths.map((m) => m.getTime())));
+      const maxMonth = new Date(Math.max(...budgetMonths.map((m) => m.getTime())));
+      const priorMin = new Date(Date.UTC(minMonth.getUTCFullYear() - 1, minMonth.getUTCMonth(), 1));
+      const priorMax = new Date(Date.UTC(maxMonth.getUTCFullYear() - 1, maxMonth.getUTCMonth(), 1));
+      const priorActuals = await this.prisma.actualEntry.findMany({
+        where: {
+          orgId,
+          month: { gte: priorMin, lte: priorMax },
+        },
+      });
+      for (const ae of priorActuals) {
+        // 前年月 → 当年月にキー化
+        const shiftedMonth = new Date(Date.UTC(ae.month.getUTCFullYear() + 1, ae.month.getUTCMonth(), 1));
+        const key = `${ae.accountId}:${shiftedMonth.toISOString().slice(0, 10)}`;
+        priorYearMap.set(key, ae.amount);
+      }
+    }
+
     // 収益科目: 実績>予算が良好（プラス表示）
     // 費用科目: 実績<予算が良好（プラス表示）
     const revenueCategories = new Set([
@@ -103,6 +140,10 @@ export class ReportsService {
       const variance = isRevenue ? actualAmt - budgetAmt : budgetAmt - actualAmt;
       const variancePct = budgetAmt !== 0 ? (variance / budgetAmt) * 100 : null;
 
+      const priorYearRaw = priorYearMap.get(key);
+      const priorYearAmount =
+        priorYearRaw !== undefined ? Number(priorYearRaw) : null;
+
       return {
         accountId: be.accountId,
         accountCode: be.account.code,
@@ -112,7 +153,9 @@ export class ReportsService {
         budgetAmount: budgetAmt,
         actualAmount: actualAmt,
         varianceAmount: variance,
-        variancePercent: variancePct ? Math.round(variancePct * 100) / 100 : null,
+        variancePercent:
+          variancePct !== null ? Math.round(variancePct * 100) / 100 : null,
+        priorYearAmount,
       };
     });
 
@@ -176,75 +219,56 @@ export class ReportsService {
     return Array.from(accountMap.values());
   }
 
-  async getVariableCostReport(orgId: string, month?: string) {
-    // 1. Get all PL accounts with variable cost flag
-    const accounts = await this.prisma.accountMaster.findMany({
+  async getVariableCostReport(
+    orgId: string,
+    fiscalYear?: number,
+    endMonth?: number,
+  ) {
+    const pl = await this.mfApi.getTrialBalancePL(orgId, fiscalYear, endMonth);
+
+    const overrides = await this.prisma.accountMaster.findMany({
       where: { orgId },
-      orderBy: { displayOrder: 'asc' },
+      select: { name: true, isVariableCost: true },
     });
+    const overrideMap = new Map(overrides.map((a) => [a.name, a.isVariableCost]));
 
-    // 2. Get actual entries for the period
-    const actualWhere: any = { orgId };
-    if (month) {
-      const monthDate = new Date(month);
-      actualWhere.month = monthDate;
-    }
+    const revenueRoot = this.findRow(pl.rows, '売上高合計');
+    const cogsRoot = this.findRow(pl.rows, '売上原価');
+    const sgaRoot = this.findRow(pl.rows, '販売費及び一般管理費合計');
 
-    const entries = await this.prisma.actualEntry.findMany({
-      where: actualWhere,
-      include: { account: true },
-    });
+    const revenue = revenueRoot ? this.val(revenueRoot, TB_COL.CLOSING) : 0;
 
-    // 3. Aggregate by account
-    const accountTotals = new Map<string, { name: string; amount: number; isVariable: boolean; category: string }>();
+    const cogsLeaves = cogsRoot ? this.collectLeaves(cogsRoot) : [];
+    const sgaLeaves = sgaRoot ? this.collectLeaves(sgaRoot) : [];
 
-    for (const entry of entries) {
-      const acct = entry.account;
-      const existing = accountTotals.get(acct.id);
-      const amt = Number(entry.amount);
-      if (existing) {
-        existing.amount += amt;
-      } else {
-        accountTotals.set(acct.id, {
-          name: acct.name,
-          amount: amt,
-          isVariable: acct.isVariableCost,
-          category: acct.category,
-        });
-      }
-    }
-
-    // 4. Separate revenue, variable costs, fixed costs
-    const revenueCategories = new Set(['REVENUE']);
-    const costCategories = new Set([
-      'COST_OF_SALES',
-      'SELLING_EXPENSE',
-      'ADMIN_EXPENSE',
-    ]);
-
-    let revenue = 0;
     const variableCosts: { name: string; amount: number }[] = [];
     const fixedCosts: { name: string; amount: number }[] = [];
 
-    for (const [, data] of accountTotals) {
-      if (revenueCategories.has(data.category)) {
-        revenue += data.amount;
-      } else if (costCategories.has(data.category)) {
-        if (data.isVariable) {
-          variableCosts.push({ name: data.name, amount: data.amount });
-        } else {
-          fixedCosts.push({ name: data.name, amount: data.amount });
-        }
-      }
+    for (const leaf of cogsLeaves) {
+      const amount = this.val(leaf, TB_COL.CLOSING);
+      if (amount === 0) continue;
+      const override = overrideMap.get(leaf.name);
+      const isVariable = override !== undefined ? override : true;
+      (isVariable ? variableCosts : fixedCosts).push({ name: leaf.name, amount });
     }
 
-    // 5. Compute KPIs
+    for (const leaf of sgaLeaves) {
+      const amount = this.val(leaf, TB_COL.CLOSING);
+      if (amount === 0) continue;
+      const override = overrideMap.get(leaf.name);
+      const isVariable =
+        override !== undefined ? override : this.isVariableByName(leaf.name);
+      (isVariable ? variableCosts : fixedCosts).push({ name: leaf.name, amount });
+    }
+
     const totalVariableCost = variableCosts.reduce((s, c) => s + c.amount, 0);
     const totalFixedCost = fixedCosts.reduce((s, c) => s + c.amount, 0);
     const marginalProfit = revenue - totalVariableCost;
     const marginalProfitRatio = revenue > 0 ? marginalProfit / revenue : 0;
-    const breakEvenPoint = marginalProfitRatio > 0 ? totalFixedCost / marginalProfitRatio : 0;
-    const safetyMargin = revenue > 0 ? ((revenue - breakEvenPoint) / revenue) * 100 : 0;
+    const breakEvenPoint =
+      marginalProfitRatio > 0 ? totalFixedCost / marginalProfitRatio : 0;
+    const safetyMargin =
+      revenue > 0 ? ((revenue - breakEvenPoint) / revenue) * 100 : 0;
 
     return {
       revenue,
@@ -253,9 +277,53 @@ export class ReportsService {
       totalVariableCost,
       totalFixedCost,
       marginalProfit,
-      marginalProfitRatio: Math.round(marginalProfitRatio * 10000) / 100, // percent
+      marginalProfitRatio: Math.round(marginalProfitRatio * 10000) / 100,
       breakEvenPoint: Math.round(breakEvenPoint),
       safetyMargin: Math.round(safetyMargin * 10) / 10,
     };
+  }
+
+  private findRow(rows: MfReportRow[], name: string): MfReportRow | null {
+    for (const row of rows) {
+      if (row.name === name) return row;
+      if (row.rows) {
+        const found = this.findRow(row.rows, name);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+
+  private collectLeaves(row: MfReportRow): MfReportRow[] {
+    if (!row.rows || row.rows.length === 0) {
+      return row.type === 'account' ? [row] : [];
+    }
+    const leaves: MfReportRow[] = [];
+    for (const child of row.rows) {
+      leaves.push(...this.collectLeaves(child));
+    }
+    return leaves;
+  }
+
+  private val(row: MfReportRow, col: number): number {
+    return Number(row.values?.[col] ?? 0);
+  }
+
+  // 販管費のデフォルト変動/固定判定（AccountMaster未設定時のフォールバック）
+  private isVariableByName(name: string): boolean {
+    const variableKeywords = [
+      '販売手数料',
+      '支払手数料',
+      '外注',
+      '荷造',
+      '運賃',
+      '発送',
+      '仕入',
+      '材料',
+      '商品',
+      '製品',
+      '販売促進',
+    ];
+    return variableKeywords.some((k) => name.includes(k));
   }
 }

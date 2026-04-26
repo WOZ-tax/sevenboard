@@ -75,7 +75,7 @@ export class MonthlyReviewApprovalController {
 
   @Post('submit')
   @UseGuards(RolesGuard)
-  @Roles('ADMIN', 'CFO', 'ADVISOR', 'ACCOUNTANT')
+  @Roles('owner', 'advisor')
   async submit(
     @Param('orgId') orgId: string,
     @Body() dto: SubmitDto,
@@ -86,7 +86,7 @@ export class MonthlyReviewApprovalController {
 
   @Post('approve')
   @UseGuards(RolesGuard)
-  @Roles('ADMIN', 'CFO', 'ADVISOR')
+  @Roles('owner', 'advisor')
   async approve(
     @Param('orgId') orgId: string,
     @Body() dto: DecisionDto,
@@ -100,7 +100,7 @@ export class MonthlyReviewApprovalController {
 
   @Post('reject')
   @UseGuards(RolesGuard)
-  @Roles('ADMIN', 'CFO', 'ADVISOR')
+  @Roles('owner', 'advisor')
   async reject(
     @Param('orgId') orgId: string,
     @Body() dto: DecisionDto,
@@ -114,7 +114,7 @@ export class MonthlyReviewApprovalController {
 
   @Post('reset')
   @UseGuards(RolesGuard)
-  @Roles('ADMIN', 'CFO', 'ADVISOR')
+  @Roles('owner', 'advisor')
   async reset(
     @Param('orgId') orgId: string,
     @Body() dto: DecisionDto,

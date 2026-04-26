@@ -32,7 +32,7 @@ export class CommentsController {
   }
 
   @Post()
-  @Roles('ADMIN', 'CFO', 'ADVISOR')
+  @Roles('owner', 'advisor')
   @UseGuards(RolesGuard)
   async create(
     @Param('orgId') orgId: string,
@@ -43,18 +43,24 @@ export class CommentsController {
   }
 
   @Patch(':commentId/status')
-  @Roles('ADVISOR')
+  @Roles('owner', 'advisor')
   @UseGuards(RolesGuard)
   async updateStatus(
+    @Param('orgId') orgId: string,
     @Param('commentId') commentId: string,
     @Body() dto: UpdateCommentStatusDto,
     @Request() req: any,
   ) {
-    return this.commentsService.updateStatus(commentId, dto, req.user.id);
+    return this.commentsService.updateStatus(
+      orgId,
+      commentId,
+      dto,
+      req.user.id,
+    );
   }
 
   @Delete(':commentId')
-  @Roles('ADMIN', 'ADVISOR')
+  @Roles('owner', 'advisor')
   @UseGuards(RolesGuard)
   async remove(
     @Param('orgId') orgId: string,

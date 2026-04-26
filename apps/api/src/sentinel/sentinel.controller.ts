@@ -13,10 +13,16 @@ export class SentinelController {
     @Param('orgId') orgId: string,
     @Query('fiscalYear') fiscalYear?: string,
     @Query('endMonth') endMonth?: string,
+    @Query('runwayMode') runwayMode?: string,
   ) {
+    const mode =
+      runwayMode === 'worstCase' || runwayMode === 'netBurn' || runwayMode === 'actual'
+        ? runwayMode
+        : undefined;
     return this.sentinel.detect(orgId, {
       fiscalYear: fiscalYear ? Number(fiscalYear) : undefined,
       endMonth: endMonth ? Number(endMonth) : undefined,
+      runwayMode: mode,
     });
   }
 }

@@ -36,6 +36,8 @@ import { DrafterModule } from './drafter/drafter.module';
 import { AgentRunsModule } from './agent-runs/agent-runs.module';
 import { CashflowCertaintyModule } from './cashflow-certainty/cashflow-certainty.module';
 import { MonthlyReviewApprovalModule } from './monthly-review-approval/monthly-review-approval.module';
+import { MonthlyCloseModule } from './monthly-close/monthly-close.module';
+import { InternalUsersModule } from './internal-users/internal-users.module';
 
 @Module({
   imports: [
@@ -74,6 +76,8 @@ import { MonthlyReviewApprovalModule } from './monthly-review-approval/monthly-r
     AgentRunsModule,
     CashflowCertaintyModule,
     MonthlyReviewApprovalModule,
+    MonthlyCloseModule,
+    InternalUsersModule,
   ],
   providers: [
     {

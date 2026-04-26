@@ -34,8 +34,13 @@ export class ReportsController {
   @Get('variable-cost')
   async getVariableCost(
     @Param('orgId') orgId: string,
-    @Query('month') month?: string,
+    @Query('fiscalYear') fiscalYear?: string,
+    @Query('endMonth') endMonth?: string,
   ) {
-    return this.reportsService.getVariableCostReport(orgId, month);
+    return this.reportsService.getVariableCostReport(
+      orgId,
+      fiscalYear ? Number(fiscalYear) : undefined,
+      endMonth ? Number(endMonth) : undefined,
+    );
   }
 }

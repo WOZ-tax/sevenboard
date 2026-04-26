@@ -17,7 +17,7 @@ export class OnboardingController {
   constructor(private onboardingService: OnboardingService) {}
 
   @Post('start')
-  @Roles('ADMIN', 'ADVISOR')
+  @Roles('owner', 'advisor')
   @UseGuards(RolesGuard)
   async startOnboarding(@Param('orgId') orgId: string) {
     return this.onboardingService.startOnboarding(orgId);

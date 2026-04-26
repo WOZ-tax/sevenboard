@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { MfApiService } from '../mf/mf-api.service';
 import { MfTransformService } from '../mf/mf-transform.service';
 import { AgentRunsService } from '../agent-runs/agent-runs.service';
+import { MonthlyCloseService } from '../monthly-close/monthly-close.service';
 
 export type SentinelSeverity = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'INFO';
 export type SentinelConfidence = 'HIGH' | 'MEDIUM' | 'LOW';
@@ -35,30 +36,44 @@ export class SentinelService {
     private mfApi: MfApiService,
     private mfTransform: MfTransformService,
     private agentRuns: AgentRunsService,
+    private monthlyClose: MonthlyCloseService,
   ) {}
 
   async detect(
     orgId: string,
-    options?: { fiscalYear?: number; endMonth?: number },
+    options?: {
+      fiscalYear?: number;
+      endMonth?: number;
+      runwayMode?: 'worstCase' | 'netBurn' | 'actual';
+    },
   ): Promise<SentinelResponse> {
     const now = new Date();
     const startedAt = Date.now();
 
     try {
-      const [bsTransition, pl, bs] = await Promise.all([
+      const [bsTransition, plTransition, pl, bs, settledMonths] = await Promise.all([
         this.mfApi.getTransitionBS(orgId, options?.fiscalYear, options?.endMonth),
+        this.mfApi.getTransitionPL(orgId, options?.fiscalYear, options?.endMonth),
         this.mfApi.getTrialBalancePL(orgId, options?.fiscalYear, options?.endMonth),
         this.mfApi.getTrialBalanceBS(orgId, options?.fiscalYear, options?.endMonth),
+        options?.fiscalYear
+          ? this.monthlyClose.getSettledMonths(orgId, options.fiscalYear)
+          : Promise.resolve(undefined),
       ]);
 
-      const dashboard = this.mfTransform.buildDashboardSummary(pl, bs);
+      // Cashflow ページと同じ deriveCashflow 経由（settledMonths も渡して整合性確保）
+      const cashflowDerived =
+        bsTransition && plTransition
+          ? this.mfTransform.deriveCashflow(bsTransition, plTransition, bs, settledMonths)
+          : undefined;
+      const dashboard = this.mfTransform.buildDashboardSummary(pl, bs, cashflowDerived);
 
       const detections: SentinelDetection[] = [];
-      const monthLabels = this.buildMonthLabels(bsTransition.columns);
+      const monthLabels = this.buildMonthLabels(bsTransition?.columns);
       const mc = monthLabels.length;
 
       // 1) 現預金残高トレンド（直近3ヶ月の連続減少を検知）
-      const cashRow = this.findRowByPartial(bsTransition.rows, '現金及び預金');
+      const cashRow = this.findRowByPartial(bsTransition?.rows, '現金及び預金');
       if (cashRow && mc >= 3) {
         const cashSeries = this.monthlyValues(cashRow, mc);
         const lastIdx = cashSeries.length - 1;
@@ -86,23 +101,41 @@ export class SentinelService {
         }
       }
 
-      // 2) ランウェイ警戒（6ヶ月未満）
-      if (Number.isFinite(dashboard.runway) && dashboard.runway < 6) {
+      // 2) ランウェイ警戒（資金繰りページのユーザー選択モードを主指標として 6ヶ月未満で警告）
+      // ユーザーが actual/worstCase を見ているのに Net Burn 基準だけで警告すると、ページ上の数字と
+      // 警告内容が食い違う。資金繰りページの選択を尊重しつつ、構造的体力の Net Burn は常にアンカー併記。
+      const primaryMode = options?.runwayMode ?? 'netBurn';
+      const primaryLabel: Record<typeof primaryMode, string> = {
+        worstCase: 'Gross Burn(売上ゼロ最悪)',
+        netBurn: 'Net Burn(構造的損失)',
+        actual: 'Actual Burn(BS純減ベース)',
+      };
+      const variants = cashflowDerived?.runway.variants;
+      const primaryVariant = variants?.[primaryMode];
+      const netBurnVariant = variants?.netBurn;
+      const primaryMonths = primaryVariant?.months ?? dashboard.runway;
+      if (Number.isFinite(primaryMonths) && primaryMonths < 6) {
         const severity: SentinelSeverity =
-          dashboard.runway < 1
+          primaryMonths < 1
             ? 'CRITICAL'
-            : dashboard.runway < 3
+            : primaryMonths < 3
               ? 'HIGH'
               : 'MEDIUM';
+        const netMonths = netBurnVariant?.months;
+        const divergenceNote =
+          primaryMode !== 'netBurn' && netMonths !== undefined && Number.isFinite(netMonths) &&
+          Math.abs(netMonths - primaryMonths) >= 3
+            ? ` 構造的(Net Burn)基準では${netMonths.toFixed(1)}ヶ月。一時要因が剥がれると Net Burn ペースに収束する。`
+            : '';
         detections.push({
           id: 'runway-warning',
           severity,
-          title: `ランウェイが${dashboard.runway}ヶ月に低下`,
-          body: `現預金 ${formatYen(dashboard.cashBalance)} / 月次バーンから算出。資金調達またはコスト調整の検討が必要。`,
+          title: `ランウェイ ${primaryMonths.toFixed(1)}ヶ月（${primaryLabel[primaryMode]}基準）`,
+          body: `現預金 ${formatYen(dashboard.cashBalance)} / ${primaryLabel[primaryMode]} 基準。${divergenceNote} 資金調達またはコスト構造の見直しを早期検討。`,
           evidence: {
-            source: 'MF会計 試算表（PL/BS）',
+            source: 'MF会計 試算表（PL/BS）+ BS推移表',
             confidence: 'MEDIUM',
-            premise: '直近月のバーンレートが今後も継続する前提',
+            premise: `主指標は資金繰りページの選択モード(${primaryMode})。Net Burn は事業の構造的体力アンカー`,
           },
           linkHref: '/cashflow',
         });
@@ -110,12 +143,9 @@ export class SentinelService {
 
       // 3) 売上債権の急増（DSO悪化予兆）
       const arRow =
-        this.findRowByPartial(bsTransition.rows, '売上債権合計') ||
-        this.findRow(bsTransition.rows, '売掛金');
-      const revenueRow = this.findRow(
-        (await this.mfApi.getTransitionPL(orgId, options?.fiscalYear, options?.endMonth)).rows,
-        '売上高合計',
-      );
+        this.findRowByPartial(bsTransition?.rows, '売上債権合計') ||
+        this.findRow(bsTransition?.rows, '売掛金');
+      const revenueRow = this.findRow(plTransition?.rows, '売上高合計');
       if (arRow && revenueRow && mc >= 2) {
         const arSeries = this.monthlyValues(arRow, mc);
         const revSeries = this.monthlyValues(revenueRow, mc);
@@ -144,7 +174,7 @@ export class SentinelService {
       }
 
       // 4) 短期借入金の増加（資金繰り悪化のサイン）
-      const shortBorrowRow = this.findRow(bsTransition.rows, '短期借入金');
+      const shortBorrowRow = this.findRow(bsTransition?.rows, '短期借入金');
       if (shortBorrowRow && mc >= 2) {
         const series = this.monthlyValues(shortBorrowRow, mc);
         const lastIdx = mc - 1;
@@ -213,14 +243,16 @@ export class SentinelService {
     }
   }
 
-  private buildMonthLabels(columns: string[]): string[] {
+  private buildMonthLabels(columns: string[] | null | undefined): string[] {
+    if (!Array.isArray(columns)) return [];
     return columns.filter((c) => /^\d+$/.test(c)).map((c) => `${c}月`);
   }
 
   private findRow(
-    rows: Array<{ name: string; rows?: unknown[] }>,
+    rows: Array<{ name: string; rows?: unknown[] }> | null | undefined,
     name: string,
   ): { name: string; closing_balance?: number; [k: string]: unknown } | null {
+    if (!Array.isArray(rows)) return null;
     for (const row of rows) {
       if (row.name === name) return row as never;
       if (row.rows) {
@@ -235,9 +267,10 @@ export class SentinelService {
   }
 
   private findRowByPartial(
-    rows: Array<{ name: string; rows?: unknown[] }>,
+    rows: Array<{ name: string; rows?: unknown[] }> | null | undefined,
     partial: string,
   ): { name: string; [k: string]: unknown } | null {
+    if (!Array.isArray(rows)) return null;
     for (const row of rows) {
       if (row.name.includes(partial)) return row as never;
       if (row.rows) {
@@ -256,13 +289,13 @@ export class SentinelService {
     months: number,
   ): number[] {
     if (!row) return new Array(months).fill(0);
-    const values: number[] = [];
-    for (let i = 1; i <= months; i++) {
-      const key = String(i);
-      const v = row[key];
-      values.push(typeof v === 'number' ? v : 0);
-    }
-    return values;
+    // MfReportRow は { values: (number|null)[] } の配列で月次値を持つ。
+    // (旧コードは row["1"] のように文字列キーで読んでいて常に 0 になっていた)
+    const arr = (row.values as unknown[]) ?? [];
+    return Array.from({ length: months }, (_, i) => {
+      const v = arr[i];
+      return typeof v === 'number' ? v : 0;
+    });
   }
 }
 

@@ -36,7 +36,7 @@ export class CashflowCertaintyController {
 
   @Put()
   @UseGuards(RolesGuard)
-  @Roles('ADMIN', 'CFO', 'ADVISOR')
+  @Roles('owner', 'advisor')
   async update(
     @Param('orgId') orgId: string,
     @Body() dto: UpdateCertaintyDto,

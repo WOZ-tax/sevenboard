@@ -92,7 +92,7 @@ export class BriefingController {
 
   @Patch('push-config')
   @UseGuards(RolesGuard)
-  @Roles('ADMIN', 'CFO', 'ADVISOR')
+  @Roles('owner', 'advisor')
   async updatePushConfig(
     @Param('orgId') orgId: string,
     @Body() dto: UpdatePushConfigDto,
@@ -113,7 +113,7 @@ export class BriefingController {
 
   @Post('push-test')
   @UseGuards(RolesGuard)
-  @Roles('ADMIN', 'CFO', 'ADVISOR')
+  @Roles('owner', 'advisor')
   async pushTest(@Param('orgId') orgId: string) {
     return this.scheduler.dispatchNow(orgId);
   }

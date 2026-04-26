@@ -16,7 +16,7 @@ function parsePositiveInt(v?: string): number | undefined {
 
 @Controller('organizations/:orgId/agent-runs')
 @UseGuards(JwtAuthGuard, OrgAccessGuard, RolesGuard)
-@Roles('ADMIN', 'CFO', 'ADVISOR')
+@Roles('owner', 'advisor')
 export class AgentRunsController {
   constructor(private readonly agentRuns: AgentRunsService) {}
 
