@@ -1,7 +1,7 @@
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException, InternalServerErrorException } from '@nestjs/common';
 import { AccountCategory } from '@prisma/client';
-import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
+import { SupabaseService } from '../supabase/supabase.service';
 import { CreateAccountDto } from './dto/create-account.dto';
 import { UpdateAccountDto } from './dto/update-account.dto';
 import { CreateDepartmentDto } from './dto/create-department.dto';
@@ -12,7 +12,10 @@ import * as bcrypt from 'bcryptjs';
 
 @Injectable()
 export class MastersService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private supabase: SupabaseService,
+  ) {}
 
   // ===================== 勘定科目 =====================
 
@@ -62,41 +65,34 @@ export class MastersService {
     orgId: string,
     updates: Array<{ name: string; isVariableCost: boolean }>,
   ) {
-    // Prisma 6.19 の UUID 列 deserialization バグを完全回避するため、
-    // findFirst / findUnique 系は使わず、最初から raw SQL の upsert で済ませる。
-    // ON CONFLICT (org_id, code) で既存レコードがあれば is_variable_cost のみ更新。
-    // Prisma 6.19 の UUID parameter binding に v7 形式を期待するバグがあるため、
-    // orgId は SQL 文字列に直接埋め込む（事前に format 検証して injection を遮断）。
+    // Prisma の query engine が account_masters への UPSERT で UUID parse 失敗
+    // (P2023) を出すため、PostgREST 経由 (supabase-js) で書き込む。
+    // 既知の Prisma バグ回避策。詳細は memory/feedback_sevenboard_prisma_uuid_bug.md。
     if (!/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(orgId)) {
       throw new BadRequestException('Invalid orgId format');
     }
-    let count = 0;
-    for (const u of updates) {
-      if (!u.name || typeof u.isVariableCost !== 'boolean') continue;
-      // enum cast を Prisma が UUID 文字列として誤解する事象に対応するため、
-      // Postgres の implicit cast に任せる ("ADMIN_EXPENSE" は AccountCategory enum
-      // の値なので、列の型から自動推論される)
-      await this.prisma.$executeRawUnsafe(
-        `INSERT INTO account_masters
-          (id, org_id, code, name, category, is_variable_cost, display_order, created_at)
-        VALUES (
-          gen_random_uuid(),
-          '${orgId}'::uuid,
-          $1,
-          $1,
-          'ADMIN_EXPENSE',
-          $2,
-          0,
-          NOW()
-        )
-        ON CONFLICT (org_id, code)
-        DO UPDATE SET is_variable_cost = EXCLUDED.is_variable_cost`,
-        u.name,
-        u.isVariableCost,
-      );
-      count += 1;
+    const rows = updates
+      .filter((u) => u.name && typeof u.isVariableCost === 'boolean')
+      .map((u) => ({
+        org_id: orgId,
+        code: u.name,
+        name: u.name,
+        category: AccountCategory.ADMIN_EXPENSE,
+        is_variable_cost: u.isVariableCost,
+        display_order: 0,
+      }));
+    if (rows.length === 0) {
+      return { ok: true, count: 0 };
     }
-    return { ok: true, count };
+    const { error } = await this.supabase.client
+      .from('account_masters')
+      .upsert(rows, { onConflict: 'org_id,code' });
+    if (error) {
+      throw new InternalServerErrorException(
+        `Supabase upsert failed: ${error.message}`,
+      );
+    }
+    return { ok: true, count: rows.length };
   }
 
   async deleteAccount(orgId: string, accountId: string) {
