@@ -1,5 +1,6 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { AccountCategory } from '@prisma/client';
+import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateAccountDto } from './dto/create-account.dto';
 import { UpdateAccountDto } from './dto/update-account.dto';
@@ -81,9 +82,13 @@ export class MastersService {
         // category は MF レポート由来の科目（MF 側で決まる）なので、ここでは
         // ADMIN_EXPENSE をプレースホルダとして格納。実際の category は MF 同期で
         // 上書きされる想定（このレコードは override 用の最低限の seed）。
+        // id は randomUUID() で明示的に生成。Prisma 6.19 では @default(uuid())
+        // が UUID v7 を生成しようとして Postgres @db.Uuid に書き込む際に format
+        // mismatch (P2023 "Error creating UUID, invalid character") を起こすため。
         await this.prisma.accountMaster.upsert({
           where: { orgId_code: { orgId, code: u.name } },
           create: {
+            id: randomUUID(),
             orgId,
             code: u.name,
             name: u.name,
