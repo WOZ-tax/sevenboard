@@ -68,22 +68,28 @@ export class MastersService {
     let count = 0;
     for (const u of updates) {
       if (!u.name || typeof u.isVariableCost !== 'boolean') continue;
-      await this.prisma.$executeRaw`
-        INSERT INTO account_masters
+      // executeRawUnsafe + positional parameters。Prisma template literal は UUID
+      // 型推論で v7 形式を期待してしまう挙動があるため、明示的に Postgres 側で
+      // ::uuid キャストする形にする。
+      await this.prisma.$executeRawUnsafe(
+        `INSERT INTO account_masters
           (id, org_id, code, name, category, is_variable_cost, display_order, created_at)
         VALUES (
           gen_random_uuid(),
-          ${orgId}::uuid,
-          ${u.name},
-          ${u.name},
+          $1::uuid,
+          $2,
+          $2,
           'ADMIN_EXPENSE'::"AccountCategory",
-          ${u.isVariableCost},
+          $3,
           0,
           NOW()
         )
         ON CONFLICT (org_id, code)
-        DO UPDATE SET is_variable_cost = EXCLUDED.is_variable_cost
-      `;
+        DO UPDATE SET is_variable_cost = EXCLUDED.is_variable_cost`,
+        orgId,
+        u.name,
+        u.isVariableCost,
+      );
       count += 1;
     }
     return { ok: true, count };
