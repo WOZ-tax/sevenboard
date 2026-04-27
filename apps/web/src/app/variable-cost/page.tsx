@@ -1095,9 +1095,6 @@ export default function VariableCostPage() {
               <CardTitle className="flex items-center gap-2 text-base font-semibold text-[var(--color-text-primary)]">
                 変動損益計算書
                 <Badge variant="secondary" className="font-normal text-[10px]">{periodRangeLabel}</Badge>
-                <span className="hidden text-[11px] font-normal text-muted-foreground sm:inline">
-                  ／ 各行の「変動」「固定」バッジをクリックで切替
-                </span>
               </CardTitle>
               <div className="flex items-center gap-2">
                 {hasCustomChanges && (
@@ -1131,6 +1128,12 @@ export default function VariableCostPage() {
                 )}
               </div>
             </div>
+            <p className="mt-1.5 text-xs text-muted-foreground">
+              💡 各行の <span className="inline-flex items-center rounded border border-[var(--color-primary)]/40 bg-[var(--color-primary)]/10 px-1.5 py-0 text-[10px] font-semibold text-[var(--color-primary)]">変動</span>
+              {" "}/{" "}
+              <span className="inline-flex items-center rounded border border-gray-400 bg-gray-100 px-1.5 py-0 text-[10px] font-semibold text-gray-700">固定</span>
+              {" "}バッジをクリックすると分類を切替できます。変更したら右上の「分類を保存」で次回以降の自動分類に反映されます。
+            </p>
             {saveMutation.isError && (
               <p className="mt-1 text-xs text-red-600">
                 保存に失敗しました: {String(saveMutation.error)}

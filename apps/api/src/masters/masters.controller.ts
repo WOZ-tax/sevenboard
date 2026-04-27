@@ -16,6 +16,7 @@ import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { CreateAccountDto } from './dto/create-account.dto';
 import { UpdateAccountDto } from './dto/update-account.dto';
+import { BulkUpdateVariableCostFlagsDto } from './dto/bulk-update-variable-cost-flags.dto';
 import { CreateDepartmentDto } from './dto/create-department.dto';
 import { UpdateDepartmentDto } from './dto/update-department.dto';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -84,11 +85,11 @@ export class MastersController {
   @UseGuards(RolesGuard)
   async bulkUpdateVariableCostFlags(
     @Param('orgId') orgId: string,
-    @Body() body: { updates: Array<{ name: string; isVariableCost: boolean }> },
+    @Body() body: BulkUpdateVariableCostFlagsDto,
   ) {
     return this.mastersService.bulkUpdateVariableCostFlags(
       orgId,
-      Array.isArray(body?.updates) ? body.updates : [],
+      body.updates,
     );
   }
 
