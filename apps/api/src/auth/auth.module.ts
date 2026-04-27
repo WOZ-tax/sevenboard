@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { HttpModule } from '@nestjs/axios';
@@ -13,7 +13,8 @@ import { MfModule } from '../mf/mf.module';
   imports: [
     PassportModule,
     HttpModule.register({ timeout: 30000 }),
-    MfModule,
+    // MfModule → KintoneModule → AuthModule の循環参照を回避
+    forwardRef(() => MfModule),
     JwtModule.register({
       secret: process.env.JWT_SECRET || (() => {
         if (process.env.NODE_ENV === 'production') throw new Error('JWT_SECRET is required');

@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { HttpModule } from '@nestjs/axios';
 import { KintoneApiService } from './kintone-api.service';
 import { KintoneController } from './kintone.controller';
@@ -8,7 +8,8 @@ import { AuthModule } from '../auth/auth.module';
 
 @Module({
   // OrgAccessService / InternalStaffGuard を DI するため AuthModule を import
-  imports: [HttpModule, DataHealthModule, PrismaModule, AuthModule],
+  // AuthModule → MfModule → KintoneModule → AuthModule の循環参照を回避
+  imports: [HttpModule, DataHealthModule, PrismaModule, forwardRef(() => AuthModule)],
   controllers: [KintoneController],
   providers: [KintoneApiService],
   exports: [KintoneApiService],
