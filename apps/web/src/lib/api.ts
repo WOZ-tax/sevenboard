@@ -536,6 +536,19 @@ export const api = {
   mfOAuth: {
     getAuthUrl: (orgId: string) =>
       apiFetch<{ authUrl: string }>(`/auth/mf/authorize?orgId=${orgId}`),
+    refresh: (orgId: string) =>
+      apiFetch<{ refreshed: true; expiresAt: string; lastRefreshedAt: string }>(
+        `/auth/mf/refresh?orgId=${orgId}`,
+        { method: 'POST' },
+      ),
+    getStatus: (orgId: string) =>
+      apiFetch<{
+        connected: boolean;
+        expiresAt?: string | null;
+        lastRefreshedAt?: string | null;
+        lastSyncAt?: string | null;
+        syncStatus?: string;
+      }>(`/auth/mf/status?orgId=${orgId}`),
   },
 
   // === Integrations (データ連携) ===

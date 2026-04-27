@@ -89,27 +89,41 @@ function formatDateTime(iso: string | null): string {
 function IntegrationCard({
   provider,
   status,
+  mfStatus,
   onConnect,
   onDisconnect,
   onSync,
+  onRefreshToken,
   isSyncing,
   isConnecting,
   isDisconnecting,
+  isRefreshingToken,
 }: {
   provider: string;
   status: IntegrationStatus | undefined;
+  mfStatus?: {
+    expiresAt?: string | null;
+    lastRefreshedAt?: string | null;
+  };
   onConnect: () => void;
   onDisconnect: () => void;
   onSync: () => void;
+  onRefreshToken?: () => void;
   isSyncing: boolean;
   isConnecting: boolean;
   isDisconnecting: boolean;
+  isRefreshingToken?: boolean;
 }) {
   const meta = PROVIDER_META[provider] || { name: provider, description: "" };
   const connected = status?.isConnected ?? false;
   const syncStatus = status?.syncStatus ?? "NEVER";
   const lastSyncAt = status?.lastSyncAt ?? null;
-  const isBusy = isSyncing || isConnecting || isDisconnecting;
+  const isBusy = isSyncing || isConnecting || isDisconnecting || !!isRefreshingToken;
+
+  // 期限が 5 分以内なら警告色で表示（factory-hybrid-v2 と同仕様）
+  const expiresAtMs = mfStatus?.expiresAt ? new Date(mfStatus.expiresAt).getTime() : null;
+  const expiresSoon =
+    expiresAtMs != null && expiresAtMs - Date.now() < 5 * 60 * 1000;
 
   const badgeNode = (() => {
     if (isSyncing || syncStatus === "IN_PROGRESS") {
@@ -149,6 +163,22 @@ function IntegrationCard({
             最終同期: {formatDateTime(lastSyncAt)}
           </div>
         )}
+        {connected && mfStatus?.expiresAt && (
+          <div
+            className={cn(
+              "mt-0.5 text-xs",
+              expiresSoon ? "text-amber-700" : "text-muted-foreground",
+            )}
+          >
+            トークン有効期限: {formatDateTime(mfStatus.expiresAt)}
+            {expiresSoon && "（もうすぐ失効）"}
+          </div>
+        )}
+        {connected && mfStatus?.lastRefreshedAt && (
+          <div className="mt-0.5 text-xs text-muted-foreground">
+            トークン最終更新: {formatDateTime(mfStatus.lastRefreshedAt)}
+          </div>
+        )}
         {connected && syncStatus === "FAILED" && (
           <div className="mt-0.5 text-xs text-red-600">
             同期に失敗しました。再実行してください。
@@ -163,6 +193,22 @@ function IntegrationCard({
               {isSyncing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
               <span className="ml-1">再同期</span>
             </Button>
+            {onRefreshToken && (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={isBusy}
+                onClick={onRefreshToken}
+                title="既存の refresh_token を使って access_token を更新（OAuth 再認可は不要）"
+              >
+                {isRefreshingToken ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-3.5 w-3.5" />
+                )}
+                <span className="ml-1">トークン更新</span>
+              </Button>
+            )}
             <Button variant="destructive" size="sm" disabled={isBusy} onClick={onDisconnect}>
               {isDisconnecting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Unlink className="h-3.5 w-3.5" />}
               <span className="ml-1">解除</span>
@@ -339,6 +385,33 @@ export default function SettingsPage() {
     },
   });
 
+  // MF Cloud のトークン期限・最終更新を取得（接続済みの場合のみ）。
+  // factory-hybrid-v2 と同仕様で IntegrationCard 内に表示する。
+  const mfTokenStatusQuery = useQuery({
+    queryKey: ["mf-token-status", orgId],
+    queryFn: () => api.mfOAuth.getStatus(orgId),
+    enabled: !!orgId,
+    staleTime: 60 * 1000,
+    refetchOnWindowFocus: false,
+  });
+
+  // 「トークン更新」ボタン用 mutation。失敗時は connectError バナーで通知。
+  const refreshTokenMutation = useMutation({
+    mutationFn: () => api.mfOAuth.refresh(orgId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["mf-token-status", orgId] });
+      queryClient.invalidateQueries({ queryKey: ["integrations", orgId] });
+      setConnectError(null);
+    },
+    onError: (err) => {
+      const message =
+        err instanceof Error && err.message
+          ? err.message
+          : "MF Cloud のトークン更新に失敗しました。再接続が必要かもしれません。";
+      setConnectError({ provider: "MF_CLOUD", message });
+    },
+  });
+
   const toggleNotification = (id: string) => {
     setNotifications((prev) =>
       prev.map((n) => (n.id === id ? { ...n, enabled: !n.enabled } : n))
@@ -443,19 +516,39 @@ export default function SettingsPage() {
               </div>
             )}
             <div className="space-y-3">
-              {ALL_PROVIDERS.map((provider) => (
-                <IntegrationCard
-                  key={provider}
-                  provider={provider}
-                  status={statusMap.get(provider)}
-                  onConnect={() => handleConnect(provider)}
-                  onDisconnect={() => disconnectMutation.mutate(provider)}
-                  onSync={() => syncMutation.mutate(provider)}
-                  isSyncing={syncingProviders.has(provider)}
-                  isConnecting={connectingProviders.has(provider)}
-                  isDisconnecting={disconnectingProviders.has(provider)}
-                />
-              ))}
+              {ALL_PROVIDERS.map((provider) => {
+                const isMfCloud = provider === "MF_CLOUD";
+                const mfTokenStatus =
+                  isMfCloud && mfTokenStatusQuery.data?.connected
+                    ? {
+                        expiresAt: mfTokenStatusQuery.data.expiresAt ?? null,
+                        lastRefreshedAt:
+                          mfTokenStatusQuery.data.lastRefreshedAt ?? null,
+                      }
+                    : undefined;
+                return (
+                  <IntegrationCard
+                    key={provider}
+                    provider={provider}
+                    status={statusMap.get(provider)}
+                    mfStatus={mfTokenStatus}
+                    onConnect={() => handleConnect(provider)}
+                    onDisconnect={() => disconnectMutation.mutate(provider)}
+                    onSync={() => syncMutation.mutate(provider)}
+                    onRefreshToken={
+                      isMfCloud
+                        ? () => refreshTokenMutation.mutate()
+                        : undefined
+                    }
+                    isSyncing={syncingProviders.has(provider)}
+                    isConnecting={connectingProviders.has(provider)}
+                    isDisconnecting={disconnectingProviders.has(provider)}
+                    isRefreshingToken={
+                      isMfCloud && refreshTokenMutation.isPending
+                    }
+                  />
+                );
+              })}
             </div>
           </CardContent>
         </Card>

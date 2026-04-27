@@ -2,6 +2,7 @@ import {
   Controller,
   ForbiddenException,
   Get,
+  Post,
   Query,
   Req,
   Res,
@@ -17,6 +18,7 @@ import { JwtAuthGuard } from './jwt-auth.guard';
 import { PrismaService } from '../prisma/prisma.service';
 import { encryptIfAvailable } from '../common/crypto.util';
 import { isInternalAdvisor, isInternalOwner } from './staff.helpers';
+import { MfApiService } from '../mf/mf-api.service';
 import {
   createMfOAuthState,
   verifyMfOAuthState,
@@ -29,6 +31,7 @@ export class MfOAuthController {
   constructor(
     private httpService: HttpService,
     private prisma: PrismaService,
+    private mfApiService: MfApiService,
   ) {}
 
   /**
@@ -107,6 +110,58 @@ export class MfOAuthController {
 
     return {
       authUrl: `https://api.biz.moneyforward.com/authorize?${params}`,
+    };
+  }
+
+  /**
+   * 手動トークン更新。Settings 画面の「トークン更新」ボタンから呼ばれる。
+   *
+   * Factory Hybrid v2 と同仕様: 既存 refresh_token を使って access_token を更新し、
+   * 新しい expires_at を返す。refresh_token が revoke 済み等で更新失敗した場合は
+   * 503 (要再接続) を返す。OAuth flow をやり直したい場合は /authorize を使う。
+   */
+  @Post('refresh')
+  @UseGuards(JwtAuthGuard)
+  async refresh(
+    @Req() req: Request,
+    @Query('orgId') orgId: string,
+  ) {
+    if (!orgId) {
+      throw new BadRequestException('orgId is required');
+    }
+    const user = req.user as { id: string; role: string; orgId: string | null };
+    await this.assertOrgAccess(user, orgId);
+    return this.mfApiService.manualTokenRefresh(orgId);
+  }
+
+  /**
+   * MF Cloud 接続ステータス（トークン期限・最終更新時刻）を返す。
+   * Settings 画面で接続済みカードに表示する目的。
+   */
+  @Get('status')
+  @UseGuards(JwtAuthGuard)
+  async status(
+    @Req() req: Request,
+    @Query('orgId') orgId: string,
+  ) {
+    if (!orgId) {
+      throw new BadRequestException('orgId is required');
+    }
+    const user = req.user as { id: string; role: string; orgId: string | null };
+    await this.assertOrgAccess(user, orgId);
+
+    const integration = await this.prisma.integration.findUnique({
+      where: { orgId_provider: { orgId, provider: 'MF_CLOUD' } },
+    });
+    if (!integration || !integration.accessToken) {
+      return { connected: false };
+    }
+    return {
+      connected: true,
+      expiresAt: integration.tokenExpiry?.toISOString() ?? null,
+      lastRefreshedAt: integration.updatedAt?.toISOString() ?? null,
+      lastSyncAt: integration.lastSyncAt?.toISOString() ?? null,
+      syncStatus: integration.syncStatus,
     };
   }
 

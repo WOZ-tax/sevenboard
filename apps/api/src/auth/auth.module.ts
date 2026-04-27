@@ -7,11 +7,13 @@ import { AuthController } from './auth.controller';
 import { MfOAuthController } from './mf-oauth.controller';
 import { JwtStrategy } from './jwt.strategy';
 import { OrgAccessService } from './org-access.service';
+import { MfModule } from '../mf/mf.module';
 
 @Module({
   imports: [
     PassportModule,
     HttpModule.register({ timeout: 30000 }),
+    MfModule,
     JwtModule.register({
       secret: process.env.JWT_SECRET || (() => {
         if (process.env.NODE_ENV === 'production') throw new Error('JWT_SECRET is required');

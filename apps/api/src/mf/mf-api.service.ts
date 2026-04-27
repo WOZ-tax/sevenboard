@@ -100,6 +100,49 @@ export class MfApiService {
     }
   }
 
+  /**
+   * Settings 画面の「トークン更新」ボタンから手動でトリガされる token refresh。
+   * Factory Hybrid v2 と同じ仕様で、refresh_token を使って access_token を再取得して
+   * DB を更新する。期限切れ前のメンテ用。失敗時は 401 (要再接続) を返す。
+   *
+   * 並列で MCP リクエスト中の自動 refresh と競合しないよう、内部で getAccessToken の
+   * tokenInFlight 共有を使うのではなく、強制的に新しい refresh を走らせる。
+   */
+  async manualTokenRefresh(orgId: string): Promise<{
+    refreshed: true;
+    expiresAt: string;
+    lastRefreshedAt: string;
+  }> {
+    const integration = await this.prisma.integration.findUnique({
+      where: { orgId_provider: { orgId, provider: 'MF_CLOUD' } },
+    });
+    if (!integration || !integration.accessToken) {
+      throw new ServiceUnavailableException(
+        'MoneyForward not connected. Please connect from Settings.',
+      );
+    }
+    const decryptedRefresh = integration.refreshToken
+      ? decryptIfAvailable(integration.refreshToken)
+      : null;
+    if (!decryptedRefresh) {
+      throw new ServiceUnavailableException(
+        'No refresh token. Please reconnect from Settings.',
+      );
+    }
+
+    // 既存の refreshToken (private) を呼んで DB 更新まで委譲
+    await this.refreshToken(orgId, decryptedRefresh);
+
+    const updated = await this.prisma.integration.findUnique({
+      where: { orgId_provider: { orgId, provider: 'MF_CLOUD' } },
+    });
+    return {
+      refreshed: true,
+      expiresAt: updated?.tokenExpiry?.toISOString() ?? '',
+      lastRefreshedAt: updated?.updatedAt?.toISOString() ?? new Date().toISOString(),
+    };
+  }
+
   private async refreshToken(
     orgId: string,
     refreshToken: string | null,
