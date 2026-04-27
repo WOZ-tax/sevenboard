@@ -78,28 +78,25 @@ export class MastersService {
         }
         results.push({ name: u.name, updated: true });
       } else {
-        // upsert にして orgId+code の race condition と P2002 を回避。
-        // category は MF レポート由来の科目（MF 側で決まる）なので、ここでは
-        // ADMIN_EXPENSE をプレースホルダとして格納。実際の category は MF 同期で
-        // 上書きされる想定（このレコードは override 用の最低限の seed）。
-        // id は randomUUID() で明示的に生成。Prisma 6.19 では @default(uuid())
-        // が UUID v7 を生成しようとして Postgres @db.Uuid に書き込む際に format
-        // mismatch (P2023 "Error creating UUID, invalid character") を起こすため。
-        await this.prisma.accountMaster.upsert({
-          where: { orgId_code: { orgId, code: u.name } },
-          create: {
-            id: randomUUID(),
-            orgId,
-            code: u.name,
-            name: u.name,
-            category: AccountCategory.ADMIN_EXPENSE,
-            isVariableCost: u.isVariableCost,
-            displayOrder: 0,
-          },
-          update: {
-            isVariableCost: u.isVariableCost,
-          },
-        });
+        // Prisma 6.19 系の UUID handler バグ（P2023 Error creating UUID）回避のため
+        // raw SQL で直接 upsert する。Postgres 側の gen_random_uuid() を id に使い、
+        // ON CONFLICT で is_variable_cost のみ更新する。
+        await this.prisma.$executeRaw`
+          INSERT INTO account_masters
+            (id, org_id, code, name, category, is_variable_cost, display_order, created_at)
+          VALUES (
+            gen_random_uuid(),
+            ${orgId}::uuid,
+            ${u.name},
+            ${u.name},
+            'ADMIN_EXPENSE'::"AccountCategory",
+            ${u.isVariableCost},
+            0,
+            NOW()
+          )
+          ON CONFLICT (org_id, code)
+          DO UPDATE SET is_variable_cost = EXCLUDED.is_variable_cost
+        `;
         results.push({ name: u.name, updated: true });
       }
     }
