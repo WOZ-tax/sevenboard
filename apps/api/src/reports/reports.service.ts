@@ -245,8 +245,14 @@ export class ReportsService {
     const fixedCosts: { name: string; amount: number }[] = [];
 
     for (const leaf of cogsLeaves) {
-      const amount = this.val(leaf, TB_COL.CLOSING);
+      let amount = this.val(leaf, TB_COL.CLOSING);
       if (amount === 0) continue;
+      // 期末棚卸高（商品/製品/材料/仕掛品など）は会計上「売上原価から控除」されるため、
+      // MF レポートが正値で返してきても変動費合計には負値で加算する。
+      // これをやらないと売上原価が二重に膨らみ、限界利益が大きく負に振れる。
+      if (/^期末.*棚卸高$/.test(leaf.name)) {
+        amount = -amount;
+      }
       const override = overrideMap.get(leaf.name);
       const isVariable = override !== undefined ? override : true;
       (isVariable ? variableCosts : fixedCosts).push({ name: leaf.name, amount });
