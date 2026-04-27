@@ -27,6 +27,7 @@ import {
   Save,
   Check,
   HelpCircle,
+  AlertTriangle,
 } from "lucide-react";
 import {
   Tooltip as InfoTooltip,
@@ -522,7 +523,42 @@ export default function VariableCostPage() {
 
         <PeriodSegmentControl />
 
-        {mfNotConnected ? <MfEmptyState /> : vcQuery.isLoading ? <VariableCostSkeleton /> : <>
+        {mfNotConnected ? (
+          <MfEmptyState />
+        ) : vcQuery.isLoading ? (
+          <VariableCostSkeleton />
+        ) : data.revenue <= 0 ? (
+          <Card className="border-amber-300 bg-amber-50">
+            <CardContent className="p-6 text-center">
+              <AlertTriangle className="mx-auto mb-2 h-8 w-8 text-amber-600" />
+              <p className="text-sm font-semibold text-amber-900">
+                売上データがありません
+              </p>
+              <p className="mt-1 text-xs text-amber-800">
+                対象期間の売上が 0 円のため、変動損益分析を表示できません。
+                MF Cloud の同期状況、または対象月の売上計上をご確認ください。
+              </p>
+            </CardContent>
+          </Card>
+        ) : marginalProfit <= 0 ? (
+          <Card className="border-red-300 bg-red-50">
+            <CardContent className="p-6 text-center">
+              <AlertTriangle className="mx-auto mb-2 h-8 w-8 text-red-600" />
+              <p className="text-sm font-semibold text-red-900">
+                変動費が売上を超えています
+              </p>
+              <p className="mt-2 text-xs text-red-800">
+                売上 {formatYen(data.revenue)} に対し変動費 {formatYen(totalVariableCost)} と分類されており、
+                限界利益が負の値となるため損益分岐点を計算できません。
+              </p>
+              <p className="mt-2 text-xs text-red-800">
+                売上原価の科目（仕入高 / 棚卸高など）が誤って二重計上されているか、
+                変動費／固定費の分類設定が必要な可能性があります。下記のリストから固定費に再分類してみてください。
+              </p>
+            </CardContent>
+          </Card>
+        ) : null}
+        {!mfNotConnected && !vcQuery.isLoading && data.revenue > 0 && marginalProfit > 0 && <>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
           {/* 限界利益: 固定費を吸収できる体質かを判定（限界利益 vs 固定費） */}
           <Card className={cn("border-l-4", zoneBorderClass[mpZone])}>
