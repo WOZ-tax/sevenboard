@@ -65,28 +65,29 @@ export class MastersService {
     // Prisma 6.19 の UUID 列 deserialization バグを完全回避するため、
     // findFirst / findUnique 系は使わず、最初から raw SQL の upsert で済ませる。
     // ON CONFLICT (org_id, code) で既存レコードがあれば is_variable_cost のみ更新。
+    // Prisma 6.19 の UUID parameter binding に v7 形式を期待するバグがあるため、
+    // orgId は SQL 文字列に直接埋め込む（事前に format 検証して injection を遮断）。
+    if (!/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(orgId)) {
+      throw new BadRequestException('Invalid orgId format');
+    }
     let count = 0;
     for (const u of updates) {
       if (!u.name || typeof u.isVariableCost !== 'boolean') continue;
-      // executeRawUnsafe + positional parameters。Prisma template literal は UUID
-      // 型推論で v7 形式を期待してしまう挙動があるため、明示的に Postgres 側で
-      // ::uuid キャストする形にする。
       await this.prisma.$executeRawUnsafe(
         `INSERT INTO account_masters
           (id, org_id, code, name, category, is_variable_cost, display_order, created_at)
         VALUES (
           gen_random_uuid(),
-          $1::uuid,
-          $2,
-          $2,
+          '${orgId}'::uuid,
+          $1,
+          $1,
           'ADMIN_EXPENSE'::"AccountCategory",
-          $3,
+          $2,
           0,
           NOW()
         )
         ON CONFLICT (org_id, code)
         DO UPDATE SET is_variable_cost = EXCLUDED.is_variable_cost`,
-        orgId,
         u.name,
         u.isVariableCost,
       );
