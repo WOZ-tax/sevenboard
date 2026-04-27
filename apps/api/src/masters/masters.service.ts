@@ -1,4 +1,5 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import { AccountCategory } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateAccountDto } from './dto/create-account.dto';
 import { UpdateAccountDto } from './dto/update-account.dto';
@@ -76,14 +77,22 @@ export class MastersService {
         }
         results.push({ name: u.name, updated: true });
       } else {
-        await this.prisma.accountMaster.create({
-          data: {
+        // upsert にして orgId+code の race condition と P2002 を回避。
+        // category は MF レポート由来の科目（MF 側で決まる）なので、ここでは
+        // ADMIN_EXPENSE をプレースホルダとして格納。実際の category は MF 同期で
+        // 上書きされる想定（このレコードは override 用の最低限の seed）。
+        await this.prisma.accountMaster.upsert({
+          where: { orgId_code: { orgId, code: u.name } },
+          create: {
             orgId,
-            code: u.name, // MFのname を unique 制約用にコードとして流用
+            code: u.name,
             name: u.name,
-            category: 'ADMIN_EXPENSE' as any,
+            category: AccountCategory.ADMIN_EXPENSE,
             isVariableCost: u.isVariableCost,
             displayOrder: 0,
+          },
+          update: {
+            isVariableCost: u.isVariableCost,
           },
         });
         results.push({ name: u.name, updated: true });
