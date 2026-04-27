@@ -62,45 +62,31 @@ export class MastersService {
     orgId: string,
     updates: Array<{ name: string; isVariableCost: boolean }>,
   ) {
-    const results: Array<{ name: string; updated: boolean }> = [];
+    // Prisma 6.19 の UUID 列 deserialization バグを完全回避するため、
+    // findFirst / findUnique 系は使わず、最初から raw SQL の upsert で済ませる。
+    // ON CONFLICT (org_id, code) で既存レコードがあれば is_variable_cost のみ更新。
+    let count = 0;
     for (const u of updates) {
       if (!u.name || typeof u.isVariableCost !== 'boolean') continue;
-      const existing = await this.prisma.accountMaster.findFirst({
-        where: { orgId, name: u.name },
-        select: { id: true, isVariableCost: true },
-      });
-      if (existing) {
-        if (existing.isVariableCost !== u.isVariableCost) {
-          await this.prisma.accountMaster.update({
-            where: { id: existing.id },
-            data: { isVariableCost: u.isVariableCost },
-          });
-        }
-        results.push({ name: u.name, updated: true });
-      } else {
-        // Prisma 6.19 系の UUID handler バグ（P2023 Error creating UUID）回避のため
-        // raw SQL で直接 upsert する。Postgres 側の gen_random_uuid() を id に使い、
-        // ON CONFLICT で is_variable_cost のみ更新する。
-        await this.prisma.$executeRaw`
-          INSERT INTO account_masters
-            (id, org_id, code, name, category, is_variable_cost, display_order, created_at)
-          VALUES (
-            gen_random_uuid(),
-            ${orgId}::uuid,
-            ${u.name},
-            ${u.name},
-            'ADMIN_EXPENSE'::"AccountCategory",
-            ${u.isVariableCost},
-            0,
-            NOW()
-          )
-          ON CONFLICT (org_id, code)
-          DO UPDATE SET is_variable_cost = EXCLUDED.is_variable_cost
-        `;
-        results.push({ name: u.name, updated: true });
-      }
+      await this.prisma.$executeRaw`
+        INSERT INTO account_masters
+          (id, org_id, code, name, category, is_variable_cost, display_order, created_at)
+        VALUES (
+          gen_random_uuid(),
+          ${orgId}::uuid,
+          ${u.name},
+          ${u.name},
+          'ADMIN_EXPENSE'::"AccountCategory",
+          ${u.isVariableCost},
+          0,
+          NOW()
+        )
+        ON CONFLICT (org_id, code)
+        DO UPDATE SET is_variable_cost = EXCLUDED.is_variable_cost
+      `;
+      count += 1;
     }
-    return { ok: true, count: results.length };
+    return { ok: true, count };
   }
 
   async deleteAccount(orgId: string, accountId: string) {
