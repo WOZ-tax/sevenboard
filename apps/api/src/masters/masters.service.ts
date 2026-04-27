@@ -65,9 +65,8 @@ export class MastersService {
     orgId: string,
     updates: Array<{ name: string; isVariableCost: boolean }>,
   ) {
-    // Prisma の query engine が account_masters への UPSERT で UUID parse 失敗
-    // (P2023) を出すため、PostgREST 経由 (supabase-js) で書き込む。
-    // 既知の Prisma バグ回避策。詳細は memory/feedback_sevenboard_prisma_uuid_bug.md。
+    // eslint-disable-next-line no-console
+    console.log('[bulkUpdate] start orgId=', orgId, 'updates=', updates.length);
     if (!/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(orgId)) {
       throw new BadRequestException('Invalid orgId format');
     }
@@ -81,18 +80,30 @@ export class MastersService {
         is_variable_cost: u.isVariableCost,
         display_order: 0,
       }));
+    // eslint-disable-next-line no-console
+    console.log('[bulkUpdate] rows count=', rows.length);
     if (rows.length === 0) {
       return { ok: true, count: 0 };
     }
-    const { error } = await this.supabase.client
-      .from('account_masters')
-      .upsert(rows, { onConflict: 'org_id,code' });
-    if (error) {
-      throw new InternalServerErrorException(
-        `Supabase upsert failed: ${error.message}`,
-      );
+    // eslint-disable-next-line no-console
+    console.log('[bulkUpdate] supabase client exists?', !!this.supabase, 'client property?', !!this.supabase?.client);
+    try {
+      const { error } = await this.supabase.client
+        .from('account_masters')
+        .upsert(rows, { onConflict: 'org_id,code' });
+      // eslint-disable-next-line no-console
+      console.log('[bulkUpdate] supabase upsert done, error=', error);
+      if (error) {
+        throw new InternalServerErrorException(
+          `Supabase upsert failed: ${error.message}`,
+        );
+      }
+      return { ok: true, count: rows.length };
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('[bulkUpdate] threw', (e as Error)?.message, (e as Error)?.stack);
+      throw e;
     }
-    return { ok: true, count: rows.length };
   }
 
   async deleteAccount(orgId: string, accountId: string) {
