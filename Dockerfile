@@ -9,9 +9,9 @@ COPY apps/web/package.json apps/web/
 COPY packages/database/package.json packages/database/
 COPY packages/shared/package.json packages/shared/
 
-# Install all deps. Prisma の postinstall で query engine binary を取りに行くので
-# --ignore-scripts は使わない（6.6 系では skip すると `prisma` コマンドが解決できない）。
-RUN npm install
+# Install all deps including devDependencies (Prisma CLI is a devDep).
+# --include=dev で Cloud Build 環境の NODE_ENV に依存せず確実に dev も入れる。
+RUN npm install --include=dev
 
 # Copy source (API + packages only, skip web source)
 COPY packages/ packages/
