@@ -24,6 +24,8 @@ RUN chmod +x scripts/start.sh
 # globally install prisma to ensure CLI is available regardless of npm workspace hoisting
 RUN npm install -g prisma@6.6.0
 RUN prisma generate --schema=packages/database/prisma/schema.prisma
+# generated client を apps/api/node_modules にコピー（apps/api からの import を解決するため）
+RUN node apps/api/scripts/copy-prisma-client.js
 RUN npm run build -w apps/api
 
 ENV NODE_ENV=production
