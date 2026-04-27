@@ -207,9 +207,18 @@ function LoanPageInner() {
     }
   }, [scenarios]);
 
+  const isScenarioReady = useCallback((scenario: LoanScenario) => {
+    return (
+      Number(scenario.principal) > 0 &&
+      Number(scenario.interestRate) >= 0 &&
+      Number(scenario.termMonths) > 0
+    );
+  }, []);
+
   const handleSimulate = useCallback(
     async (scenario: LoanScenario) => {
       if (!orgId) return;
+      if (!isScenarioReady(scenario)) return;
       updateScenario(scenario.id, { loading: true });
       try {
         const res = await api.simulation.loan(orgId, {
@@ -338,7 +347,10 @@ function LoanPageInner() {
                 size="sm"
                 className="gap-2 bg-[var(--color-primary)] text-white hover:bg-[var(--color-primary-hover)]"
                 onClick={handleSimulateAll}
-                disabled={scenarios.some((s) => s.loading)}
+                disabled={
+                  scenarios.some((s) => s.loading) ||
+                  !scenarios.every(isScenarioReady)
+                }
               >
                 全シナリオ実行
               </Button>
@@ -472,7 +484,12 @@ function LoanPageInner() {
                     <Button
                       className="w-full gap-2 bg-[var(--color-primary)] text-white hover:bg-[var(--color-primary-hover)]"
                       onClick={() => handleSimulate(scenario)}
-                      disabled={scenario.loading}
+                      disabled={scenario.loading || !isScenarioReady(scenario)}
+                      title={
+                        !isScenarioReady(scenario)
+                          ? "借入額・利率・期間を入力してください"
+                          : undefined
+                      }
                     >
                       {scenario.loading ? "計算中..." : "実行"}
                     </Button>
