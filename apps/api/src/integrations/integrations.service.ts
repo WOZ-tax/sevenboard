@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  NotImplementedException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { encryptIfAvailable, decryptIfAvailable } from '../common/crypto.util';
 
@@ -43,21 +47,12 @@ export class IntegrationsService {
       return { provider, authUrl: null };
     }
 
-    // その他: OAuthフロー（MF_CLOUDはMfOAuthControllerで処理）
-    await this.prisma.integration.upsert({
-      where: { orgId_provider: { orgId, provider: providerEnum } },
-      create: {
-        orgId,
-        provider: providerEnum,
-        syncStatus: 'NEVER',
-      },
-      update: {},
-    });
-
-    return {
-      authUrl: `https://api.example.com/oauth/authorize?provider=${provider}`,
-      provider,
-    };
+    // MF_CLOUD は MfOAuthController で処理。それ以外 (FREEE 等) は未実装。
+    // 旧実装は example.com の偽 authUrl を返していたが本番に出ては不味いので
+    // 明示的に NotImplemented を返す。
+    throw new NotImplementedException(
+      `${provider} の接続機能はまだ実装されていません`,
+    );
   }
 
   async disconnect(orgId: string, provider: string) {

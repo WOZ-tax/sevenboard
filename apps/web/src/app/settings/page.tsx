@@ -66,17 +66,14 @@ const PROVIDER_META: Record<string, { name: string; description: string }> = {
     name: "MoneyForward クラウド会計",
     description: "クラウド会計データの自動連携",
   },
-  FREEE: {
-    name: "freee 会計",
-    description: "会計・人事労務データの連携",
-  },
   BOOKKEEPING_PLUGIN: {
     name: "kintone",
     description: "業務アプリとのデータ連携",
   },
 };
 
-const ALL_PROVIDERS = ["MF_CLOUD", "FREEE", "BOOKKEEPING_PLUGIN"];
+// FREEE は接続機能未実装なので一時的に除外（本番に偽 authUrl が出ないように）
+const ALL_PROVIDERS = ["MF_CLOUD", "BOOKKEEPING_PLUGIN"];
 
 
 function formatDateTime(iso: string | null): string {
