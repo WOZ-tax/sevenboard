@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { useIsClient } from "@/hooks/use-is-client";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -24,7 +24,6 @@ import {
   Activity,
   Target,
   Gauge,
-  Save,
   Check,
   HelpCircle,
   AlertTriangle,
@@ -35,12 +34,9 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { formatYen } from "@/lib/format";
-import { api } from "@/lib/api";
 import { useCurrentOrg } from "@/contexts/current-org";
-import { useAuthStore } from "@/lib/auth";
 import {
   ComposedChart,
   Line,
@@ -203,12 +199,13 @@ export default function VariableCostPage() {
   const office = useMfOffice();
   const periodLabel = getPeriodLabel(fiscalYear, month, periods);
   const orgId = useCurrentOrg().currentOrgId ?? "";
-  const queryClient = useQueryClient();
 
   // 会計期首月と累計の経過月数（MF会計期間から動的取得）
-  const fyStartDate = (office.data as any)?.accounting_periods?.find(
-    (p: any) => p.fiscal_year === fiscalYear,
-  )?.start_date ?? (office.data as any)?.accounting_periods?.[0]?.start_date;
+  type AccountingPeriod = { fiscal_year?: number; start_date?: string };
+  const officeData = office.data as { accounting_periods?: AccountingPeriod[] } | undefined;
+  const fyStartDate = officeData?.accounting_periods?.find(
+    (p) => p.fiscal_year === fiscalYear,
+  )?.start_date ?? officeData?.accounting_periods?.[0]?.start_date;
   const fyStartMonth = fyStartDate ? Number(String(fyStartDate).slice(5, 7)) : 1;
   const isAllPeriod = month === undefined;
   const endMonth = month ?? ((fyStartMonth + 11 - 1) % 12) + 1; // 期首月の11ヶ月後 = 期末月
@@ -250,7 +247,27 @@ export default function VariableCostPage() {
   }, [sourceData.variableCosts, sourceData.fixedCosts]);
 
   // カスタム分類: 未設定(undefined)の場合はデフォルト分類を使用
-  const [customClassification, setCustomClassification] = useState<Record<string, boolean>>({});
+  // localStorage に orgId スコープで永続化（リロード後も保持）。
+  // 本来は API 経由で DB に保存したいが、Prisma 6.19 の UUID 互換性問題で
+  // bulk update が常に P2023 で失敗するため、当面はブラウザ単位で持つ。
+  const storageKey = `sevenboard-vc-classification-${orgId}`;
+  const [customClassification, setCustomClassification] = useState<Record<string, boolean>>(() => {
+    if (typeof window === "undefined" || !orgId) return {};
+    try {
+      const raw = window.localStorage.getItem(storageKey);
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  });
+  useEffect(() => {
+    if (typeof window === "undefined" || !orgId) return;
+    if (Object.keys(customClassification).length === 0) {
+      window.localStorage.removeItem(storageKey);
+    } else {
+      window.localStorage.setItem(storageKey, JSON.stringify(customClassification));
+    }
+  }, [customClassification, orgId, storageKey]);
 
   const isVariable = useCallback(
     (name: string): boolean => {
@@ -278,22 +295,9 @@ export default function VariableCostPage() {
 
   const hasCustomChanges = Object.keys(customClassification).length > 0;
 
-  // 永続化: AccountMaster に bulk PUT。成功したら variable-cost を invalidate して再取得 → デフォルトに反映
-  const saveMutation = useMutation({
-    mutationFn: () => {
-      const updates = Object.entries(customClassification).map(([name, isVariable]) => ({
-        name,
-        isVariableCost: isVariable,
-      }));
-      return api.masters.bulkUpdateVariableCostFlags(orgId, updates);
-    },
-    onSuccess: () => {
-      // variable-cost のキャッシュを破棄 → API再取得 → 新分類が default として反映される
-      queryClient.invalidateQueries({ queryKey: ["variable-cost", orgId] });
-      // セッションのカスタムを空にしておく(再取得後の defaultClassification が更新後の値になるため)
-      setCustomClassification({});
-    },
-  });
+  // 分類変更は customClassification → localStorage に自動保存される (上の useEffect)。
+  // saveMutation は廃止 (Prisma 6.19 の UUID 互換性問題で bulk PUT が動かないため)。
+  // ブラウザ単位の永続化のみ。クロスデバイス同期は API 修正後に対応予定。
 
   // 全科目リスト（変動費・固定費を統合）
   const allItems = useMemo(
@@ -1099,30 +1103,18 @@ export default function VariableCostPage() {
               <div className="flex items-center gap-2">
                 {hasCustomChanges && (
                   <>
+                    <span className="inline-flex items-center gap-1 text-[10px] text-[var(--color-success)]">
+                      <Check className="h-3.5 w-3.5" />
+                      自動保存済み（{Object.keys(customClassification).length}件）
+                    </span>
                     <Button
                       variant="ghost"
                       size="sm"
                       className="h-7 gap-1.5 text-xs text-muted-foreground"
                       onClick={resetClassification}
-                      disabled={saveMutation.isPending}
                     >
                       <RotateCcw className="h-3.5 w-3.5" />
                       取消
-                    </Button>
-                    <Button
-                      size="sm"
-                      className="h-7 gap-1.5 bg-[var(--color-primary)] text-xs text-white hover:bg-[var(--color-primary-hover)]"
-                      onClick={() => saveMutation.mutate()}
-                      disabled={saveMutation.isPending || !orgId}
-                    >
-                      {saveMutation.isSuccess && !saveMutation.isPending ? (
-                        <Check className="h-3.5 w-3.5" />
-                      ) : (
-                        <Save className="h-3.5 w-3.5" />
-                      )}
-                      {saveMutation.isPending
-                        ? "保存中..."
-                        : `分類を保存（${Object.keys(customClassification).length}件）`}
                     </Button>
                   </>
                 )}
@@ -1132,13 +1124,8 @@ export default function VariableCostPage() {
               💡 各行の <span className="inline-flex items-center rounded border border-[var(--color-primary)]/40 bg-[var(--color-primary)]/10 px-1.5 py-0 text-[10px] font-semibold text-[var(--color-primary)]">変動</span>
               {" "}/{" "}
               <span className="inline-flex items-center rounded border border-gray-400 bg-gray-100 px-1.5 py-0 text-[10px] font-semibold text-gray-700">固定</span>
-              {" "}バッジをクリックすると分類を切替できます。変更したら右上の「分類を保存」で次回以降の自動分類に反映されます。
+              {" "}バッジをクリックすると分類を切替できます。変更はこのブラウザに自動保存され、リロード後も保持されます。
             </p>
-            {saveMutation.isError && (
-              <p className="mt-1 text-xs text-red-600">
-                保存に失敗しました: {String(saveMutation.error)}
-              </p>
-            )}
           </CardHeader>
           <CardContent>
             <div className="overflow-x-auto">
