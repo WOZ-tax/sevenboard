@@ -33,29 +33,48 @@ export class KintoneController {
   ) {}
 
   /**
-   * リクエストの JWT orgId から保有する MF事業者コードを引き、指定 mfCode と一致するか検証する。
-   * 一致しなければ他テナントへの越境アクセスとして Forbidden を投げる。
+   * 指定 mfCode が、リクエスト元 user のアクセス可能 org のどれかに属するかを検証する。
+   *
+   * JWT 分離後の設計に対応:
+   * - 内部スタッフ (owner / advisor) は user.orgId=NULL のため、OrgAccessService で
+   *   accessible org を解決して、その code 群と mfCode を突合する
+   * - 顧問先側ユーザは user.orgId を持つので自社 org との突合のみ
+   * 旧実装は user.orgId を直接参照していたため、内部スタッフが叩くと 403 Forbidden
+   * になるバグがあった。
    */
   private async assertMfCodeBelongsToCaller(
     req: Request,
     mfCode: string,
   ): Promise<void> {
-    const orgId = (req.user as { orgId?: string } | undefined)?.orgId;
-    if (!orgId) {
-      throw new ForbiddenException('Authenticated orgId is required');
+    const user = req.user as {
+      id: string;
+      role: string;
+      orgId: string | null;
+    };
+    const accessible = await this.orgAccess.getAccessibleOrgIds(user);
+
+    if (accessible === 'all') {
+      // 内部 owner は全件 OK。mfCode に該当する org が存在することだけ確認
+      const exists = await this.prisma.organization.findFirst({
+        where: { code: mfCode },
+        select: { id: true },
+      });
+      if (!exists) {
+        throw new ForbiddenException(
+          'No organization with this MF office code',
+        );
+      }
+      return;
     }
-    const org = await this.prisma.organization.findUnique({
-      where: { id: orgId },
-      select: { code: true },
+
+    // 内部 advisor / 顧問先側ユーザは accessible org に該当 code があるかを検証
+    const matched = await this.prisma.organization.findFirst({
+      where: { code: mfCode, id: { in: accessible } },
+      select: { id: true },
     });
-    if (!org?.code) {
+    if (!matched) {
       throw new ForbiddenException(
-        'This organization has no MF office code registered',
-      );
-    }
-    if (org.code !== mfCode) {
-      throw new ForbiddenException(
-        'mfCode does not belong to your organization',
+        'mfCode does not belong to your accessible organizations',
       );
     }
   }
