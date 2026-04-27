@@ -18,6 +18,7 @@ import {
   FileBarChart,
   AlertTriangle,
   RefreshCw,
+  Sparkles,
   TrendingUp,
   Wallet,
   Banknote,
@@ -97,7 +98,10 @@ function filterSections(
 }
 
 export default function AiReportPage() {
-  const { data: aiData, isLoading, refetch, isFetching, error } = useAiSummary();
+  // AI レポート生成は重いコール (数秒〜十数秒)。明示的なボタン押下時だけ fetch する。
+  // トリガー前は KPI / 月次推移 もデータが無いので「AI 分析を実行」ボタンのみ表示。
+  const [aiTriggered, setAiTriggered] = useState(false);
+  const { data: aiData, isLoading, refetch, isFetching, error } = useAiSummary({ enabled: aiTriggered });
   const [focus, setFocus] = useState<FocusValue>("all");
   const mfNotConnected = isMfNotConnected(error);
   const office = useMfOffice();
@@ -154,29 +158,32 @@ export default function AiReportPage() {
           label="対象月（単月）"
         />
 
-        <div className="screen-only">
-          <AgentBanner
-            agent={AGENTS.drafter}
-            status={isLoading || isFetching ? "running" : aiData ? "ok" : "unknown"}
-            detectionCount={risks.length}
-            lastUpdatedAt={aiData?.generatedAt ?? new Date().toISOString()}
-            actions={
-              <CopilotOpenButton
-                agentKey="drafter"
-                mode="execute"
-                seed="顧問向け月次レポートの初稿を、根拠データと信頼度を併記してドラフト化してください。"
-              />
-            }
-          />
-        </div>
+        {!aiTriggered && (
+          <Card className="border-dashed border-[var(--color-secondary)]/40 bg-gradient-to-br from-[#ede7f6]/30 via-white to-white">
+            <CardContent className="flex flex-col items-center gap-3 p-8 text-center">
+              <Sparkles className="h-10 w-10 text-[var(--color-secondary)]" />
+              <div className="space-y-1">
+                <p className="text-base font-semibold text-[var(--color-text-primary)]">
+                  AI CFO レポートを生成
+                </p>
+                <p className="text-xs text-muted-foreground max-w-md">
+                  選択した期間の業績データから、AI が単月 KPI・月次推移・リスク評価・施策提言までを一気にドラフト化します。生成には数秒〜十数秒かかります。
+                </p>
+              </div>
+              <Button
+                onClick={() => setAiTriggered(true)}
+                className="bg-[var(--color-secondary)] text-white hover:bg-[var(--color-secondary)]/90"
+              >
+                <Sparkles className="mr-2 h-4 w-4" />
+                AI 分析を実行
+              </Button>
+            </CardContent>
+          </Card>
+        )}
 
-        <div className="screen-only">
-          <DrafterCard />
-        </div>
-
-        {mfNotConnected ? (
+        {aiTriggered && mfNotConnected ? (
           <MfEmptyState />
-        ) : (
+        ) : aiTriggered ? (
           <>
         {/* 対象月の単月KPI */}
         {aiData?.targetMonthData && (
@@ -464,8 +471,29 @@ export default function AiReportPage() {
             {isFetching ? "生成中..." : "レポート再生成"}
           </Button>
         </div>
+
+        {/* AI エージェント情報（最下段に配置。データセクションを上に置くため後ろ送り） */}
+        <div className="screen-only">
+          <AgentBanner
+            agent={AGENTS.drafter}
+            status={isLoading || isFetching ? "running" : aiData ? "ok" : "unknown"}
+            detectionCount={risks.length}
+            lastUpdatedAt={aiData?.generatedAt ?? new Date().toISOString()}
+            actions={
+              <CopilotOpenButton
+                agentKey="drafter"
+                mode="execute"
+                seed="顧問向け月次レポートの初稿を、根拠データと信頼度を併記してドラフト化してください。"
+              />
+            }
+          />
+        </div>
+
+        <div className="screen-only">
+          <DrafterCard />
+        </div>
           </>
-        )}
+        ) : null}
       </div>
     </DashboardShell>
   );

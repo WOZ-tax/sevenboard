@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -16,6 +17,7 @@ import {
   HelpCircle,
   RefreshCw,
   Shield,
+  Sparkles,
   TrendingUp,
   Zap,
 } from "lucide-react";
@@ -312,6 +314,8 @@ function IndicatorCard({
  * summary / advice を並べる。LLM 未設定時の fallback も表示できる。
  */
 function AiCommentaryCard() {
+  // useAiIndicatorsCommentary は render 時点で fetch する。「ボタン押下式」は
+  // 親 page で {aiTriggered && <AiCommentaryCard />} の条件付き render で制御する。
   const commentary = useAiIndicatorsCommentary();
 
   const levelBadge: Record<
@@ -461,6 +465,9 @@ export default function IndicatorsPage() {
     ? profitIndicators
     : profitIndicators.filter((d) => d.key !== "grossProfitMargin");
 
+  // AI CFO 解説は重い AI コール。明示的なボタン押下時のみ fetch する。
+  const [aiTriggered, setAiTriggered] = useState(false);
+
   return (
     <DashboardShell>
       <TooltipProvider delay={150}>
@@ -503,9 +510,6 @@ export default function IndicatorsPage() {
           <MfEmptyState />
         ) : (
         <>
-        {/* AI CFO 解説（カテゴリ全体の総評。ビュー切替に関わらず常時表示） */}
-        <AiCommentaryCard />
-
         {/* 安全性 */}
         <section>
           <div className="flex items-center gap-2 mb-4">
@@ -567,6 +571,32 @@ export default function IndicatorsPage() {
             ))}
           </div>
         </section>
+
+        {/* AI CFO 解説 (画面下部、ボタン押下式)。指標表示の妨げにならないよう最後に配置。 */}
+        {!aiTriggered ? (
+          <Card className="border-dashed border-[var(--color-secondary)]/40 bg-gradient-to-br from-[#ede7f6]/30 via-white to-white">
+            <CardContent className="flex flex-col items-center gap-3 p-6 text-center">
+              <Sparkles className="h-8 w-8 text-[var(--color-secondary)]" />
+              <div className="space-y-1">
+                <p className="text-sm font-semibold text-[var(--color-text-primary)]">
+                  AI CFO 解説
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  ボタンを押すと AI が安全性 / 収益性 / 効率性の指標を CFO 視点で総評します（数秒〜十数秒）。
+                </p>
+              </div>
+              <Button
+                onClick={() => setAiTriggered(true)}
+                className="bg-[var(--color-secondary)] text-white hover:bg-[var(--color-secondary)]/90"
+              >
+                <Sparkles className="mr-2 h-4 w-4" />
+                AI 分析を実行
+              </Button>
+            </CardContent>
+          </Card>
+        ) : (
+          <AiCommentaryCard />
+        )}
         </>
         )}
       </div>

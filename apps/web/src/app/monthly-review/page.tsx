@@ -9,7 +9,6 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
 import { useScopedOrgId } from "@/hooks/use-scoped-org-id";
-import { useCurrentOrg } from "@/contexts/current-org";
 import { usePeriodStore, getPeriodLabel } from "@/lib/period-store";
 import { PeriodSegmentControl } from "@/components/ui/period-segment-control";
 import { useMfOffice } from "@/hooks/use-mf-data";
@@ -27,8 +26,6 @@ import { AgentBanner } from "@/components/agent/agent-banner";
 import { AGENTS } from "@/lib/agent-voice";
 import { CopilotOpenButton } from "@/components/copilot/copilot-open-button";
 import { ActionizeButton } from "@/components/ui/actionize-button";
-import { AuditorCard } from "@/components/dashboard/auditor-card";
-import { ApprovalCard } from "@/components/monthly-review/approval-card";
 import type {
   KintoneMonthlyProgress,
   ReviewAlert,
@@ -72,7 +69,6 @@ function getNextStatus(current: string): string | null {
 export default function MonthlyReviewPage() {
   const [activeTab, setActiveTab] = useState<TabKey>("review");
   const orgId = useScopedOrgId();
-  const { currentOrgId } = useCurrentOrg();
   // kintone 月次進捗の「納品済」最新月を期間デフォルトに自動適用 (旧 DashboardShell から移設)
   usePeriodDefaultFromKintone();
   const { fiscalYear, month, periods } = usePeriodStore();
@@ -238,14 +234,6 @@ export default function MonthlyReviewPage() {
             }
           />
         </div>
-
-        <div className="screen-only">
-          <AuditorCard />
-        </div>
-
-        {currentOrgId && fiscalYear && (
-          <ApprovalCard orgId={currentOrgId} fiscalYear={fiscalYear} month={currentMonth} />
-        )}
 
         {/* タブ */}
         <div
