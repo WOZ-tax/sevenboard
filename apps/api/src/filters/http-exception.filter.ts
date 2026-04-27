@@ -33,7 +33,11 @@ export class AllExceptionsFilter implements ExceptionFilter {
           break;
         default:
           status = HttpStatus.BAD_REQUEST;
-          message = `Database error: ${exception.code}`;
+          // 開発中は Prisma の詳細メッセージを返す（meta も含めて原因究明用）
+          message = `Database error: ${exception.code} ${exception.message?.split('\n').slice(-3).join(' / ') ?? ''}`;
+          // server log にも残す
+          // eslint-disable-next-line no-console
+          console.error('[Prisma error]', exception.code, exception.meta, exception.message);
       }
     }
 
