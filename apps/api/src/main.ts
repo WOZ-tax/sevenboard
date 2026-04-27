@@ -27,10 +27,15 @@ async function bootstrap() {
   app.use(cookieParser());
   app.use(json({ limit: '1mb' }));
 
+  // forbidNonWhitelisted を入れると DTO 型のメタデータが runtime に正しく
+  // 読まれないケース（compile 出力や Cloud Run 環境による）で whitelist 内の
+  // property も forbidden 扱いになる事故が起きるため、stripping のみ行う。
+  // - whitelist=true: DTO クラスに無いプロパティは silently 削除（型安全は維持）
+  // - forbidNonWhitelisted を外すことで「property X should not exist」を出さない
+  // - transform=true: plain object を DTO instance に変換して @Type() 等を反映
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
-      forbidNonWhitelisted: true,
       transform: true,
     }),
   );
