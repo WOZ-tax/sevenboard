@@ -21,7 +21,9 @@ COPY scripts/start.sh scripts/
 RUN chmod +x scripts/start.sh
 
 # Generate Prisma + build
-RUN npx prisma generate --schema=packages/database/prisma/schema.prisma
+# globally install prisma to ensure CLI is available regardless of npm workspace hoisting
+RUN npm install -g prisma@6.6.0
+RUN prisma generate --schema=packages/database/prisma/schema.prisma
 RUN npm run build -w apps/api
 
 ENV NODE_ENV=production
