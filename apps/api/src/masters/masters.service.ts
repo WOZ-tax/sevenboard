@@ -73,6 +73,9 @@ export class MastersService {
     let count = 0;
     for (const u of updates) {
       if (!u.name || typeof u.isVariableCost !== 'boolean') continue;
+      // enum cast を Prisma が UUID 文字列として誤解する事象に対応するため、
+      // Postgres の implicit cast に任せる ("ADMIN_EXPENSE" は AccountCategory enum
+      // の値なので、列の型から自動推論される)
       await this.prisma.$executeRawUnsafe(
         `INSERT INTO account_masters
           (id, org_id, code, name, category, is_variable_cost, display_order, created_at)
@@ -81,7 +84,7 @@ export class MastersService {
           '${orgId}'::uuid,
           $1,
           $1,
-          'ADMIN_EXPENSE'::"AccountCategory",
+          'ADMIN_EXPENSE',
           $2,
           0,
           NOW()
