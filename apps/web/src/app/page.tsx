@@ -26,6 +26,7 @@ import { CopilotOpenButton } from "@/components/copilot/copilot-open-button";
 import { ActionizeButton } from "@/components/ui/actionize-button";
 import { BriefingCard } from "@/components/dashboard/briefing-card";
 import { AgentActivityCard } from "@/components/dashboard/agent-activity-card";
+import { ThinkingIndicator } from "@/components/ai/thinking-indicator";
 import { cn } from "@/lib/utils";
 import {
   useMfDashboard,
@@ -386,14 +387,14 @@ export default function DashboardPage() {
             </CardHeader>
             <CardContent>
               {aiSummaryQuery.isLoading ? (
-                <div className="space-y-2">
-                  <div className="h-4 w-full animate-pulse rounded bg-muted" />
-                  <div className="h-4 w-5/6 animate-pulse rounded bg-muted" />
-                  <div className="h-4 w-4/6 animate-pulse rounded bg-muted" />
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    AI生成中...
-                  </p>
-                </div>
+                <ThinkingIndicator
+                  stages={[
+                    "MFデータ取得中",
+                    "業種知識を参照中",
+                    "AI CFO が月次データを分析中",
+                    "論点を整理中",
+                  ]}
+                />
               ) : (
                 <>
                   <p className="text-sm leading-relaxed text-muted-foreground">

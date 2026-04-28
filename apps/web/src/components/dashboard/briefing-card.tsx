@@ -14,7 +14,6 @@ import {
   ChevronUp,
 } from "lucide-react";
 import { useCurrentOrg } from "@/contexts/current-org";
-import { useAuthStore } from "@/lib/auth";
 import { usePeriodStore } from "@/lib/period-store";
 import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,6 +21,7 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { ActionizeButton } from "@/components/ui/actionize-button";
 import { CopilotOpenButton } from "@/components/copilot/copilot-open-button";
+import { ThinkingIndicator } from "@/components/ai/thinking-indicator";
 
 type BriefSeverity = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFO";
 
@@ -119,11 +119,14 @@ export function BriefingCard({ enabled = true }: { enabled?: boolean } = {}) {
       </CardHeader>
       <CardContent className="space-y-3">
         {isLoading ? (
-          <div className="space-y-2">
-            <div className="h-4 w-3/4 animate-pulse rounded bg-muted" />
-            <div className="h-16 animate-pulse rounded bg-muted" />
-            <div className="h-16 animate-pulse rounded bg-muted" />
-          </div>
+          <ThinkingIndicator
+            stages={[
+              "MFデータ取得中",
+              "アラート・指標を集約中",
+              "AI CFO が月次データを分析中",
+              "今朝の論点を整理中",
+            ]}
+          />
         ) : !data || data.headlines.length === 0 ? (
           <p className="py-2 text-sm text-muted-foreground">
             {data?.fallbackReason ?? "本日の注目点はありません。"}
