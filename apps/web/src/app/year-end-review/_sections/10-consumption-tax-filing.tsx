@@ -6,7 +6,8 @@ import { usePeriodStore } from "@/lib/period-store";
 import { cn } from "@/lib/utils";
 import { AlertTriangle } from "lucide-react";
 
-const STORAGE_KEY = "sevenboard:consumption-tax-input";
+// :v2 = 旧バージョンの空フォーム自動保存バグの localStorage を無効化
+const STORAGE_KEY = "sevenboard:consumption-tax-input:v2";
 
 const parseNum = (s: string): number => parseFloat(s.replace(/,/g, "")) || 0;
 const fmtComma = (n: number): string =>

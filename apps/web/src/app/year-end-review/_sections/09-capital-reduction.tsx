@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { useMfBS } from "@/hooks/use-mf-data";
 import { GAIKEI_CAPITAL_RATE } from "@/lib/tax-rates-2026";
 
-const STORAGE_KEY = "sevenboard:capital-reduction-input";
+// :v2 = 旧バージョンの空フォーム自動保存バグの localStorage を無効化
+const STORAGE_KEY = "sevenboard:capital-reduction-input:v2";
 const ONE_OKU = 100_000_000;
 
 const parseNum = (s: string): number => parseFloat(s.replace(/,/g, "")) || 0;

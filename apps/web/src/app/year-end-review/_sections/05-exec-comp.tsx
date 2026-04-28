@@ -25,7 +25,8 @@ import {
 import type { ExecAgeBracket } from "@/lib/tax-rates-2026";
 import { cn } from "@/lib/utils";
 
-const STORAGE_KEY = "sevenboard:exec-comp-input";
+// :v2 = 旧バージョンの空フォーム自動保存バグの localStorage を無効化
+const STORAGE_KEY = "sevenboard:exec-comp-input:v2";
 
 interface FormState {
   revenue: string;

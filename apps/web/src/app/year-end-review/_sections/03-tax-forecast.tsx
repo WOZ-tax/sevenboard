@@ -6,7 +6,8 @@ import { usePeriodStore } from "@/lib/period-store";
 import { calcCorpTax, formatYenFromManYen } from "@/lib/payroll-tax-calc";
 import { cn } from "@/lib/utils";
 
-const STORAGE_KEY = "sevenboard:tax-forecast-input";
+// :v2 = 旧バージョンの空フォーム自動保存バグの localStorage を無効化
+const STORAGE_KEY = "sevenboard:tax-forecast-input:v2";
 
 interface AddSubItem {
   id: string;
