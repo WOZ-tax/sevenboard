@@ -290,6 +290,36 @@ export default function AiReportPage() {
           );
         })()}
 
+        {/* フォーカス指標セレクタ + レポート再生成ボタン
+            （下の経営分析・リスク分析の中身が focus に応じて切替わる） */}
+        <div className="flex items-center justify-end gap-3 screen-only">
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground">フォーカス指標</span>
+            <Select value={focus} onValueChange={(v) => setFocus(v as FocusValue)}>
+              <SelectTrigger className="w-[140px]">
+                <SelectValue>
+                  {(v) => focusOptions.find((o) => o.value === v)?.label ?? ""}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {focusOptions.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <Button
+            className="gap-2 bg-[var(--color-primary)] text-white hover:bg-[var(--color-primary-hover)]"
+            onClick={() => refetch()}
+            disabled={isFetching}
+          >
+            <RefreshCw className={cn("h-4 w-4", isFetching && "animate-spin")} />
+            {isFetching ? "生成中..." : "レポート再生成"}
+          </Button>
+        </div>
+
         {/* 月次経営分析 */}
         <Card>
           <CardHeader className="pb-2">
@@ -431,35 +461,6 @@ export default function AiReportPage() {
             })}
           </CardContent>
         </Card>
-
-        {/* フォーカス指標セレクタ + レポート再生成ボタン */}
-        <div className="flex items-center justify-end gap-3">
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground">フォーカス指標</span>
-            <Select value={focus} onValueChange={(v) => setFocus(v as FocusValue)}>
-              <SelectTrigger className="w-[140px]">
-                <SelectValue>
-                  {(v) => focusOptions.find((o) => o.value === v)?.label ?? ""}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {focusOptions.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <Button
-            className="gap-2 bg-[var(--color-primary)] text-white hover:bg-[var(--color-primary-hover)]"
-            onClick={() => refetch()}
-            disabled={isFetching}
-          >
-            <RefreshCw className={cn("h-4 w-4", isFetching && "animate-spin")} />
-            {isFetching ? "生成中..." : "レポート再生成"}
-          </Button>
-        </div>
 
         {/* AI エージェント情報（最下段に配置。データセクションを上に置くため後ろ送り） */}
         <div className="screen-only">
