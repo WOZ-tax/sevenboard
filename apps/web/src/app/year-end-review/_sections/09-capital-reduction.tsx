@@ -76,19 +76,19 @@ export function CapitalReductionSection() {
   const savings = currentCapitalPortion;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <div className="rounded-md border-l-4 border-l-amber-500 bg-amber-50/50 p-3 text-xs leading-relaxed">
         <strong>外形標準課税</strong>は資本金1億円超の法人に対し、所得とは無関係に
         資本金等の額に応じて課税される（資本金割: 資本金等の額 × 0.525%）。
         中小企業特例（軽減税率15%, 交際費損金算入, 各種税額控除）の対象外にもなる。
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid gap-3 md:grid-cols-2">
         <div className="rounded-md border bg-white shadow-sm">
           <div className="border-b px-3 py-2 text-xs font-bold text-[var(--color-primary)]">
             現状の資本構成
           </div>
-          <div className="space-y-2 p-3">
+          <div className="space-y-1.5 p-2.5">
             <YenField label="資本金（円）" value={capital} onChange={setCapital} />
             <YenField
               label="資本剰余金（円）"

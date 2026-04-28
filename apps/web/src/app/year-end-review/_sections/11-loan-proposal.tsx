@@ -127,14 +127,14 @@ export function LoanProposalSection() {
     }));
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <div className="rounded-md border-l-4 border-l-blue-500 bg-blue-50/50 p-3 text-xs">
         融資審査向けの自己採点ボード。<Link href="/funding-report" className="text-[var(--color-primary)] hover:underline">
           資金調達レポート <ExternalLink className="inline h-3 w-3" />
         </Link> でAIシナリオ生成も可能です。
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid gap-3 md:grid-cols-2">
         <Card title="定量評価（MF実績ベース）">
           <table className="w-full text-xs">
             <tbody>

@@ -177,7 +177,7 @@ export function ExecCompSimulatorSection() {
     setForm((prev) => ({ ...prev, [k]: v }));
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <OptimalBanner
         currentMonthly={form.monthlyComp}
         optimalManYen={optimal.monthlyComp}
@@ -186,7 +186,7 @@ export function ExecCompSimulatorSection() {
         corpDeficit={result.corpTaxableIncome < 0 ? result.corpTaxableIncome : null}
       />
 
-      <div className="grid gap-4 lg:grid-cols-[320px_1fr]">
+      <div className="grid gap-3 lg:grid-cols-[320px_1fr]">
         <div className="space-y-3">
           <SimCard title="基本情報">
             <YenField label="年間売上（円）" value={form.revenue} onChange={(v) => setField("revenue", v)} />

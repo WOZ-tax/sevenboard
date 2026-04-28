@@ -218,7 +218,7 @@ export function TaxSavingPlanSection() {
   const doneCount = ITEMS.filter((it) => doneIds[it.id]).length;
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-3">
       <StanceBanner />
 
       <div className="text-xs text-muted-foreground">
@@ -270,16 +270,16 @@ export function TaxSavingPlanSection() {
 
 function StanceBanner() {
   return (
-    <div className="rounded-md border-l-4 border-rose-500 bg-rose-50/60 p-4">
-      <div className="mb-1.5 flex items-center gap-2 text-sm font-bold text-rose-700">
-        <AlertTriangle className="h-4 w-4" />
+    <div className="rounded-md border-l-4 border-rose-500 bg-rose-50/60 px-3 py-2">
+      <div className="mb-1 flex items-center gap-2 text-xs font-bold text-rose-700">
+        <AlertTriangle className="h-3.5 w-3.5" />
         節税は目的ではなく「手段」です
       </div>
-      <p className="text-xs leading-relaxed text-rose-900/90">
+      <p className="text-[11px] leading-relaxed text-rose-900/90">
         過度な節税はキャッシュフローを毀損し、銀行与信や事業継続性を損ないます。
         以下のいずれかに該当する場合のみ検討してください。
       </p>
-      <ul className="mt-2 space-y-0.5 text-xs text-rose-900/90">
+      <ul className="mt-1 space-y-0 text-[11px] text-rose-900/90">
         <li>✓ 手元キャッシュに十分な余裕がある</li>
         <li>✓ 経営上必要な投資・支出として説明できる</li>
         <li>✓ 借入金の個人保証に対するリスクヘッジ目的</li>
@@ -305,15 +305,15 @@ function TierBlock({
   return (
     <div className={cn("rounded-md border", meta.tone)}>
       {!hideHeader && (
-        <div className="flex items-center justify-between border-b border-current/10 px-4 py-2">
-          <div className="flex items-center gap-2 text-sm font-bold">
-            {tier === 1 && <ShieldCheck className="h-4 w-4 text-emerald-600" />}
+        <div className="flex items-center justify-between border-b border-current/10 px-3 py-1.5">
+          <div className="flex items-center gap-2 text-xs font-bold">
+            {tier === 1 && <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />}
             <span>Tier {tier}: {meta.label}</span>
           </div>
           <span className="text-xs text-muted-foreground">{meta.hint}</span>
         </div>
       )}
-      <div className={cn("grid gap-2 p-3", tier === 1 ? "md:grid-cols-2" : "md:grid-cols-3")}>
+      <div className={cn("grid gap-2 p-2", tier === 1 ? "md:grid-cols-2" : "md:grid-cols-3")}>
         {items.map((it) => (
           <SavingCard
             key={it.id}
@@ -397,12 +397,12 @@ function SavingCard({
 
 function WarningBanner() {
   return (
-    <div className="rounded-md border-l-4 border-rose-700 bg-rose-50 p-4">
-      <div className="mb-1.5 flex items-center gap-2 text-sm font-bold text-rose-800">
-        <AlertTriangle className="h-4 w-4" />
+    <div className="rounded-md border-l-4 border-rose-700 bg-rose-50 px-3 py-2">
+      <div className="mb-1 flex items-center gap-2 text-xs font-bold text-rose-800">
+        <AlertTriangle className="h-3.5 w-3.5" />
         絶対に避けるべきスキーム
       </div>
-      <ul className="space-y-1 text-xs leading-relaxed text-rose-900/90">
+      <ul className="space-y-0.5 text-[11px] leading-relaxed text-rose-900/90">
         <li>
           <strong>架空経費・売上除外・私的支出の経費化</strong> — 重加算税40%・銀行与信壊滅・税務署10年マーク・出口戦略(IPO/M&A)断絶。
         </li>

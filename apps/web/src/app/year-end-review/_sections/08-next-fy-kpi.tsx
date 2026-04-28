@@ -111,7 +111,7 @@ export function NextFyKpiSection() {
   }, [form.distributionMode, target]);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <div className="rounded-md border bg-white shadow-sm">
         <div className="border-b px-3 py-2 text-xs font-bold text-[var(--color-primary)]">
           来期売上レンジ（当期実績 {fmtComma(currentRevenue)}円ベース）
@@ -123,13 +123,13 @@ export function NextFyKpiSection() {
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-[300px_1fr]">
+      <div className="grid gap-3 md:grid-cols-[300px_1fr]">
         <div className="space-y-3">
           <div className="rounded-md border bg-white shadow-sm">
             <div className="border-b px-3 py-2 text-xs font-bold text-[var(--color-primary)]">
               目標入力
             </div>
-            <div className="space-y-2 p-3">
+            <div className="space-y-1.5 p-2.5">
               <YenField
                 label="来期目標売上（円）"
                 value={form.targetRevenue}

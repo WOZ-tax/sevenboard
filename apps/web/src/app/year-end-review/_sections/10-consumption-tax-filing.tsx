@@ -86,19 +86,19 @@ export function ConsumptionTaxFilingSection() {
   const useSimple = result.advantage > 0;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <div className="rounded-md border-l-4 border-l-blue-500 bg-blue-50/50 p-3 text-xs leading-relaxed">
         基準期間（前々事業年度）の課税売上高が <strong>5,000万円以下</strong> の場合、
         原則課税方式と簡易課税方式のいずれか有利な方を選択できます。
         変更には<strong className="text-rose-600">期末までに税務署への届出書提出が必要</strong>です。
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid gap-3 md:grid-cols-2">
         <div className="rounded-md border bg-white shadow-sm">
           <div className="border-b px-3 py-2 text-xs font-bold text-[var(--color-primary)]">
             事業計画（来期予想・税抜）
           </div>
-          <div className="space-y-2 p-3">
+          <div className="space-y-1.5 p-2.5">
             <YenField
               label="課税売上高（税抜・円）"
               value={form.taxableSales}

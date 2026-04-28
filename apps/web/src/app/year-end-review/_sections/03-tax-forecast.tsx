@@ -156,14 +156,14 @@ export function TaxForecastSection() {
     }));
 
   return (
-    <div className="space-y-4">
-      <div className="grid gap-4 md:grid-cols-[320px_1fr]">
+    <div className="space-y-3">
+      <div className="grid gap-3 md:grid-cols-[320px_1fr]">
         <div className="space-y-3">
           <div className="rounded-md border bg-white shadow-sm">
             <div className="border-b px-3 py-2 text-xs font-bold text-[var(--color-primary)]">
               所得計算
             </div>
-            <div className="space-y-2 p-3">
+            <div className="space-y-1.5 p-2.5">
               <YenField
                 label="通期予想税引前利益（万円）"
                 value={form.pretaxProfit}
@@ -201,7 +201,7 @@ export function TaxForecastSection() {
             <div className="border-b px-3 py-2 text-xs font-bold text-[var(--color-primary)]">
               法人区分
             </div>
-            <div className="space-y-2 p-3">
+            <div className="space-y-1.5 p-2.5">
               <YenField
                 label="資本金（円）"
                 value={form.capital}
@@ -224,7 +224,7 @@ export function TaxForecastSection() {
             <div className="border-b px-3 py-2 text-xs font-bold text-[var(--color-primary)]">
               消費税
             </div>
-            <div className="space-y-2 p-3">
+            <div className="space-y-1.5 p-2.5">
               <YenField
                 label="仮受消費税（年換算・円）"
                 value={form.vatReceived}
