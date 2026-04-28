@@ -124,14 +124,17 @@ export class MfController {
   async getCashflow(
     @Param('orgId') orgId: string,
     @Query('fiscalYear') fiscalYear?: string,
+    @Query('endMonth') endMonth?: string,
   ) {
     const fy = this.parseFiscalYear(fiscalYear);
+    const em = this.parseMonth(endMonth);
     // 期首残高（前月繰越の初月）を確実に拾うため、BS試算表を先に取得してから推移表を並列取得
     // .catch(()=>null) で握りつぶすと priorCash=0 にデグレるので、失敗時はエラーを返す
-    const bsTrial = await this.mfApi.getTrialBalanceBS(orgId, fy);
+    // ダッシュボードと整合させるため endMonth フィルタを下流に伝搬する。
+    const bsTrial = await this.mfApi.getTrialBalanceBS(orgId, fy, em);
     const [bsT, plT, settledMonths] = await Promise.all([
-      this.mfApi.getTransitionBS(orgId, fy),
-      this.mfApi.getTransitionPL(orgId, fy),
+      this.mfApi.getTransitionBS(orgId, fy, em),
+      this.mfApi.getTransitionPL(orgId, fy, em),
       fy ? this.monthlyCloseService.getSettledMonths(orgId, fy) : Promise.resolve(undefined),
     ]);
     return this.mfTransform.deriveCashflow(bsT, plT, bsTrial, settledMonths);

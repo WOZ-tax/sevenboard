@@ -69,10 +69,10 @@ export function useMfBS(options?: QueryOptions) {
 
 export function useMfCashflow(options?: QueryOptions) {
   const orgId = useOrgId();
-  const { fiscalYear } = useGlobalPeriod();
+  const { fiscalYear, month } = useGlobalPeriod();
   return useQuery<CashflowData>({
-    queryKey: ["mf", "cashflow", orgId, fiscalYear],
-    queryFn: () => api.mf.getCashflow(orgId, fiscalYear),
+    queryKey: ["mf", "cashflow", orgId, fiscalYear, month],
+    queryFn: () => api.mf.getCashflow(orgId, fiscalYear, month),
     enabled: !!orgId && (options?.enabled ?? true),
     staleTime: 5 * 60 * 1000,
   });

@@ -667,10 +667,13 @@ export const api = {
       return apiFetch<BSStatement>(`/organizations/${orgId}/mf/financial-statements/bs${suffix}`);
     },
 
-    getCashflow: (orgId: string, fiscalYear?: number) =>
-      apiFetch<CashflowData>(
-        `/organizations/${orgId}/mf/cashflow${fiscalYear ? `?fiscalYear=${fiscalYear}` : ''}`,
-      ),
+    getCashflow: (orgId: string, fiscalYear?: number, month?: number) => {
+      const qs = new URLSearchParams();
+      if (fiscalYear) qs.set('fiscalYear', String(fiscalYear));
+      if (month) qs.set('endMonth', String(month));
+      const suffix = qs.toString() ? `?${qs}` : '';
+      return apiFetch<CashflowData>(`/organizations/${orgId}/mf/cashflow${suffix}`);
+    },
 
     getPLTransition: (orgId: string, fiscalYear?: number) =>
       apiFetch<PlTransitionPoint[]>(
