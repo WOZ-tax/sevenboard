@@ -14,6 +14,7 @@ import {
 } from "recharts";
 import { useIsClient } from "@/hooks/use-is-client";
 import { useMfPL, useMfOffice } from "@/hooks/use-mf-data";
+import { useScopedOrgId } from "@/hooks/use-scoped-org-id";
 import { usePeriodStore } from "@/lib/period-store";
 import {
   findOptimalMonthlyComp,
@@ -26,7 +27,10 @@ import type { ExecAgeBracket } from "@/lib/tax-rates-2026";
 import { cn } from "@/lib/utils";
 
 // :v2 = 旧バージョンの空フォーム自動保存バグの localStorage を無効化
-const STORAGE_KEY = "sevenboard:exec-comp-input:v2";
+// orgId をキーに含めて顧問先ごとにスコープする（マルチテナント漏洩防止）
+const STORAGE_BASE = "sevenboard:exec-comp-input:v2";
+const storageKeyFor = (orgId: string, fy: number | undefined) =>
+  `${STORAGE_BASE}:${orgId || "_"}:${fy ?? "_"}`;
 
 interface FormState {
   revenue: string;
@@ -68,28 +72,37 @@ export function ExecCompSimulatorSection() {
   const isClient = useIsClient();
   const office = useMfOffice();
   const pl = useMfPL();
+  const orgId = useScopedOrgId();
   const lockedMonth = usePeriodStore((s) => s.month);
+  const fiscalYear = usePeriodStore((s) => s.fiscalYear);
+  const storageKey = storageKeyFor(orgId, fiscalYear);
 
   const [form, setForm] = useState<FormState>(DEFAULT_FORM);
   const [hydrated, setHydrated] = useState(false);
   // 「ユーザーが実際に編集したか」を追跡。MFプリセットでは true にしない
   const userEditedRef = useRef(false);
 
+  // orgId/fiscalYear が変わったら hydrate やり直し
   useEffect(() => {
     if (typeof window === "undefined") return;
+    if (!orgId) return;
+    userEditedRef.current = false;
+    /* eslint-disable react-hooks/set-state-in-effect -- orgId/fy 切替時の状態リセット + localStorage 復元 */
+    setHydrated(false);
+    setForm(DEFAULT_FORM);
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
+      const raw = localStorage.getItem(storageKey);
       if (raw) {
         const parsed = JSON.parse(raw);
-        // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage 復元（client only）
         setForm((prev) => ({ ...prev, ...parsed }));
-        userEditedRef.current = true; // 復元できた = 過去にユーザーが編集している
+        userEditedRef.current = true;
       }
     } catch {
       // ignore
     }
     setHydrated(true);
-  }, []);
+    /* eslint-enable react-hooks/set-state-in-effect */
+  }, [storageKey, orgId]);
 
   // MF実績からプリセット（ユーザーが編集していない場合のみ）
   useEffect(() => {
@@ -135,11 +148,11 @@ export function ExecCompSimulatorSection() {
     if (!hydrated) return;
     if (!userEditedRef.current) return;
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(form));
+      localStorage.setItem(storageKey, JSON.stringify(form));
     } catch {
       // ignore
     }
-  }, [form, hydrated]);
+  }, [form, hydrated, storageKey]);
 
   const simInput: SimulationInput = useMemo(
     () => ({

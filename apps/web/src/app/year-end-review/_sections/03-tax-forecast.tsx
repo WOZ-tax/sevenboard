@@ -2,12 +2,15 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMfPL, useMfBS } from "@/hooks/use-mf-data";
+import { useScopedOrgId } from "@/hooks/use-scoped-org-id";
 import { usePeriodStore } from "@/lib/period-store";
 import { calcCorpTax, formatYenFromManYen } from "@/lib/payroll-tax-calc";
 import { cn } from "@/lib/utils";
 
-// :v2 = 旧バージョンの空フォーム自動保存バグの localStorage を無効化
-const STORAGE_KEY = "sevenboard:tax-forecast-input:v2";
+// :v2 + orgId/fy スコープ（マルチテナント漏洩防止）
+const STORAGE_BASE = "sevenboard:tax-forecast-input:v2";
+const storageKeyFor = (orgId: string, fy: number | undefined) =>
+  `${STORAGE_BASE}:${orgId || "_"}:${fy ?? "_"}`;
 
 interface AddSubItem {
   id: string;
@@ -53,17 +56,24 @@ const fmtComma = (n: number): string =>
 export function TaxForecastSection() {
   const pl = useMfPL();
   const bs = useMfBS();
+  const orgId = useScopedOrgId();
   const lockedMonth = usePeriodStore((s) => s.month);
+  const fiscalYear = usePeriodStore((s) => s.fiscalYear);
+  const storageKey = storageKeyFor(orgId, fiscalYear);
   const [form, setForm] = useState<FormState>(DEFAULT_FORM);
   const [hydrated, setHydrated] = useState(false);
   const userEditedRef = useRef(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    if (!orgId) return;
+    userEditedRef.current = false;
+    /* eslint-disable react-hooks/set-state-in-effect -- orgId/fy 切替時の状態リセット + localStorage 復元 */
+    setHydrated(false);
+    setForm(DEFAULT_FORM);
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
+      const raw = localStorage.getItem(storageKey);
       if (raw) {
-        // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage 復元（client only）
         setForm((p) => ({ ...p, ...JSON.parse(raw) }));
         userEditedRef.current = true;
       }
@@ -71,7 +81,8 @@ export function TaxForecastSection() {
       // ignore
     }
     setHydrated(true);
-  }, []);
+    /* eslint-enable react-hooks/set-state-in-effect */
+  }, [storageKey, orgId]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -112,11 +123,11 @@ export function TaxForecastSection() {
     if (!hydrated) return;
     if (!userEditedRef.current) return;
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(form));
+      localStorage.setItem(storageKey, JSON.stringify(form));
     } catch {
       // ignore
     }
-  }, [form, hydrated]);
+  }, [form, hydrated, storageKey]);
 
   // ユーザー編集ハンドラ（ref を立てる）
   const updateForm = (updater: (prev: FormState) => FormState) => {

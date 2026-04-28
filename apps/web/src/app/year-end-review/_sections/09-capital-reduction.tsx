@@ -2,10 +2,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useMfBS } from "@/hooks/use-mf-data";
+import { useScopedOrgId } from "@/hooks/use-scoped-org-id";
+import { usePeriodStore } from "@/lib/period-store";
 import { GAIKEI_CAPITAL_RATE } from "@/lib/tax-rates-2026";
 
-// :v2 = 旧バージョンの空フォーム自動保存バグの localStorage を無効化
-const STORAGE_KEY = "sevenboard:capital-reduction-input:v2";
+// :v2 + orgId/fy スコープ（マルチテナント漏洩防止）
+const STORAGE_BASE = "sevenboard:capital-reduction-input:v2";
+const storageKeyFor = (orgId: string, fy: number | undefined) =>
+  `${STORAGE_BASE}:${orgId || "_"}:${fy ?? "_"}`;
 const ONE_OKU = 100_000_000;
 
 const parseNum = (s: string): number => parseFloat(s.replace(/,/g, "")) || 0;
@@ -14,6 +18,9 @@ const fmtComma = (n: number): string =>
 
 export function CapitalReductionSection() {
   const bs = useMfBS();
+  const orgId = useScopedOrgId();
+  const fiscalYear = usePeriodStore((s) => s.fiscalYear);
+  const storageKey = storageKeyFor(orgId, fiscalYear);
   const [capital, setCapitalRaw] = useState("0");
   const [capitalLegalReserve, setCapitalLegalReserveRaw] = useState("0");
   const [hydrated, setHydrated] = useState(false);
@@ -31,13 +38,17 @@ export function CapitalReductionSection() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    if (!orgId) return;
+    userEditedRef.current = false;
+    /* eslint-disable react-hooks/set-state-in-effect -- orgId/fy 切替時の状態リセット + localStorage 復元 */
+    setHydrated(false);
+    setCapitalRaw("0");
+    setCapitalLegalReserveRaw("0");
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
+      const raw = localStorage.getItem(storageKey);
       if (raw) {
         const p = JSON.parse(raw);
-        // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage 復元
         if (p.capital) setCapitalRaw(p.capital);
-         
         if (p.capitalLegalReserve) setCapitalLegalReserveRaw(p.capitalLegalReserve);
         userEditedRef.current = true;
       }
@@ -45,7 +56,8 @@ export function CapitalReductionSection() {
       // ignore
     }
     setHydrated(true);
-  }, []);
+    /* eslint-enable react-hooks/set-state-in-effect */
+  }, [storageKey, orgId]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -75,11 +87,11 @@ export function CapitalReductionSection() {
     if (!hydrated) return;
     if (!userEditedRef.current) return;
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ capital, capitalLegalReserve }));
+      localStorage.setItem(storageKey, JSON.stringify({ capital, capitalLegalReserve }));
     } catch {
       // ignore
     }
-  }, [capital, capitalLegalReserve, hydrated]);
+  }, [capital, capitalLegalReserve, hydrated, storageKey]);
 
   const capitalAmount = parseNum(capital);
   const capitalEqAmount = capitalAmount + parseNum(capitalLegalReserve);

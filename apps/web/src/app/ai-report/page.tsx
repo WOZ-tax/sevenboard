@@ -159,13 +159,32 @@ export default function AiReportPage() {
                   対象月選択時は単月分析、全期間選択時は通期分析になります。生成には数秒〜十数秒かかります。
                 </p>
               </div>
-              <Button
-                onClick={() => setAiTriggered(true)}
-                className="bg-[var(--color-secondary)] text-white hover:bg-[var(--color-secondary)]/90"
-              >
-                <Sparkles className="mr-2 h-4 w-4" />
-                AI 分析を実行
-              </Button>
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">フォーカス指標</span>
+                  <Select value={focus} onValueChange={(v) => setFocus(v as FocusValue)}>
+                    <SelectTrigger className="w-[140px]">
+                      <SelectValue>
+                        {(v) => focusOptions.find((o) => o.value === v)?.label ?? ""}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {focusOptions.map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Button
+                  onClick={() => setAiTriggered(true)}
+                  className="bg-[var(--color-secondary)] text-white hover:bg-[var(--color-secondary)]/90"
+                >
+                  <Sparkles className="mr-2 h-4 w-4" />
+                  AI 分析を実行
+                </Button>
+              </div>
             </CardContent>
           </Card>
         )}

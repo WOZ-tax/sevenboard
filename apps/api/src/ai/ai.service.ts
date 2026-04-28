@@ -645,7 +645,23 @@ ${primaryMode === 'actual'
       this.mfApi.getTransitionPL(orgId, fiscalYear).catch(() => null),
     ]);
 
-    const burnContext = finCtx?.cashflowDerived
+    // MF trial balance が落ちると plRows が空になり、累計値が全部0で
+    // 「通期分析」と称した0円レポートが返る危険がある。fail-fast でエラーレポートを返す。
+    if (!finCtx?.plRows || finCtx.plRows.length === 0) {
+      this.logger.warn(
+        `Cumulative AI summary aborted: MF financial context unavailable (orgId=${orgId}, fy=${fiscalYear ?? 'none'})`,
+      );
+      return {
+        summary:
+          'AIサマリー生成不可: MF会計の累計データが取得できませんでした。MF連携状況をご確認のうえ、再生成してください（推移表ではなく試算表PLのフェッチが失敗しています）。',
+        highlights: [],
+        targetMonth: fiscalYear ? `${fiscalYear}年度通期` : '当期通期',
+        monthlyTrend: [],
+        generatedAt: new Date().toISOString(),
+      };
+    }
+
+    const burnContext = finCtx.cashflowDerived
       ? this.mfTransform.formatBurnContextForPrompt(finCtx.cashflowDerived, runwayMode)
       : '';
     const primaryMode: 'worstCase' | 'netBurn' | 'actual' = runwayMode ?? 'netBurn';
@@ -656,7 +672,7 @@ ${primaryMode === 'actual'
     };
 
     // 通期累計データ（trial balance PL から）
-    const plRows = finCtx?.plRows ?? [];
+    const plRows = finCtx.plRows;
     const find = (key: string, exclude?: string[]): number => {
       const row = plRows.find(
         (r) =>
@@ -671,6 +687,21 @@ ${primaryMode === 'actual'
     const cumOp = find('営業利益');
     const cumOrd = find('経常利益');
     const cumGrossProfit = cumRevenue - cumCogs;
+
+    // 売上が0の場合も同様にレポート意味なし → fail-fast
+    if (cumRevenue === 0 && cumSga === 0 && cumOp === 0) {
+      this.logger.warn(
+        `Cumulative AI summary aborted: PL all zero (orgId=${orgId}, fy=${fiscalYear ?? 'none'})`,
+      );
+      return {
+        summary:
+          'AIサマリー生成不可: MF会計から取得した累計値が全て0でした。会計年度や顧問先設定をご確認ください。',
+        highlights: [],
+        targetMonth: fiscalYear ? `${fiscalYear}年度通期` : '当期通期',
+        monthlyTrend: [],
+        generatedAt: new Date().toISOString(),
+      };
+    }
 
     // 月次推移（実績月のみ）
     const trend: AiMonthlyTrendPoint[] = transitionPl

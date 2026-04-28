@@ -1,10 +1,12 @@
 import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { OrgAccessGuard } from '../auth/org-access.guard';
+import { RateLimitGuard } from '../common/rate-limit.guard';
 import { DrafterService } from './drafter.service';
 
+// monthly-draft は LLM を呼び agent run も記録するため AI 系と同様に rate-limit
 @Controller('organizations/:orgId/drafter')
-@UseGuards(JwtAuthGuard, OrgAccessGuard)
+@UseGuards(JwtAuthGuard, OrgAccessGuard, RateLimitGuard)
 export class DrafterController {
   constructor(private drafter: DrafterService) {}
 
