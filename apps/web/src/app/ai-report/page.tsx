@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -35,6 +35,8 @@ import { AGENTS } from "@/lib/agent-voice";
 import { CopilotOpenButton } from "@/components/copilot/copilot-open-button";
 import { ActionizeButton } from "@/components/ui/actionize-button";
 import { DrafterCard } from "@/components/dashboard/drafter-card";
+import { ThinkingIndicator } from "@/components/ai/thinking-indicator";
+import { useTypewriter } from "@/hooks/use-typewriter";
 import {
   PeriodSegmentControl,
   usePeriodRange,
@@ -91,6 +93,55 @@ export default function AiReportPage() {
     enabled: aiTriggered,
     focus,
   });
+
+  // 「思考中 → 文字打ち出し → 完了」演出の3フェーズ
+  // 最低3秒は ThinkingIndicator を見せる（瞬時に終わると不気味なので）
+  const MIN_THINKING_MS = 3000;
+  const [phase, setPhase] = useState<"idle" | "thinking" | "typing" | "done">(
+    "idle",
+  );
+  const thinkingStartedAtRef = useRef(0);
+
+  // 初回 trigger / refetch 時に thinking フェーズへ
+  useEffect(() => {
+    if (!aiTriggered) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- aiTriggered toggle の同期
+      setPhase("idle");
+      return;
+    }
+    if (isFetching || isLoading) {
+       
+      setPhase("thinking");
+      thinkingStartedAtRef.current = Date.now();
+    }
+  }, [aiTriggered, isFetching, isLoading]);
+
+  // 応答が届き、最低3秒経過したら typing へ
+  useEffect(() => {
+    if (phase !== "thinking") return;
+    if (isFetching || isLoading) return;
+    if (!aiData) return;
+    const elapsed = Date.now() - thinkingStartedAtRef.current;
+    const remaining = Math.max(0, MIN_THINKING_MS - elapsed);
+    const t = setTimeout(() => setPhase("typing"), remaining);
+    return () => clearTimeout(t);
+  }, [phase, isFetching, isLoading, aiData]);
+
+  // typewriter で summary を1文字ずつ表示
+  const summaryText = aiData?.summary ?? "";
+  const { displayed: typedSummary, isComplete: isTypingComplete } =
+    useTypewriter(summaryText, {
+      speed: 70,
+      enabled: phase === "typing" || phase === "done",
+    });
+
+  // typewriter 完了 → done フェーズ（sections / highlights を表示開始）
+  useEffect(() => {
+    if (phase === "typing" && isTypingComplete) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- typewriter 完了の同期
+      setPhase("done");
+    }
+  }, [phase, isTypingComplete]);
   const mfNotConnected = isMfNotConnected(error);
   const office = useMfOffice();
   const { fiscalYear, month, periods } = usePeriodStore();
@@ -363,20 +414,21 @@ export default function AiReportPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {isLoading ? (
-              <div className="space-y-2">
-                <div className="h-4 w-full animate-pulse rounded bg-muted" />
-                <div className="h-4 w-5/6 animate-pulse rounded bg-muted" />
-                <div className="h-4 w-4/6 animate-pulse rounded bg-muted" />
-                <p className="mt-2 text-xs text-muted-foreground">AI分析中...</p>
-              </div>
+            {phase === "thinking" ? (
+              <ThinkingIndicator />
             ) : (
               <>
                 <p className="text-sm leading-relaxed text-muted-foreground">
-                  {aiData?.summary || "AIサマリーを取得できませんでした。再生成してください。"}
+                  {phase === "typing" || phase === "done"
+                    ? typedSummary || "AIサマリーを取得できませんでした。再生成してください。"
+                    : aiData?.summary || "AIサマリーを取得できませんでした。再生成してください。"}
+                  {phase === "typing" && (
+                    <span className="ml-0.5 inline-block h-3 w-1.5 animate-pulse bg-[var(--color-tertiary)] align-middle" />
+                  )}
                 </p>
-                {aiData?.highlights && aiData.highlights.length > 0 && (
-                  <div className="mt-3 flex flex-wrap gap-1.5">
+                {/* highlights / sections は typewriter 完了後にフェードイン */}
+                {phase === "done" && aiData?.highlights && aiData.highlights.length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-1.5 animate-in fade-in duration-300">
                     {aiData.highlights
                       .filter((h) => h.type === "positive")
                       .map((h, i) => (
@@ -392,8 +444,8 @@ export default function AiReportPage() {
                 )}
 
                 {/* セクション表示 */}
-                {aiData?.sections && aiData.sections.length > 0 && (
-                  <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {phase === "done" && aiData?.sections && aiData.sections.length > 0 && (
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 animate-in fade-in duration-500">
                     {(aiData.sections ?? []).map((section, i) => (
                       <div
                         key={i}
