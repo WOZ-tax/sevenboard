@@ -227,6 +227,7 @@ function getProgressColor(def: IndicatorDef, value: number): string {
 }
 
 import { MfEmptyState } from "@/components/ui/mf-empty-state";
+import { ThinkingIndicator } from "@/components/ai/thinking-indicator";
 
 function IndicatorCard({
   def,
@@ -372,14 +373,14 @@ function AiCommentaryCard() {
         </div>
 
         {commentary.isLoading ? (
-          <div className="space-y-3">
-            <div className="h-5 w-3/4 animate-pulse rounded bg-muted" />
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              {Array.from({ length: 3 }).map((_, i) => (
-                <div key={i} className="h-32 animate-pulse rounded-md bg-muted" />
-              ))}
-            </div>
-          </div>
+          <ThinkingIndicator
+            stages={[
+              "MFデータ取得中",
+              "財務指標を計算中",
+              "AI CFO が指標を読み解き中",
+              "総評と打ち手を整理中",
+            ]}
+          />
         ) : commentary.isError ? (
           <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
             AI 解説の取得に失敗しました。再生成ボタンでリトライしてください。
