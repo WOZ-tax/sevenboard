@@ -331,7 +331,7 @@ export function TaxForecastSection() {
               決算時 納付予想額（合計）
             </div>
             <div className="text-2xl font-bold tabular-nums text-rose-700">
-              ¥{fmtComma(corpPeriodEnd + vatPayable.periodEnd)}
+              ¥{fmtComma(corpPeriodEnd * 10000 + vatPayable.periodEnd)}
             </div>
             <div className="mt-0.5 text-[10px] text-muted-foreground">
               法人税等 {formatYenFromManYen(corpPeriodEnd)} + 消費税 ¥{fmtComma(vatPayable.periodEnd)}
