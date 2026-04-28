@@ -1,5 +1,6 @@
 import { Injectable, BadRequestException, NotFoundException, InternalServerErrorException } from '@nestjs/common';
 import { AccountCategory } from '@prisma/client';
+import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { SupabaseService } from '../supabase/supabase.service';
 import { CreateAccountDto } from './dto/create-account.dto';
@@ -68,9 +69,12 @@ export class MastersService {
     if (!/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(orgId)) {
       throw new BadRequestException('Invalid orgId format');
     }
+    // id は明示生成。schema は @default(uuid()) で Prisma client side 生成のため
+    // DB column に default が無く、PostgREST 経由だと null violation になる。
     const rows = updates
       .filter((u) => u.name && typeof u.isVariableCost === 'boolean')
       .map((u) => ({
+        id: randomUUID(),
         org_id: orgId,
         code: u.name,
         name: u.name,
