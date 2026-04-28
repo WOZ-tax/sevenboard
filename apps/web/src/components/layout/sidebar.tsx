@@ -16,11 +16,13 @@ import {
   Mic,
   FileBarChart,
   Gauge,
+  CalendarClock,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
 import { useAuthStore } from "@/lib/auth";
 import { useSidebarConfig } from "@/lib/sidebar-config";
+import { useFyElapsed } from "@/hooks/use-fy-elapsed";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -38,6 +40,7 @@ const menuItems = [
   { label: "資金繰り", href: "/cashflow", icon: Wallet },
   { label: "資金調達レポート", href: "/funding-report", icon: FileBarChart },
   { label: "変動損益", href: "/variable-cost", icon: TrendingDown },
+  { label: "決算検討", href: "/year-end-review", icon: CalendarClock },
   { label: "トークスクリプト", href: "/talk-script", icon: Mic },
   { label: "アラート", href: "/alerts", icon: Bell },
   { label: "設定", href: "/settings", icon: Settings },
@@ -45,10 +48,22 @@ const menuItems = [
 
 export { menuItems };
 
+/** 期首から minMonths 経過するまで disabled にするメニューの href */
+const GATED_HREFS: Record<string, { minMonths: number; reason: string }> = {
+  "/year-end-review": {
+    minMonths: 9,
+    reason: "決算3ヶ月前から表示",
+  },
+};
+
 export function AppSidebar() {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const { isHidden } = useSidebarConfig();
+  const { elapsedMonths, remainingMonths, isReady } = useFyElapsed();
+  // localhost / dev 環境ではゲートを無効化。Vercel production では NODE_ENV=production になる。
+  const isDev =
+    typeof process !== "undefined" && process.env.NODE_ENV === "development";
 
   const visibleMenus = menuItems.filter((item) => !isHidden(item.href));
 
@@ -84,22 +99,37 @@ export function AppSidebar() {
         {visibleMenus.map((item) => {
           const isActive =
             item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+          const gate = GATED_HREFS[item.href];
+          const isLocked = !isDev && !!gate && isReady && elapsedMonths < gate.minMonths;
+          const lockTip = gate
+            ? `${gate.reason}（あと${Math.max(0, gate.minMonths - elapsedMonths)}ヶ月 / 残${remainingMonths}ヶ月）`
+            : "";
 
-          const linkContent = (
-            <Link
-              key={item.href}
-              href={item.href}
+          const innerContent = (
+            <span
               className={cn(
                 "relative flex items-center gap-3 px-4 py-2.5 text-sm transition-colors",
-                isActive
-                  ? "border-l-3 border-white bg-white/15 font-medium text-white"
-                  : "text-white/90 hover:bg-white/10 hover:text-white"
+                isLocked
+                  ? "cursor-not-allowed text-white/40"
+                  : isActive
+                    ? "border-l-3 border-white bg-white/15 font-medium text-white"
+                    : "text-white/90 hover:bg-white/10 hover:text-white",
               )}
             >
               <span className="relative shrink-0">
                 <item.icon className="h-5 w-5" />
               </span>
               {!collapsed && <span className="flex-1">{item.label}</span>}
+            </span>
+          );
+
+          const linkContent = isLocked ? (
+            <div key={item.href} title={lockTip} aria-disabled="true">
+              {innerContent}
+            </div>
+          ) : (
+            <Link key={item.href} href={item.href}>
+              {innerContent}
             </Link>
           );
 
@@ -108,7 +138,7 @@ export function AppSidebar() {
               <Tooltip key={item.href}>
                 <TooltipTrigger>{linkContent}</TooltipTrigger>
                 <TooltipContent side="right" className="font-sans">
-                  {item.label}
+                  {isLocked ? `${item.label}（${lockTip}）` : item.label}
                 </TooltipContent>
               </Tooltip>
             );
