@@ -186,6 +186,12 @@ export function ExecCompSimulatorSection() {
         corpDeficit={result.corpTaxableIncome < 0 ? result.corpTaxableIncome : null}
       />
 
+      <RecommendedRangeCard
+        optimalManYen={optimal.monthlyComp}
+        currentMonthly={form.monthlyComp}
+        onApply={(monthlyYen) => setField("monthlyComp", monthlyYen)}
+      />
+
       <div className="grid gap-3 lg:grid-cols-[320px_1fr]">
         <div className="space-y-3">
           <SimCard title="基本情報">
@@ -447,6 +453,104 @@ function OptimalBanner({
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * 「数学的最適」だけでなく、CF優先 / 退職金併用 の3レンジを提示し、
+ * クリックでスライダーに反映できるカード。個人側のレバー(小規模共済 + iDeCo)も推奨。
+ */
+function RecommendedRangeCard({
+  optimalManYen,
+  currentMonthly,
+  onApply,
+}: {
+  optimalManYen: number;
+  currentMonthly: number;
+  onApply: (monthlyYen: number) => void;
+}) {
+  // 推奨(CF優先): 最適値 × 0.85（運転資金確保）
+  // 退職金併用: 最適値 × 0.7（在任中を抑え退職時に取り崩す）
+  const recommended = Math.round(optimalManYen * 0.85);
+  const retirement = Math.round(optimalManYen * 0.7);
+  const currentManYen = currentMonthly / 10000;
+
+  return (
+    <div className="rounded-md border bg-white p-3 shadow-sm">
+      <div className="mb-2 flex items-center justify-between">
+        <span className="text-xs font-semibold text-muted-foreground">
+          適正額レンジ（クリックでシミュに反映）
+        </span>
+      </div>
+      <div className="grid grid-cols-3 gap-2">
+        <RangeButton
+          label="数学的最適"
+          sub="税負担最小化のみ"
+          manYen={optimalManYen}
+          isCurrent={Math.abs(currentManYen - optimalManYen) < 0.5}
+          onClick={() => onApply(optimalManYen * 10000)}
+        />
+        <RangeButton
+          label="推奨（CF優先）"
+          sub="× 0.85 / 運転資金確保込み"
+          manYen={recommended}
+          emphasis
+          isCurrent={Math.abs(currentManYen - recommended) < 0.5}
+          onClick={() => onApply(recommended * 10000)}
+        />
+        <RangeButton
+          label="退職金併用"
+          sub="× 0.7 / 在任中を抑え退職時に取崩し"
+          manYen={retirement}
+          isCurrent={Math.abs(currentManYen - retirement) < 0.5}
+          onClick={() => onApply(retirement * 10000)}
+        />
+      </div>
+      <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+        個人側の上乗せレバーは <strong>小規模企業共済</strong>（年84万まで全額所得控除）と{" "}
+        <strong>iDeCo</strong>（企業年金なしの場合 年27.6万まで）を推奨。詳細設定の
+        「小規模企業共済掛金」欄に入れると、当シミュにも反映されます。
+      </p>
+    </div>
+  );
+}
+
+function RangeButton({
+  label,
+  sub,
+  manYen,
+  emphasis,
+  isCurrent,
+  onClick,
+}: {
+  label: string;
+  sub: string;
+  manYen: number;
+  emphasis?: boolean;
+  isCurrent?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "rounded-md border p-2.5 text-left transition-colors hover:bg-muted/40",
+        emphasis && "border-emerald-500/50 bg-emerald-50/40 hover:bg-emerald-50",
+        isCurrent && "ring-2 ring-[var(--color-primary)]",
+      )}
+    >
+      <div className="text-[11px] font-semibold text-muted-foreground">{label}</div>
+      <div
+        className={cn(
+          "mt-0.5 text-base font-bold tabular-nums",
+          emphasis ? "text-emerald-700" : "text-[var(--color-text-primary)]",
+        )}
+      >
+        月額 {formatYenFromManYen(manYen)}
+      </div>
+      <div className="text-[10px] text-muted-foreground">{sub}</div>
+    </button>
   );
 }
 
