@@ -327,6 +327,15 @@ export class MfTransformService {
     plTransition: MfTransition,
     bsTrial?: MfTrialBalance | null,
     settledMonths?: number[],
+    options?: {
+      /**
+       * true のとき settledMonths（MonthlyClose 締め月）でのフィルタを skip し、
+       * 推移表に含まれる全 active 月（売上・人件費等の動きがある月）をそのまま使う。
+       * フロントで対象月をロック中（period-store の month 指定）で endMonth を渡している
+       * 場合に true にする。「ロック月＝今のランウェイの起点」というユーザー直感に揃える。
+       */
+      trustEndMonth?: boolean;
+    },
   ): CashflowDerived {
     const monthLabels = buildMonthLabels(bsTransition.columns);
     const mc = monthLabels.length; // 月数
@@ -674,7 +683,8 @@ export class MfTransformService {
         cogsMonthly[i] !== 0;
       if (hasActivity) activityMonths.push(i);
     }
-    const settledMonthSet = settledMonths?.length ? new Set(settledMonths) : null;
+    const settledMonthSet =
+      !options?.trustEndMonth && settledMonths?.length ? new Set(settledMonths) : null;
     const settledIdxs = settledMonthSet
       ? monthLabels
           .map((label, i) => ({ i, month: parseInt(label, 10) }))

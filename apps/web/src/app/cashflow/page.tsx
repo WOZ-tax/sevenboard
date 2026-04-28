@@ -328,32 +328,15 @@ export default function CashflowPage() {
 }
 
 function BurnCompositionCard({ composition }: { composition: NonNullable<NonNullable<ReturnType<typeof useMfCashflow>['data']>['runway']['composition']> }) {
-  // 後方互換: 旧レスポンスで dataQuality/activeMonths が無い場合のフォールバック
-  const {
-    netBurn,
-    actualBurn,
-    financingNet,
-    realBalanceDrop,
-    otherWorkingCapital,
-    dataQuality = 'heuristic' as const,
-    activeMonths = [],
-  } = composition;
+  const { netBurn, actualBurn, financingNet, realBalanceDrop, otherWorkingCapital } =
+    composition;
+  const lockedMonth = usePeriodStore((s) => s.month);
 
   const formatSigned = (n: number) => {
     if (n === 0) return "¥0";
     const sign = n > 0 ? "−" : "+"; // バーン視点で n>0 は現金流出
     return `${sign}${formatYen(Math.abs(n))}`;
   };
-
-  const qualityBadge = (() => {
-    if (dataQuality === "settled") {
-      return { label: "信頼度 HIGH（月次締め済み）", className: "bg-green-100 text-green-700 border-green-300" };
-    }
-    if (dataQuality === "heuristic") {
-      return { label: "信頼度 MEDIUM（月次締め未設定・推定）", className: "bg-yellow-100 text-yellow-800 border-yellow-300" };
-    }
-    return { label: "信頼度 LOW（実績月特定不可）", className: "bg-red-100 text-red-700 border-red-300" };
-  })();
 
   return (
     <Card className="border-l-4 border-l-[var(--color-secondary)]">
@@ -362,13 +345,8 @@ function BurnCompositionCard({ composition }: { composition: NonNullable<NonNull
           <div className="text-sm font-semibold text-[var(--color-text-primary)]">
             Net Burn と実 Cash Burn の乖離内訳（直近3ヶ月平均）
           </div>
-          <div className="flex items-center gap-2 text-xs">
-            <span className={cn("rounded-full border px-2 py-0.5 text-[10px]", qualityBadge.className)}>
-              {qualityBadge.label}
-            </span>
-            <span className="text-muted-foreground">
-              対象月: {activeMonths.length > 0 ? activeMonths.map((m) => `${m}月`).join(",") : "—"}
-            </span>
+          <div className="text-xs text-muted-foreground">
+            対象月: {lockedMonth ? `${lockedMonth}月末時点` : "全期間"}
           </div>
         </div>
 

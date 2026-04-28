@@ -74,7 +74,11 @@ export class MfController {
       throw new BadRequestException('MF returned empty trial balance data');
     }
     const cashflowDerived =
-      bsT && plT ? this.mfTransform.deriveCashflow(bsT, plT, bs, settledMonths) : undefined;
+      bsT && plT
+        ? this.mfTransform.deriveCashflow(bsT, plT, bs, settledMonths, {
+            trustEndMonth: !!em,
+          })
+        : undefined;
     return this.mfTransform.buildDashboardSummary(
       pl,
       bs,
@@ -137,7 +141,9 @@ export class MfController {
       this.mfApi.getTransitionPL(orgId, fy, em),
       fy ? this.monthlyCloseService.getSettledMonths(orgId, fy) : Promise.resolve(undefined),
     ]);
-    return this.mfTransform.deriveCashflow(bsT, plT, bsTrial, settledMonths);
+    return this.mfTransform.deriveCashflow(bsT, plT, bsTrial, settledMonths, {
+      trustEndMonth: !!em,
+    });
   }
 
   @Get('pl-transition')
