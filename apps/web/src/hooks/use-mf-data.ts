@@ -95,13 +95,18 @@ function useStoredRunwayMode(): 'worstCase' | 'netBurn' | 'actual' | undefined {
   return v === 'worstCase' || v === 'netBurn' || v === 'actual' ? v : undefined;
 }
 
-export function useAiSummary(options?: QueryOptions) {
+export function useAiSummary(
+  options?: QueryOptions & {
+    focus?: 'all' | 'revenue' | 'cost' | 'cashflow' | 'indicators';
+  },
+) {
   const orgId = useOrgId();
   const { fiscalYear, month } = useGlobalPeriod();
   const runwayMode = useStoredRunwayMode();
+  const focus = options?.focus ?? 'all';
   return useQuery<AiSummaryResponse>({
-    queryKey: ["ai", "summary", orgId, fiscalYear, month, runwayMode],
-    queryFn: () => api.ai.getSummary(orgId, fiscalYear, month, runwayMode),
+    queryKey: ["ai", "summary", orgId, fiscalYear, month, runwayMode, focus],
+    queryFn: () => api.ai.getSummary(orgId, fiscalYear, month, runwayMode, focus),
     enabled: !!orgId && (options?.enabled ?? true),
     staleTime: 30 * 60 * 1000,
   });

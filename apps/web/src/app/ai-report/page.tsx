@@ -81,28 +81,16 @@ const sectionIconMap: Record<string, React.ReactNode> = {
   "リスク分析": <ShieldAlert className="h-4 w-4 text-[var(--color-tertiary)]" />,
 };
 
-/** フォーカスに応じてセクションをフィルタ */
-function filterSections(
-  sections: { title: string; content: string }[],
-  focus: FocusValue,
-) {
-  if (focus === "all") return sections;
-  const map: Record<string, string[]> = {
-    revenue: ["売上・利益分析"],
-    cost: ["費用動向"],
-    cashflow: ["キャッシュフロー"],
-    indicators: ["財務指標"],
-  };
-  const allowed = map[focus] || [];
-  return sections.filter((s) => allowed.includes(s.title));
-}
-
 export default function AiReportPage() {
   // AI レポート生成は重いコール (数秒〜十数秒)。明示的なボタン押下時だけ fetch する。
   // トリガー前は KPI / 月次推移 もデータが無いので「AI 分析を実行」ボタンのみ表示。
   const [aiTriggered, setAiTriggered] = useState(false);
-  const { data: aiData, isLoading, refetch, isFetching, error } = useAiSummary({ enabled: aiTriggered });
   const [focus, setFocus] = useState<FocusValue>("all");
+  // focus を AI 側のプロンプトに渡し、見出しと内容を切り替える
+  const { data: aiData, isLoading, refetch, isFetching, error } = useAiSummary({
+    enabled: aiTriggered,
+    focus,
+  });
   const mfNotConnected = isMfNotConnected(error);
   const office = useMfOffice();
   const { fiscalYear, month, periods } = usePeriodStore();
@@ -357,7 +345,7 @@ export default function AiReportPage() {
                 {/* セクション表示 */}
                 {aiData?.sections && aiData.sections.length > 0 && (
                   <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                    {filterSections(aiData.sections, focus).map((section, i) => (
+                    {(aiData.sections ?? []).map((section, i) => (
                       <div
                         key={i}
                         className="rounded-lg border bg-card p-4"

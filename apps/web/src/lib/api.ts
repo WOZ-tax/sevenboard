@@ -409,11 +409,13 @@ export const api = {
       fiscalYear?: number,
       month?: number,
       runwayMode?: 'worstCase' | 'netBurn' | 'actual',
+      focus?: 'all' | 'revenue' | 'cost' | 'cashflow' | 'indicators',
     ) => {
       const qs = new URLSearchParams();
       if (fiscalYear) qs.set('fiscalYear', String(fiscalYear));
       if (month) qs.set('endMonth', String(month));
       if (runwayMode) qs.set('runwayMode', runwayMode);
+      if (focus && focus !== 'all') qs.set('focus', focus);
       const suffix = qs.toString() ? `?${qs}` : '';
       return apiFetch<AiSummaryResponse>(
         `/organizations/${orgId}/ai/summary${suffix}`,

@@ -152,6 +152,54 @@ export interface FundingReport {
   generatedAt: string;
 }
 
+// ==========================================
+// AIサマリーの focus（フォーカスしたい点）プロンプト定義
+// ==========================================
+type AiFocus = 'all' | 'revenue' | 'cost' | 'cashflow' | 'indicators';
+
+const FOCUS_INSTRUCTION: Record<AiFocus, string> = {
+  all: '5つのセクション（損益/資金繰り/良い兆し/注意点/次の打ち手）でバランス良く分析してください。',
+  revenue:
+    '今回は「売上・利益」に焦点を絞って分析してください。売上の構成、成長率、粗利率、上位顧客や案件の集中度、再現性のある売上か一時的な売上か、を深掘りしてください。資金繰りや費用の話題は最小限に。',
+  cost: '今回は「費用」に焦点を絞って分析してください。販管費の内訳（人件費/外注費/広告費/家賃/システム費/その他）、固定費と変動費の分離、前年同期比の費目別変動、削減余地のある費目を深掘りしてください。売上や資金繰りの話題は最小限に。',
+  cashflow:
+    '今回は「キャッシュフロー」に焦点を絞って分析してください。現預金推移、ランウェイ、運転資金（売掛・買掛のサイト）、納税月のキャッシュアウト、追加資金調達の要否を深掘りしてください。損益や費用構造の話題は最小限に。',
+  indicators:
+    '今回は「財務指標」に焦点を絞って分析してください。自己資本比率、流動比率、ギアリング比率、売上高営業利益率、ROA、債務償還年数、回転率を業界目安と比較しながら深掘りしてください。',
+};
+
+const FOCUS_SECTIONS: Record<AiFocus, string[]> = {
+  all: ['損益', '資金繰りとランウェイ', '良い兆し', '注意点', '次の打ち手'],
+  revenue: [
+    '売上構成と成長率',
+    '利益率の推移',
+    '上位顧客・案件の集中度',
+    '再現性の評価',
+    '売上拡大の論点',
+  ],
+  cost: [
+    '販管費の内訳と推移',
+    '固定費と変動費の分離',
+    '主要費目の前年比',
+    '削減余地のある費目',
+    'コスト最適化の論点',
+  ],
+  cashflow: [
+    '現預金推移とランウェイ',
+    '運転資金（AR/AP/在庫）',
+    '今後のキャッシュアウト（納税・賞与等）',
+    '追加資金調達の要否',
+    'CF改善の論点',
+  ],
+  indicators: [
+    '安全性（流動比率・自己資本比率）',
+    '収益性（売上高利益率・ROA）',
+    'レバレッジ（ギアリング・債務償還年数）',
+    '効率性（回転率）',
+    '改善優先順位',
+  ],
+};
+
 @Injectable()
 export class AiService {
   private readonly logger = new Logger(AiService.name);
@@ -409,10 +457,11 @@ ${plRows.map((r) => `${r.category}: ${r.current}円`).join('\n')}`;
     fiscalYear?: number,
     endMonth?: number,
     runwayMode?: 'worstCase' | 'netBurn' | 'actual',
+    focus: 'all' | 'revenue' | 'cost' | 'cashflow' | 'indicators' = 'all',
   ): Promise<AiSummaryResponse> {
     // endMonth 未指定 = 全期間/通期モード
     if (endMonth === undefined || endMonth === null) {
-      return this.generateCumulativeSummary(orgId, fiscalYear, runwayMode);
+      return this.generateCumulativeSummary(orgId, fiscalYear, runwayMode, focus);
     }
 
     const [{ targetMonthData, trend }, finCtx] = await Promise.all([
@@ -437,6 +486,11 @@ ${plRows.map((r) => `${r.category}: ${r.current}円`).join('\n')}`;
         .filter((p) => p.actual)
         .map((p) => `${p.month}: 売上 ${p.revenue.toLocaleString()}円 / 営業利益 ${p.operatingProfit.toLocaleString()}円`)
         .join('\n');
+      const focusInstruction = FOCUS_INSTRUCTION[focus];
+      const sectionTitles = FOCUS_SECTIONS[focus];
+      const sectionsJsonTemplate = sectionTitles
+        .map((t) => `{"title":"${t}","content":"このセクションのテーマに関する分析を 2-3 文で"}`)
+        .join(',');
       const prompt = `あなたは中小企業のCFO代行として、顧問先の月次財務を経営者向けにわかりやすく分析する会計事務所の経営コンサルタントです。
 
 以下は「${targetMonthData.month}単月」の財務データと、当期の月次推移です。
@@ -444,6 +498,9 @@ ${plRows.map((r) => `${r.category}: ${r.current}円`).join('\n')}`;
 主題はあくまで「${targetMonthData.month}単月の分析」です。
 過去からの推移は、${targetMonthData.month}の状態を理解するための比較材料として扱ってください。
 累計ではなく、単月実績をベースに語ってください。
+
+【今回のフォーカス】
+${focusInstruction}
 
 分析の目的は、経営者が「今月の状態」「資金繰り上の危険度」「次に取るべき打ち手」を短時間で把握できるようにすることです。
 大企業向けの高度な財務理論や過度な専門用語は避け、中小企業のCFOが社長に説明するような実務的なトーンにしてください。
@@ -518,8 +575,8 @@ ${primaryMode === 'actual'
 
 ## 出力形式
 
-以下のJSON形式で回答してください。
-{"summary":"${targetMonthData.month}単月のエグゼクティブサマリー(3〜5文、具体的な数字を含める)","sections":[{"title":"${targetMonthData.month}単月の損益","content":"売上・販管費・利益の関係を 2-3 文で"},{"title":"資金繰りとランウェイ","content":"${primaryLabel[primaryMode]} 主指標で資金繰り状況を 2-3 文で"},{"title":"良い兆し","content":"当月から読み取れる前向きな変化を 2-3 文で"},{"title":"注意点","content":"当月で注意すべきリスク・確認事項を 2-3 文で"},{"title":"次の打ち手","content":"翌月から実行できる現実的アクションを 2-3 文で"}],"highlights":[{"text":"15字以内","type":"positive"},{"text":"15字以内","type":"warning"}]}`;
+以下のJSON形式で回答してください。sections の title は必ず指定の見出しを使うこと。
+{"summary":"${targetMonthData.month}単月のエグゼクティブサマリー(3〜5文、具体的な数字を含める)","sections":[${sectionsJsonTemplate}],"highlights":[{"text":"15字以内","type":"positive"},{"text":"15字以内","type":"warning"}]}`;
 
       const res = await llm.generate(prompt, { maxTokens: 4096, json: true });
       let parsed = extractJson<{ summary: string; sections?: AiSectionItem[]; highlights: AiHighlight[] }>(res.text);
@@ -581,6 +638,7 @@ ${primaryMode === 'actual'
     orgId: string,
     fiscalYear?: number,
     runwayMode?: 'worstCase' | 'netBurn' | 'actual',
+    focus: AiFocus = 'all',
   ): Promise<AiSummaryResponse> {
     const [finCtx, transitionPl] = await Promise.all([
       this.getFinancialContext(orgId, fiscalYear).catch(() => null),
@@ -648,6 +706,11 @@ ${primaryMode === 'actual'
             `${p.month}: 売上 ${p.revenue.toLocaleString()}円 / 営業利益 ${p.operatingProfit.toLocaleString()}円`,
         )
         .join('\n');
+      const focusInstruction = FOCUS_INSTRUCTION[focus];
+      const sectionTitles = FOCUS_SECTIONS[focus];
+      const sectionsJsonTemplate = sectionTitles
+        .map((t) => `{"title":"${t}","content":"このセクションのテーマに関する分析を 2-3 文で"}`)
+        .join(',');
 
       const prompt = `あなたは中小企業のCFO代行として、顧問先の財務を経営者向けにわかりやすく分析する会計事務所の経営コンサルタントです。
 
@@ -656,6 +719,9 @@ ${primaryMode === 'actual'
 主題は「${periodLabel}の通期分析」です。
 単月のブレに引きずられず、累計値で当期の収益構造・資金繰りを評価してください。
 月次推移は当期の傾向(改善/悪化)を読むための補助情報として扱ってください。
+
+【今回のフォーカス】
+${focusInstruction}
 
 分析の目的は、経営者が「当期累計の到達点」「資金繰り上の体力」「期末までに取るべき打ち手」を短時間で把握できるようにすることです。
 大企業向けの高度な財務理論や過度な専門用語は避け、中小企業のCFOが社長に説明するような実務的なトーンにしてください。
@@ -733,8 +799,8 @@ ${
 
 ## 出力形式
 
-以下のJSON形式で回答してください。
-{"summary":"${periodLabel}累計のエグゼクティブサマリー(3〜5文、具体的な数字を含める)","sections":[{"title":"${periodLabel}累計の損益","content":"売上・販管費・利益の関係を 2-3 文で"},{"title":"資金繰りとランウェイ","content":"${primaryLabel[primaryMode]} 主指標で資金繰り状況を 2-3 文で"},{"title":"良い兆し","content":"当期から読み取れる前向きな変化を 2-3 文で"},{"title":"注意点","content":"通期で注意すべきリスク・確認事項を 2-3 文で"},{"title":"次の打ち手","content":"期末までに実行できる現実的アクションを 2-3 文で"}],"highlights":[{"text":"15字以内","type":"positive"},{"text":"15字以内","type":"warning"}]}`;
+以下のJSON形式で回答してください。sections の title は必ず指定の見出しを使うこと。
+{"summary":"${periodLabel}累計のエグゼクティブサマリー(3〜5文、具体的な数字を含める)","sections":[${sectionsJsonTemplate}],"highlights":[{"text":"15字以内","type":"positive"},{"text":"15字以内","type":"warning"}]}`;
 
       const res = await llm.generate(prompt, { maxTokens: 4096, json: true });
       let parsed = extractJson<{

@@ -39,13 +39,22 @@ export class AiController {
     @Query('fiscalYear') fiscalYear?: string,
     @Query('endMonth') endMonth?: string,
     @Query('runwayMode') runwayMode?: string,
+    @Query('focus') focus?: string,
   ) {
     const em = endMonth ? parseInt(endMonth, 10) : undefined;
+    const validFocus: 'all' | 'revenue' | 'cost' | 'cashflow' | 'indicators' =
+      focus === 'revenue' ||
+      focus === 'cost' ||
+      focus === 'cashflow' ||
+      focus === 'indicators'
+        ? focus
+        : 'all';
     return this.aiService.generateMonthlySummary(
       orgId,
       this.parseFy(fiscalYear),
       em,
       this.parseRunwayMode(runwayMode),
+      validFocus,
     );
   }
 
