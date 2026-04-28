@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useMfBS } from "@/hooks/use-mf-data";
+import { useIndustryCode } from "@/hooks/use-industry-code";
+import { getIndustryKnowledge } from "@/lib/industry-knowledge";
 import { CheckCircle2, Circle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatYen } from "@/lib/format";
@@ -36,6 +38,8 @@ const CATEGORY_TONE: Record<Task["category"], string> = {
 
 export function BsCleanupSection() {
   const bs = useMfBS();
+  const [industryCode] = useIndustryCode();
+  const industry = useMemo(() => getIndustryKnowledge(industryCode), [industryCode]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [hydrated, setHydrated] = useState(false);
 
@@ -53,16 +57,18 @@ export function BsCleanupSection() {
     };
     const data = bs.data as { rows?: Row[] };
     const result: Task[] = [];
+    const hints = industry.bsCleanupHints;
 
     const ar = findAll(data.rows, ["売掛金"]);
     ar.forEach((r) => {
       if ((r.amount ?? 0) > 0) {
+        const generic = "90日以上の滞留がないか確認、回収不能なら貸倒処理を検討";
         result.push({
           id: `ar-${r.name}`,
           category: "AR",
           label: r.name ?? "",
           amount: r.amount ?? 0,
-          hint: "90日以上の滞留がないか確認、回収不能なら貸倒処理を検討",
+          hint: hints.ar ? `${generic}\n[${industry.label}] ${hints.ar}` : generic,
           done: false,
           memo: "",
         });
@@ -72,12 +78,13 @@ export function BsCleanupSection() {
     const inv = findAll(data.rows, ["商品", "製品", "原材料", "仕掛品", "棚卸"]);
     inv.forEach((r) => {
       if ((r.amount ?? 0) > 0) {
+        const generic = "陳腐化・破損品の評価損計上を検討、写真・評価基準を残す";
         result.push({
           id: `inv-${r.name}`,
           category: "INVENTORY",
           label: r.name ?? "",
           amount: r.amount ?? 0,
-          hint: "陳腐化・破損品の評価損計上を検討、写真・評価基準を残す",
+          hint: hints.inventory ? `${generic}\n[${industry.label}] ${hints.inventory}` : generic,
           done: false,
           memo: "",
         });
@@ -87,12 +94,13 @@ export function BsCleanupSection() {
     const fa = findAll(data.rows, ["車両運搬具", "工具器具備品", "機械装置", "建物附属"]);
     fa.forEach((r) => {
       if ((r.amount ?? 0) > 0 && (r.amount ?? 0) < 100_000) {
+        const generic = "簿価がほぼ無く未使用なら除却損計上の対象";
         result.push({
           id: `fa-${r.name}`,
           category: "FIXED_ASSET",
           label: r.name ?? "",
           amount: r.amount ?? 0,
-          hint: "簿価がほぼ無く未使用なら除却損計上の対象",
+          hint: hints.fixedAsset ? `${generic}\n[${industry.label}] ${hints.fixedAsset}` : generic,
           done: false,
           memo: "",
         });
@@ -102,12 +110,13 @@ export function BsCleanupSection() {
     const tmp = findAll(data.rows, ["仮払金", "仮受金", "立替金"]);
     tmp.forEach((r) => {
       if ((r.amount ?? 0) > 0) {
+        const generic = "決算前に内容を確認し、適切な勘定科目に振替";
         result.push({
           id: `tmp-${r.name}`,
           category: "TEMP_ACCOUNT",
           label: r.name ?? "",
           amount: r.amount ?? 0,
-          hint: "決算前に内容を確認し、適切な勘定科目に振替",
+          hint: hints.tempAccount ? `${generic}\n[${industry.label}] ${hints.tempAccount}` : generic,
           done: false,
           memo: "",
         });
@@ -115,7 +124,7 @@ export function BsCleanupSection() {
     });
 
     return result;
-  }, [bs.data]);
+  }, [bs.data, industry]);
 
   // localStorage 復元 + generatedTasks マージ
   useEffect(() => {
@@ -228,7 +237,7 @@ export function BsCleanupSection() {
                         </span>
                         <span className="text-xs tabular-nums text-muted-foreground">{formatYen(t.amount)}</span>
                       </div>
-                      <p className="mt-0.5 text-[11px] text-muted-foreground">{t.hint}</p>
+                      <p className="mt-0.5 whitespace-pre-line text-[11px] text-muted-foreground">{t.hint}</p>
                       <input
                         type="text"
                         value={t.memo}

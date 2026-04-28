@@ -7,6 +7,9 @@ import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { useFyElapsed } from "@/hooks/use-fy-elapsed";
+import { useIndustryCode } from "@/hooks/use-industry-code";
+import { getIndustryOptions } from "@/lib/industry-knowledge";
+import type { IndustryCode } from "@/lib/industry-knowledge";
 import { usePeriodStore, getPeriodLabel } from "@/lib/period-store";
 import { useMfOffice } from "@/hooks/use-mf-data";
 
@@ -181,6 +184,8 @@ function PageHeader({
   remainingMonths: number;
   periodLabel: string;
 }) {
+  const [industryCode, setIndustryCode] = useIndustryCode();
+  const options = getIndustryOptions();
   return (
     <div className="rounded-lg border bg-card p-3 shadow-sm">
       <div className="flex flex-wrap items-end justify-between gap-2">
@@ -190,7 +195,21 @@ function PageHeader({
             {periodLabel} ／ 期首から{elapsedMonths}ヶ月経過 ／ 決算まであと{remainingMonths}ヶ月
           </p>
         </div>
-        <div className="text-xs text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-3 text-xs">
+          <label className="flex items-center gap-1.5">
+            <span className="text-muted-foreground">業種</span>
+            <select
+              value={industryCode}
+              onChange={(e) => setIndustryCode(e.target.value as IndustryCode)}
+              className="rounded border bg-white px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)]"
+            >
+              {options.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </label>
           <Link
             href="/cashflow"
             className="text-[var(--color-primary)] hover:underline"
