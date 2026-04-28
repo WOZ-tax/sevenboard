@@ -250,24 +250,33 @@ export default function VariableCostPage() {
   // localStorage に orgId スコープで永続化（リロード後も保持）。
   // 本来は API 経由で DB に保存したいが、Prisma 6.19 の UUID 互換性問題で
   // bulk update が常に P2023 で失敗するため、当面はブラウザ単位で持つ。
-  const storageKey = `sevenboard-vc-classification-${orgId}`;
-  const [customClassification, setCustomClassification] = useState<Record<string, boolean>>(() => {
-    if (typeof window === "undefined" || !orgId) return {};
-    try {
-      const raw = window.localStorage.getItem(storageKey);
-      return raw ? JSON.parse(raw) : {};
-    } catch {
-      return {};
-    }
-  });
+  // 初回 render 時点では orgId が空（useCurrentOrg 未解決）なので useState の lazy
+  // initializer では復元できない。orgId 確定後の useEffect で localStorage から読む。
+  const storageKey = orgId ? `sevenboard-vc-classification-${orgId}` : "";
+  const [customClassification, setCustomClassification] = useState<Record<string, boolean>>({});
+  const [restoredOrgId, setRestoredOrgId] = useState<string | null>(null);
   useEffect(() => {
     if (typeof window === "undefined" || !orgId) return;
+    if (restoredOrgId === orgId) return; // 同じ orgId は 1 度だけ復元
+    try {
+      const raw = window.localStorage.getItem(storageKey);
+      // localStorage からの復元は initial mount 相当の sync なので setState する
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setCustomClassification(raw ? JSON.parse(raw) : {});
+    } catch {
+      setCustomClassification({});
+    }
+    setRestoredOrgId(orgId);
+  }, [orgId, storageKey, restoredOrgId]);
+  useEffect(() => {
+    if (typeof window === "undefined" || !orgId || restoredOrgId !== orgId) return;
+    // 復元前の空 state を localStorage に書いて元データを潰さないよう、復元完了後だけ書き戻す
     if (Object.keys(customClassification).length === 0) {
       window.localStorage.removeItem(storageKey);
     } else {
       window.localStorage.setItem(storageKey, JSON.stringify(customClassification));
     }
-  }, [customClassification, orgId, storageKey]);
+  }, [customClassification, orgId, storageKey, restoredOrgId]);
 
   const isVariable = useCallback(
     (name: string): boolean => {
