@@ -14,7 +14,7 @@ const fmtComma = (n: number): string =>
 export function CapitalReductionSection() {
   const bs = useMfBS();
   const [capital, setCapital] = useState("0");
-  const [capitalReserve, setCapitalReserve] = useState("0");
+  const [capitalLegalReserve, setCapitalLegalReserve] = useState("0");
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
@@ -26,7 +26,7 @@ export function CapitalReductionSection() {
         // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage 復元
         if (p.capital) setCapital(p.capital);
          
-        if (p.capitalReserve) setCapitalReserve(p.capitalReserve);
+        if (p.capitalLegalReserve) setCapitalLegalReserve(p.capitalLegalReserve);
       }
     } catch {
       // ignore
@@ -40,36 +40,36 @@ export function CapitalReductionSection() {
     if (typeof window !== "undefined" && localStorage.getItem(STORAGE_KEY)) return;
     if (!bs.data) return;
 
-    type Row = { name?: string; amount?: number; rows?: Row[] };
-    const find = (rows: Row[] | undefined, key: string): Row | undefined => {
-      if (!rows) return undefined;
-      for (const r of rows) {
-        if (r.name?.includes(key)) return r;
-        const c = find(r.rows, key);
-        if (c) return c;
-      }
-      return undefined;
+    const all = [...bs.data.assets, ...bs.data.liabilitiesEquity];
+    const find = (key: string, exclude?: string[]): number => {
+      const row = all.find(
+        (r) =>
+          r.category.includes(key) &&
+          (!exclude || !exclude.some((e) => r.category.includes(e))),
+      );
+      return row?.current ?? 0;
     };
-    const data = bs.data as { rows?: Row[] };
-    const cap = find(data.rows, "資本金")?.amount ?? 0;
-    const reserve = find(data.rows, "資本剰余金")?.amount ?? 0;
+    // 「資本金」のみ拾う（「資本準備金」「資本剰余金」を除外）
+    const cap = find("資本金", ["準備", "剰余"]);
+    // 資本準備金（資本剰余金内訳の１つ。中小では多くがこれ）
+    const legalReserve = find("資本準備金");
     // eslint-disable-next-line react-hooks/set-state-in-effect -- MF実績からの初期プリセット
     if (cap) setCapital(String(cap));
      
-    if (reserve) setCapitalReserve(String(reserve));
+    if (legalReserve) setCapitalLegalReserve(String(legalReserve));
   }, [hydrated, bs.data]);
 
   useEffect(() => {
     if (!hydrated) return;
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ capital, capitalReserve }));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ capital, capitalLegalReserve }));
     } catch {
       // ignore
     }
-  }, [capital, capitalReserve, hydrated]);
+  }, [capital, capitalLegalReserve, hydrated]);
 
   const capitalAmount = parseNum(capital);
-  const capitalEqAmount = capitalAmount + parseNum(capitalReserve);
+  const capitalEqAmount = capitalAmount + parseNum(capitalLegalReserve);
   const isLargeCap = capitalAmount > ONE_OKU;
 
   const currentCapitalPortion = capitalEqAmount * GAIKEI_CAPITAL_RATE;
@@ -91,9 +91,9 @@ export function CapitalReductionSection() {
           <div className="space-y-1.5 p-2.5">
             <YenField label="資本金（円）" value={capital} onChange={setCapital} />
             <YenField
-              label="資本剰余金（円）"
-              value={capitalReserve}
-              onChange={setCapitalReserve}
+              label="資本準備金（円）"
+              value={capitalLegalReserve}
+              onChange={setCapitalLegalReserve}
             />
             <div className="border-t pt-2 text-xs">
               <div className="flex justify-between">

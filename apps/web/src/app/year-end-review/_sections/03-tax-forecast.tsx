@@ -72,41 +72,36 @@ export function TaxForecastSection() {
   useEffect(() => {
     if (!hydrated) return;
     if (typeof window !== "undefined" && localStorage.getItem(STORAGE_KEY)) return;
-    if (!pl.data) return;
 
-    type Row = { name?: string; amount?: number; rows?: Row[] };
-    const find = (rows: Row[] | undefined, key: string): Row | undefined => {
-      if (!rows) return undefined;
-      for (const r of rows) {
-        if (r.name?.includes(key)) return r;
-        const c = find(r.rows, key);
-        if (c) return c;
-      }
-      return undefined;
+    const findPl = (key: string): number | null => {
+      if (!Array.isArray(pl.data)) return null;
+      const row = pl.data.find((r) => r.category.includes(key));
+      return row?.current ?? null;
     };
-    const data = pl.data as { rows?: Row[] };
-    const ord = find(data.rows, "経常利益")?.amount ?? 0;
-    const elapsed = lockedMonth ? Math.max(1, lockedMonth) : 12;
-    const annualizeManYen = (v: number) => Math.round(((v / elapsed) * 12) / 10000);
-    if (ord) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- MF実績からの初期プリセット
-      setForm((prev) => ({ ...prev, pretaxProfit: String(annualizeManYen(ord)) }));
-    }
+    const findBs = (key: string): number | null => {
+      if (!bs.data) return null;
+      const all = [...bs.data.assets, ...bs.data.liabilitiesEquity];
+      const row = all.find((r) => r.category.includes(key));
+      return row?.current ?? null;
+    };
 
-    const bsData = bs.data as { rows?: Row[] } | undefined;
-    if (bsData?.rows) {
-      const vatRecv = find(bsData.rows, "仮受消費税")?.amount ?? 0;
-      const vatPaid = find(bsData.rows, "仮払消費税")?.amount ?? 0;
-      const annualize = (v: number) => Math.round((v / elapsed) * 12);
-      if (vatRecv || vatPaid) {
-         
-        setForm((prev) => ({
-          ...prev,
-          vatReceived: String(annualize(vatRecv)),
-          vatPaid: String(annualize(vatPaid)),
-        }));
-      }
-    }
+    const elapsed = lockedMonth ? Math.max(1, lockedMonth) : 12;
+    const annualize = (v: number) => Math.round((v / elapsed) * 12);
+    const annualizeManYen = (v: number) => Math.round(((v / elapsed) * 12) / 10000);
+
+    const ord = findPl("経常利益") ?? 0;
+    const cap = findBs("資本金") ?? 0;
+    const vatRecv = findBs("仮受消費税") ?? 0;
+    const vatPaid = findBs("仮払消費税") ?? 0;
+
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- MF実績からの初期プリセット
+    setForm((prev) => ({
+      ...prev,
+      pretaxProfit: ord ? String(annualizeManYen(ord)) : prev.pretaxProfit,
+      capital: cap ? String(cap) : prev.capital,
+      vatReceived: vatRecv ? String(annualize(vatRecv)) : prev.vatReceived,
+      vatPaid: vatPaid ? String(annualize(vatPaid)) : prev.vatPaid,
+    }));
   }, [hydrated, pl.data, bs.data, lockedMonth]);
 
   useEffect(() => {

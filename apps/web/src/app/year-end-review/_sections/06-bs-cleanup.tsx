@@ -43,31 +43,23 @@ export function BsCleanupSection() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [hydrated, setHydrated] = useState(false);
 
-  // BS から候補抽出
+  // BS から候補抽出 (FinancialStatementRow[] = {category, current, prior, ...} を扱う)
   const generatedTasks = useMemo<Task[]>(() => {
     if (!bs.data) return [];
-    type Row = { name?: string; amount?: number; rows?: Row[] };
-    const findAll = (rows: Row[] | undefined, keys: string[], collected: Row[] = []): Row[] => {
-      if (!rows) return collected;
-      for (const r of rows) {
-        if (r.name && keys.some((k) => r.name?.includes(k))) collected.push(r);
-        if (r.rows) findAll(r.rows, keys, collected);
-      }
-      return collected;
-    };
-    const data = bs.data as { rows?: Row[] };
+    const all = [...bs.data.assets, ...bs.data.liabilitiesEquity];
+    const findAll = (keys: string[]) =>
+      all.filter((r) => keys.some((k) => r.category.includes(k)));
     const result: Task[] = [];
     const hints = industry.bsCleanupHints;
 
-    const ar = findAll(data.rows, ["売掛金"]);
-    ar.forEach((r) => {
-      if ((r.amount ?? 0) > 0) {
+    findAll(["売掛金"]).forEach((r) => {
+      if ((r.current ?? 0) > 0) {
         const generic = "90日以上の滞留がないか確認、回収不能なら貸倒処理を検討";
         result.push({
-          id: `ar-${r.name}`,
+          id: `ar-${r.category}`,
           category: "AR",
-          label: r.name ?? "",
-          amount: r.amount ?? 0,
+          label: r.category,
+          amount: r.current ?? 0,
           hint: hints.ar ? `${generic}\n[${industry.label}] ${hints.ar}` : generic,
           done: false,
           memo: "",
@@ -75,15 +67,14 @@ export function BsCleanupSection() {
       }
     });
 
-    const inv = findAll(data.rows, ["商品", "製品", "原材料", "仕掛品", "棚卸"]);
-    inv.forEach((r) => {
-      if ((r.amount ?? 0) > 0) {
+    findAll(["商品", "製品", "原材料", "仕掛品", "棚卸"]).forEach((r) => {
+      if ((r.current ?? 0) > 0) {
         const generic = "陳腐化・破損品の評価損計上を検討、写真・評価基準を残す";
         result.push({
-          id: `inv-${r.name}`,
+          id: `inv-${r.category}`,
           category: "INVENTORY",
-          label: r.name ?? "",
-          amount: r.amount ?? 0,
+          label: r.category,
+          amount: r.current ?? 0,
           hint: hints.inventory ? `${generic}\n[${industry.label}] ${hints.inventory}` : generic,
           done: false,
           memo: "",
@@ -91,15 +82,14 @@ export function BsCleanupSection() {
       }
     });
 
-    const fa = findAll(data.rows, ["車両運搬具", "工具器具備品", "機械装置", "建物附属"]);
-    fa.forEach((r) => {
-      if ((r.amount ?? 0) > 0 && (r.amount ?? 0) < 100_000) {
+    findAll(["車両運搬具", "工具器具備品", "機械装置", "建物附属"]).forEach((r) => {
+      if ((r.current ?? 0) > 0 && (r.current ?? 0) < 100_000) {
         const generic = "簿価がほぼ無く未使用なら除却損計上の対象";
         result.push({
-          id: `fa-${r.name}`,
+          id: `fa-${r.category}`,
           category: "FIXED_ASSET",
-          label: r.name ?? "",
-          amount: r.amount ?? 0,
+          label: r.category,
+          amount: r.current ?? 0,
           hint: hints.fixedAsset ? `${generic}\n[${industry.label}] ${hints.fixedAsset}` : generic,
           done: false,
           memo: "",
@@ -107,15 +97,14 @@ export function BsCleanupSection() {
       }
     });
 
-    const tmp = findAll(data.rows, ["仮払金", "仮受金", "立替金"]);
-    tmp.forEach((r) => {
-      if ((r.amount ?? 0) > 0) {
+    findAll(["仮払金", "仮受金", "立替金"]).forEach((r) => {
+      if ((r.current ?? 0) > 0) {
         const generic = "決算前に内容を確認し、適切な勘定科目に振替";
         result.push({
-          id: `tmp-${r.name}`,
+          id: `tmp-${r.category}`,
           category: "TEMP_ACCOUNT",
-          label: r.name ?? "",
-          amount: r.amount ?? 0,
+          label: r.category,
+          amount: r.current ?? 0,
           hint: hints.tempAccount ? `${generic}\n[${industry.label}] ${hints.tempAccount}` : generic,
           done: false,
           memo: "",

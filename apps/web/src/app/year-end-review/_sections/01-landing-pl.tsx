@@ -15,47 +15,26 @@ export function LandingPlSection() {
   const lockedMonth = usePeriodStore((s) => s.month);
   const elapsedMonths = lockedMonth ? Math.max(1, lockedMonth) : 12;
 
+  // pl.data は FinancialStatementRow[] の平坦配列。category/current/prior を持つ
   const rows = useMemo(() => {
-    if (!pl.data) return [];
-    type PlRow = {
-      name?: string;
-      amount?: number;
-      priorAmount?: number;
-      indent?: number;
-      isTotal?: boolean;
-      rows?: PlRow[];
-    };
-    const data = pl.data as { rows?: PlRow[] };
-    const flat: Array<{
-      name: string;
-      current: number;
-      prior: number;
-      indent: number;
-      isTotal: boolean;
-    }> = [];
-    const walk = (list: PlRow[] | undefined, depth: number) => {
-      if (!list) return;
-      for (const r of list) {
-        if (r.name) {
-          flat.push({
-            name: r.name,
-            current: r.amount ?? 0,
-            prior: r.priorAmount ?? 0,
-            indent: r.indent ?? depth,
-            isTotal: r.isTotal ?? false,
-          });
-        }
-        if (r.rows) walk(r.rows, depth + 1);
-      }
-    };
-    walk(data.rows, 0);
-    return flat;
+    if (!pl.data || !Array.isArray(pl.data)) return [];
+    return pl.data.map((r) => ({
+      name: r.category,
+      current: r.current ?? 0,
+      prior: r.prior ?? 0,
+      indent: r.isHeader ? 0 : 1,
+      isTotal: r.isTotal ?? false,
+    }));
   }, [pl.data]);
 
   // 売上行を見つけて、デフォルトの着地売上（YTD × 12/N）を算出
   const defaultLandingRevenue = useMemo(() => {
+    // 「売上高」または「売上高合計」を最優先で拾う（売上原価/売上総利益は除外）
     const salesRow = rows.find(
-      (r) => r.name.includes("売上高") && !r.name.includes("原価") && !r.name.includes("総利益"),
+      (r) =>
+        r.name.includes("売上高") &&
+        !r.name.includes("原価") &&
+        !r.name.includes("総利益"),
     );
     const ytdRevenue = salesRow?.current ?? 0;
     return Math.round((ytdRevenue / elapsedMonths) * 12);

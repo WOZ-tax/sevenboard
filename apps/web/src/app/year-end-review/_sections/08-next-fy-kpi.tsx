@@ -50,19 +50,14 @@ export function NextFyKpiSection() {
 
   // 当期実績から来期目標のレンジ提示
   const currentRevenue = useMemo(() => {
-    if (!pl.data) return 0;
-    type Row = { name?: string; amount?: number; rows?: Row[] };
-    const find = (rows: Row[] | undefined, key: string): Row | undefined => {
-      if (!rows) return undefined;
-      for (const r of rows) {
-        if (r.name?.includes(key)) return r;
-        const c = find(r.rows, key);
-        if (c) return c;
-      }
-      return undefined;
-    };
-    const data = pl.data as { rows?: Row[] };
-    const rev = find(data.rows, "売上高")?.amount ?? 0;
+    if (!Array.isArray(pl.data)) return 0;
+    const row = pl.data.find(
+      (r) =>
+        r.category.includes("売上高") &&
+        !r.category.includes("原価") &&
+        !r.category.includes("総利益"),
+    );
+    const rev = row?.current ?? 0;
     const elapsed = lockedMonth ? Math.max(1, lockedMonth) : 12;
     return Math.round((rev / elapsed) * 12);
   }, [pl.data, lockedMonth]);

@@ -85,30 +85,34 @@ export function LoanProposalSection() {
 
   // 定量指標の計算
   const metrics = useMemo(() => {
-    type Row = { name?: string; amount?: number; rows?: Row[] };
-    const find = (rows: Row[] | undefined, key: string): Row | undefined => {
-      if (!rows) return undefined;
-      for (const r of rows) {
-        if (r.name?.includes(key)) return r;
-        const c = find(r.rows, key);
-        if (c) return c;
-      }
-      return undefined;
+    const findPl = (key: string, exclude?: string[]): number => {
+      if (!Array.isArray(pl.data)) return 0;
+      const row = pl.data.find(
+        (r) =>
+          r.category.includes(key) &&
+          (!exclude || !exclude.some((e) => r.category.includes(e))),
+      );
+      return row?.current ?? 0;
     };
-    const plData = pl.data as { rows?: Row[] } | undefined;
-    const bsData = bs.data as { rows?: Row[] } | undefined;
+    const findBs = (key: string): number => {
+      if (!bs.data) return 0;
+      const all = [...bs.data.assets, ...bs.data.liabilitiesEquity];
+      const row = all.find((r) => r.category.includes(key));
+      return row?.current ?? 0;
+    };
 
-    const revenue = find(plData?.rows, "売上高")?.amount ?? 0;
-    const ord = find(plData?.rows, "経常利益")?.amount ?? 0;
-    const cur = find(bsData?.rows, "流動資産")?.amount ?? 0;
-    const curLiab = find(bsData?.rows, "流動負債")?.amount ?? 0;
-    const eq = find(bsData?.rows, "純資産")?.amount ?? 0;
-    const totalAssets = find(bsData?.rows, "総資産")?.amount ?? 0;
-    const debt =
-      (find(bsData?.rows, "短期借入金")?.amount ?? 0) +
-      (find(bsData?.rows, "長期借入金")?.amount ?? 0);
-    const cashFlowAmt = (cashflow.data as { runway?: { variants?: { netBurn?: { basis?: number } } } } | undefined)
-      ?.runway?.variants?.netBurn?.basis ?? 0;
+    const revenue = findPl("売上高", ["原価", "総利益"]);
+    const ord = findPl("経常利益");
+    const cur = findBs("流動資産");
+    const curLiab = findBs("流動負債");
+    const eq = findBs("純資産");
+    // 総資産 = 流動資産 + 固定資産 (BSに直接行が無い場合は内訳合計を使う)
+    const fixedAssets = findBs("固定資産");
+    const totalAssets = findBs("総資産") || cur + fixedAssets;
+    const debt = findBs("短期借入金") + findBs("長期借入金");
+    const cashFlowAmt =
+      (cashflow.data as { runway?: { variants?: { netBurn?: { basis?: number } } } } | undefined)
+        ?.runway?.variants?.netBurn?.basis ?? 0;
 
     return {
       currentRatio: curLiab > 0 ? cur / curLiab : 0,

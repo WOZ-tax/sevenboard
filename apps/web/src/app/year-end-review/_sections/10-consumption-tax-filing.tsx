@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useMfPL } from "@/hooks/use-mf-data";
+import { usePeriodStore } from "@/lib/period-store";
 import { cn } from "@/lib/utils";
 import { AlertTriangle } from "lucide-react";
 
@@ -44,6 +46,8 @@ const BIZ_LABELS: Record<FormState["bizCategory"], string> = {
 };
 
 export function ConsumptionTaxFilingSection() {
+  const pl = useMfPL();
+  const lockedMonth = usePeriodStore((s) => s.month);
   const [form, setForm] = useState<FormState>(DEFAULT_FORM);
   const [hydrated, setHydrated] = useState(false);
 
@@ -56,9 +60,57 @@ export function ConsumptionTaxFilingSection() {
     } catch {
       // ignore
     }
-     
+
     setHydrated(true);
   }, []);
+
+  // MF実績からプリセット
+  useEffect(() => {
+    if (!hydrated) return;
+    if (typeof window !== "undefined" && localStorage.getItem(STORAGE_KEY)) return;
+    if (!Array.isArray(pl.data)) return;
+
+    const findPl = (key: string, exclude?: string[]): number => {
+      const row = pl.data!.find(
+        (r) =>
+          r.category.includes(key) &&
+          (!exclude || !exclude.some((e) => r.category.includes(e))),
+      );
+      return row?.current ?? 0;
+    };
+
+    const elapsed = lockedMonth ? Math.max(1, lockedMonth) : 12;
+    const annualize = (v: number) => Math.round((v / elapsed) * 12);
+
+    // 課税売上 = 売上高(年換算)
+    const sales = annualize(findPl("売上高", ["原価", "総利益"]));
+    // 課税仕入 ≈ 売上原価 + 販管費 − 人件費
+    // 人件費 = 役員報酬 + 給料賃金 + 賞与 + 雑給 + 法定福利費 + 福利厚生費
+    const cogs = annualize(findPl("売上原価"));
+    const sga = annualize(findPl("販売費及び一般管理費"));
+    const laborKeys = [
+      "役員報酬",
+      "給料",
+      "賞与",
+      "雑給",
+      "法定福利費",
+      "福利厚生費",
+    ];
+    const laborTotal = laborKeys.reduce(
+      (acc, k) => acc + annualize(findPl(k)),
+      0,
+    );
+    const taxablePurchase = Math.max(0, cogs + sga - laborTotal);
+
+    if (sales > 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- MF実績からの初期プリセット
+      setForm((p) => ({
+        ...p,
+        taxableSales: String(sales),
+        taxablePurchase: String(taxablePurchase),
+      }));
+    }
+  }, [hydrated, pl.data, lockedMonth]);
 
   useEffect(() => {
     if (!hydrated) return;

@@ -91,36 +91,38 @@ export function ExecCompSimulatorSection() {
   // MF実績からプリセット（hydratedしてユーザー入力が無い場合のみ）
   useEffect(() => {
     if (!hydrated) return;
-    if (!pl.data) return;
     if (typeof window === "undefined") return;
     if (localStorage.getItem(STORAGE_KEY)) return;
+    if (!Array.isArray(pl.data)) return;
 
-    type PlRow = { name?: string; amount?: number; rows?: PlRow[] };
-    const findRow = (rows: PlRow[] | undefined, key: string): PlRow | undefined => {
-      if (!rows) return undefined;
-      for (const r of rows) {
-        if (r.name?.includes(key)) return r;
-        const child = findRow(r.rows, key);
-        if (child) return child;
-      }
-      return undefined;
+    const findPl = (key: string, exclude?: string[]): number => {
+      const row = pl.data!.find(
+        (r) =>
+          r.category.includes(key) &&
+          (!exclude || !exclude.some((e) => r.category.includes(e))),
+      );
+      return row?.current ?? 0;
     };
-    const data = pl.data as { rows?: PlRow[] };
-    const rows = data.rows;
-    const revenue = findRow(rows, "売上高")?.amount ?? 0;
-    const sga = findRow(rows, "販売費及び一般管理費")?.amount ?? 0;
-    const execComp = findRow(rows, "役員報酬")?.amount ?? 0;
-    const depreciation = findRow(rows, "減価償却費")?.amount ?? 0;
+    const revenue = findPl("売上高", ["原価", "総利益"]);
+    const operatingProfit = findPl("営業利益");
+    const execComp = findPl("役員報酬");
+    const depreciation = findPl("減価償却費");
+
     if (revenue > 0) {
       const elapsed = lockedMonth ? Math.max(1, lockedMonth) : 12;
       const annualize = (v: number) => Math.round((v / elapsed) * 12);
+      const annualRevenue = annualize(revenue);
+      const annualOp = annualize(operatingProfit);
+      const annualExecComp = annualize(execComp);
+      // 経費(役員報酬除く) = 売上 − 営業利益 − 役員報酬
+      const annualExpenses = Math.max(0, annualRevenue - annualOp - annualExecComp);
       // eslint-disable-next-line react-hooks/set-state-in-effect -- MF実績からの初回プリセット
       setForm((prev) => ({
         ...prev,
-        revenue: String(annualize(revenue)),
-        expenses: String(Math.max(0, annualize(sga) - annualize(execComp))),
+        revenue: String(annualRevenue),
+        expenses: String(annualExpenses),
         monthlyComp:
-          execComp > 0 ? Math.round(annualize(execComp) / 12) : prev.monthlyComp,
+          execComp > 0 ? Math.round(annualExecComp / 12) : prev.monthlyComp,
         depreciation: String(annualize(depreciation)),
       }));
     }
