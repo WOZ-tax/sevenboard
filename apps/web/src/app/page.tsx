@@ -18,7 +18,7 @@ import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Bot, AlertTriangle, AlertCircle, Info, Zap, Users, ChevronRight, Sparkles } from "lucide-react";
+import { Bot, AlertTriangle, AlertCircle, Info, Zap, Users, ChevronRight, ChevronDown, ChevronUp, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AgentBanner } from "@/components/agent/agent-banner";
 import { AGENTS } from "@/lib/agent-voice";
@@ -235,8 +235,9 @@ export default function DashboardPage() {
   const [runwayMode, setRunwayMode] = useRunwayMode();
 
   // AI コール（aiSummary / Briefing）はコストが重いので明示的なボタン押下時だけ発火する。
-  // KPI / グラフ / アラート / トリアージ等は自動継続。並び順も AI を画面下に配置済み。
+  // KPI / グラフ / アラート / トリアージ等は自動継続。AI 経営分析を売上推移の直下に配置。
   const [aiTriggered, setAiTriggered] = useState(false);
+  const [alertsOpen, setAlertsOpen] = useState(true);
 
   const plTransition = useMfPLTransition({ enabled: canQueryDependents });
   const aiSummaryQuery = useAiSummary({ enabled: canQueryDependents && aiTriggered });
@@ -343,108 +344,9 @@ export default function DashboardPage() {
 
         {canQueryDependents && <RevenueChart mfData={plTransition.data} />}
 
-        {canQueryDependents && (
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base font-semibold text-[var(--color-text-primary)]">
-                アラート
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {alertsQuery.isLoading ? (
-                <div className="space-y-2">
-                  {Array.from({ length: 3 }).map((_, i) => (
-                    <div key={i} className="h-16 animate-pulse rounded-lg bg-muted" />
-                  ))}
-                </div>
-              ) : alertsQuery.data && alertsQuery.data.length > 0 ? (
-                alertsQuery.data.map((alert: AlertItem) => {
-                  const level = alert.level || alert.severity || "info";
-                  const config = alertLevelConfig[level as keyof typeof alertLevelConfig] || alertLevelConfig.info;
-                  const Icon = config.icon;
-                  const severityMap: Record<string, "CRITICAL" | "HIGH" | "MEDIUM"> = {
-                    critical: "CRITICAL",
-                    warning: "HIGH",
-                    info: "MEDIUM",
-                  };
-                  const defaultSeverity = severityMap[level] ?? "MEDIUM";
-
-                  return (
-                    <div
-                      key={alert.id}
-                      className={cn("flex items-start gap-3 rounded-lg p-3", config.bg)}
-                    >
-                      <Icon className={cn("mt-0.5 h-5 w-5 shrink-0", config.color)} />
-                      <div className="min-w-0 flex-1">
-                        <div className="mb-0.5 flex items-center gap-2">
-                          <span className="text-sm font-medium">{alert.title}</span>
-                          <Badge
-                            variant="secondary"
-                            className={cn("px-1.5 py-0 text-[10px]", config.badge)}
-                          >
-                            {config.label}
-                          </Badge>
-                        </div>
-                        <p className="text-xs text-muted-foreground">
-                          {alert.description || alert.message}
-                        </p>
-                      </div>
-                      <div className="flex shrink-0 items-center gap-2">
-                        <ActionizeButton
-                          sourceScreen="ALERTS"
-                          sourceRef={{ alertId: alert.id, level }}
-                          defaultTitle={alert.title}
-                          defaultDescription={alert.description || alert.message}
-                          defaultSeverity={defaultSeverity}
-                          defaultOwnerRole="ADVISOR"
-                          size="sm"
-                        />
-                        <span className="text-xs text-muted-foreground">
-                          {alert.date || alert.createdAt?.slice(0, 10)}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })
-              ) : (
-                <p className="py-4 text-center text-sm text-muted-foreground">
-                  アラートはありません
-                </p>
-              )}
-            </CardContent>
-          </Card>
-        )}
-
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <ActionSummaryCard summary={actionsSummary.data} isLoading={actionsSummary.isLoading} />
-          <TriageSummaryCard
-            summary={triageQuery.data?.summary}
-            signals={triageQuery.data?.signals}
-            isLoading={triageQuery.isLoading}
-          />
-        </div>
-
-        <div className="screen-only space-y-6">
-          <AgentBanner
-            agent={AGENTS.brief}
-            status={alertsQuery.data && alertsQuery.data.length > 0 ? "alert" : "ok"}
-            detectionCount={alertsQuery.data?.length ?? 0}
-            lastUpdatedAt={new Date().toISOString()}
-            actions={
-              <CopilotOpenButton
-                agentKey="brief"
-                mode="observe"
-                seed="今朝の注目点を3点に絞って整理してください。"
-              />
-            }
-          />
-
-          <AgentActivityCard enabled={canQueryDependents} />
-        </div>
-
         {/* AI 分析セクション。重いコール（aiSummary / Briefing）は自動 fetch せず、
-            ユーザーが明示的にボタンを押した時だけ発火する。並び順は KPI/グラフ/アラート
-            の下、ページ末尾に配置。 */}
+            ユーザーが明示的にボタンを押した時だけ発火する。
+            ユーザー指示で売上高月次推移の直下に配置（旧:ページ末尾）。 */}
         {canQueryDependents && !aiTriggered && (
           <Card className="border-dashed border-[var(--color-secondary)]/40 bg-gradient-to-br from-[#ede7f6]/30 via-white to-white">
             <CardContent className="flex flex-col items-center gap-3 p-6 text-center">
@@ -547,6 +449,130 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
         )}
+
+        {/* Action / Triage は AI 経営分析とアラートの間に配置（ユーザー指示） */}
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <ActionSummaryCard summary={actionsSummary.data} isLoading={actionsSummary.isLoading} />
+          <TriageSummaryCard
+            summary={triageQuery.data?.summary}
+            signals={triageQuery.data?.signals}
+            isLoading={triageQuery.isLoading}
+          />
+        </div>
+
+        {/* アラート（折りたたみ可能。デフォルト展開、件数バッジ付き） */}
+        {canQueryDependents && (
+          <Card>
+            <CardHeader className="pb-2">
+              <button
+                type="button"
+                onClick={() => setAlertsOpen((v) => !v)}
+                className="flex w-full items-center justify-between gap-2 text-left"
+                aria-expanded={alertsOpen}
+                aria-controls="alerts-panel"
+              >
+                <CardTitle className="flex items-center gap-2 text-base font-semibold text-[var(--color-text-primary)]">
+                  アラート
+                  {alertsQuery.data && alertsQuery.data.length > 0 && (
+                    <Badge
+                      variant="secondary"
+                      className="bg-[#fce4ec] px-1.5 py-0 text-[10px] text-[var(--color-error)]"
+                    >
+                      {alertsQuery.data.length}件
+                    </Badge>
+                  )}
+                </CardTitle>
+                {alertsOpen ? (
+                  <ChevronUp className="h-4 w-4 text-muted-foreground" />
+                ) : (
+                  <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                )}
+              </button>
+            </CardHeader>
+            {alertsOpen && (
+              <CardContent id="alerts-panel" className="space-y-3">
+                {alertsQuery.isLoading ? (
+                  <div className="space-y-2">
+                    {Array.from({ length: 3 }).map((_, i) => (
+                      <div key={i} className="h-16 animate-pulse rounded-lg bg-muted" />
+                    ))}
+                  </div>
+                ) : alertsQuery.data && alertsQuery.data.length > 0 ? (
+                  alertsQuery.data.map((alert: AlertItem) => {
+                    const level = alert.level || alert.severity || "info";
+                    const config = alertLevelConfig[level as keyof typeof alertLevelConfig] || alertLevelConfig.info;
+                    const Icon = config.icon;
+                    const severityMap: Record<string, "CRITICAL" | "HIGH" | "MEDIUM"> = {
+                      critical: "CRITICAL",
+                      warning: "HIGH",
+                      info: "MEDIUM",
+                    };
+                    const defaultSeverity = severityMap[level] ?? "MEDIUM";
+
+                    return (
+                      <div
+                        key={alert.id}
+                        className={cn("flex items-start gap-3 rounded-lg p-3", config.bg)}
+                      >
+                        <Icon className={cn("mt-0.5 h-5 w-5 shrink-0", config.color)} />
+                        <div className="min-w-0 flex-1">
+                          <div className="mb-0.5 flex items-center gap-2">
+                            <span className="text-sm font-medium">{alert.title}</span>
+                            <Badge
+                              variant="secondary"
+                              className={cn("px-1.5 py-0 text-[10px]", config.badge)}
+                            >
+                              {config.label}
+                            </Badge>
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            {alert.description || alert.message}
+                          </p>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-2">
+                          <ActionizeButton
+                            sourceScreen="ALERTS"
+                            sourceRef={{ alertId: alert.id, level }}
+                            defaultTitle={alert.title}
+                            defaultDescription={alert.description || alert.message}
+                            defaultSeverity={defaultSeverity}
+                            defaultOwnerRole="ADVISOR"
+                            size="sm"
+                          />
+                          <span className="text-xs text-muted-foreground">
+                            {alert.date || alert.createdAt?.slice(0, 10)}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <p className="py-4 text-center text-sm text-muted-foreground">
+                    アラートはありません
+                  </p>
+                )}
+              </CardContent>
+            )}
+          </Card>
+        )}
+
+        <div className="screen-only space-y-6">
+          <AgentBanner
+            agent={AGENTS.brief}
+            status={alertsQuery.data && alertsQuery.data.length > 0 ? "alert" : "ok"}
+            detectionCount={alertsQuery.data?.length ?? 0}
+            lastUpdatedAt={new Date().toISOString()}
+            actions={
+              <CopilotOpenButton
+                agentKey="brief"
+                mode="observe"
+                seed="今朝の注目点を3点に絞って整理してください。"
+              />
+            }
+          />
+
+          <AgentActivityCard enabled={canQueryDependents} />
+        </div>
       </div>
     </DashboardShell>
   );
