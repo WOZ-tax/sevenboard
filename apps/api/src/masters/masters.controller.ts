@@ -8,6 +8,7 @@ import {
   Body,
   UseGuards,
   Request,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import { MastersService } from './masters.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -54,32 +55,15 @@ export class MastersController {
     return this.mastersService.createAccount(orgId, dto);
   }
 
-  @Put('accounts/:accountId')
-  @Roles('owner', 'advisor')
-  @UseGuards(RolesGuard)
-  async updateAccount(
-    @Param('orgId') orgId: string,
-    @Param('accountId') accountId: string,
-    @Body() dto: UpdateAccountDto,
-  ) {
-    return this.mastersService.updateAccount(orgId, accountId, dto);
-  }
-
-  @Delete('accounts/:accountId')
-  @Roles('owner', 'advisor')
-  @UseGuards(RolesGuard)
-  async deleteAccount(
-    @Param('orgId') orgId: string,
-    @Param('accountId') accountId: string,
-  ) {
-    return this.mastersService.deleteAccount(orgId, accountId);
-  }
-
   /**
    * 勘定科目の固定/変動フラグをまとめて保存（変動損益分析画面用）。
    * ADMIN/ADVISOR 限定（同じ事務所のユーザーのみ分類を調整できる）。
    * EXECUTIVE(顧客側) からは AccountMaster を書き換えられないように制限。
    */
+  // 重要: この route は必ず `@Put('accounts/:accountId')` より **前** に置くこと。
+  // Nest の route matcher は登録順なので、:accountId 系より先に static path が来ないと
+  // `accountId="variable-cost-flags"` として ParseUUIDPipe を通り、UUID parse 失敗で
+  // P2023 を吐く（過去にハマったため記録）。
   @Put('accounts/variable-cost-flags')
   @Roles('owner', 'advisor')
   @UseGuards(RolesGuard)
@@ -91,6 +75,27 @@ export class MastersController {
       orgId,
       body.updates,
     );
+  }
+
+  @Put('accounts/:accountId')
+  @Roles('owner', 'advisor')
+  @UseGuards(RolesGuard)
+  async updateAccount(
+    @Param('orgId') orgId: string,
+    @Param('accountId', ParseUUIDPipe) accountId: string,
+    @Body() dto: UpdateAccountDto,
+  ) {
+    return this.mastersService.updateAccount(orgId, accountId, dto);
+  }
+
+  @Delete('accounts/:accountId')
+  @Roles('owner', 'advisor')
+  @UseGuards(RolesGuard)
+  async deleteAccount(
+    @Param('orgId') orgId: string,
+    @Param('accountId', ParseUUIDPipe) accountId: string,
+  ) {
+    return this.mastersService.deleteAccount(orgId, accountId);
   }
 
   // --- 部門 ---
