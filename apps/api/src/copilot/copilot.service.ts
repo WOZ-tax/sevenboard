@@ -111,6 +111,10 @@ export class CopilotService {
       .map((m) => `${m.role === 'user' ? '顧問' : 'エージェント'}: ${m.content}`)
       .join('\n');
 
+    const industryBlock = dto.industryContext
+      ? ['--- 顧問先の業種別知識 ---', dto.industryContext, '']
+      : [];
+
     const basePrompt = [
       systemRole,
       '',
@@ -124,6 +128,7 @@ export class CopilotService {
       '--- 参照データ（直近時点） ---',
       contextBlock,
       '',
+      ...industryBlock,
       '--- 直近のやり取り ---',
       history,
     ].join('\n');

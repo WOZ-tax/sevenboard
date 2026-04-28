@@ -45,6 +45,16 @@ export class CopilotChatDto {
   @IsIn(['worstCase', 'netBurn', 'actual'])
   runwayMode?: 'worstCase' | 'netBurn' | 'actual';
 
+  /**
+   * 業種別経営知識（フロント側で getKnowledgeForAI(code) により生成）。
+   * Getsuji 由来の業界平均/特性/ヒアリング項目/失敗パターン等。
+   * system prompt に注入され、回答に反映される。
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(8000)
+  industryContext?: string;
+
   @IsArray()
   @ArrayMaxSize(8)
   @ValidateNested({ each: true })
