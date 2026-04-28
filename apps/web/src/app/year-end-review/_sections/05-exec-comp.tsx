@@ -178,18 +178,12 @@ export function ExecCompSimulatorSection() {
 
   return (
     <div className="space-y-3">
-      <OptimalBanner
-        currentMonthly={form.monthlyComp}
-        optimalManYen={optimal.monthlyComp}
-        optimalTotalNet={optimal.totalNet}
-        currentTotalNet={result.totalNet}
-        corpDeficit={result.corpTaxableIncome < 0 ? result.corpTaxableIncome : null}
-      />
-
       <RecommendedRangeCard
-        optimalManYen={optimal.monthlyComp}
+        revenueManYen={simInput.revenueManYen}
+        expensesManYen={simInput.expensesManYen}
         currentMonthly={form.monthlyComp}
         onApply={(monthlyYen) => setField("monthlyComp", monthlyYen)}
+        optimalReferenceManYen={optimal.monthlyComp}
       />
 
       <div className="grid gap-3 lg:grid-cols-[320px_1fr]">
@@ -416,100 +410,131 @@ function SliderField({
   );
 }
 
-function OptimalBanner({
-  currentMonthly,
-  optimalManYen,
-  optimalTotalNet,
-  currentTotalNet,
-  corpDeficit,
-}: {
-  currentMonthly: number;
-  optimalManYen: number;
-  optimalTotalNet: number;
-  currentTotalNet: number;
-  corpDeficit: number | null;
-}) {
-  const diff = currentTotalNet - optimalTotalNet;
-  const isOptimal = Math.abs(diff) < 1;
-  return (
-    <div className="rounded-md border-l-4 border-l-emerald-500 bg-white p-3 shadow-sm">
-      <div className="text-sm">
-        <span className="font-medium">最適報酬: </span>
-        <span className="font-bold text-emerald-700">月額 {formatYenFromManYen(optimalManYen)}</span>
-        <span className="ml-2 text-xs text-muted-foreground">（年額 {formatYenFromManYen(optimalManYen * 12)}）</span>
-      </div>
-      <div className="mt-0.5 text-xs text-muted-foreground">
-        最適時の手残り: <span className="font-bold text-emerald-700">{formatYenFromManYen(optimalTotalNet)}</span>
-        {isOptimal ? (
-          <span className="ml-2 text-emerald-700">✓ 現在最適</span>
-        ) : (
-          <span className="ml-2">
-            現在(月{fmtComma(currentMonthly)}円)との差{" "}
-            <span className="font-bold text-emerald-700">+{formatYenFromManYen(Math.abs(diff))}</span>
-          </span>
-        )}
-        {corpDeficit !== null && (
-          <span className="ml-2 text-rose-600">※法人赤字 {formatYenFromManYen(corpDeficit)}</span>
-        )}
-      </div>
-    </div>
-  );
-}
-
 /**
- * 「数学的最適」だけでなく、CF優先 / 退職金併用 の3レンジを提示し、
- * クリックでスライダーに反映できるカード。個人側のレバー(小規模共済 + iDeCo)も推奨。
+ * 適正な役員報酬は「税最小化」では決まらない。
+ * 「利益(役員報酬付加前) の何% を取るか」という比率思考で提示する。
+ *
+ * - 法人優先 (30%): 内部留保厚め / 再投資・運転資金確保
+ * - バランス (45%): 標準的な配分
+ * - 個人優先 (60%): 稼いだ実感を取りに行く / 生活水準UP
+ *
+ * 個人側の上乗せレバーは 小規模企業共済 + iDeCo のみ推奨（脱税スレスレ系は載せない）。
+ * 税最小化の参考値は小さく併記するに留める。
  */
 function RecommendedRangeCard({
-  optimalManYen,
+  revenueManYen,
+  expensesManYen,
   currentMonthly,
   onApply,
+  optimalReferenceManYen,
 }: {
-  optimalManYen: number;
+  revenueManYen: number;
+  expensesManYen: number;
   currentMonthly: number;
   onApply: (monthlyYen: number) => void;
+  optimalReferenceManYen: number;
 }) {
-  // 推奨(CF優先): 最適値 × 0.85（運転資金確保）
-  // 退職金併用: 最適値 × 0.7（在任中を抑え退職時に取り崩す）
-  const recommended = Math.round(optimalManYen * 0.85);
-  const retirement = Math.round(optimalManYen * 0.7);
+  // 利益(役員報酬付加前・万円)
+  const profitBeforeComp = Math.max(0, revenueManYen - expensesManYen);
   const currentManYen = currentMonthly / 10000;
+  // 現在の比率(年額/利益)
+  const currentRatio = profitBeforeComp > 0 ? (currentManYen * 12) / profitBeforeComp : 0;
+
+  const [ratio, setRatio] = useState(45);
+
+  // ratio が外部入力で動いたら同期したいが、シンプルにユーザー操作のみで動かす
+  // 3プリセット
+  const conservative = Math.round((profitBeforeComp * 0.3) / 12);
+  const balanced = Math.round((profitBeforeComp * 0.45) / 12);
+  const aggressive = Math.round((profitBeforeComp * 0.6) / 12);
+  const customMonthly = Math.round((profitBeforeComp * (ratio / 100)) / 12);
 
   return (
     <div className="rounded-md border bg-white p-3 shadow-sm">
-      <div className="mb-2 flex items-center justify-between">
+      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
         <span className="text-xs font-semibold text-muted-foreground">
-          適正額レンジ（クリックでシミュに反映）
+          役員報酬の適正額（営業利益の何%を取るか）
+        </span>
+        <span className="text-[11px] text-muted-foreground">
+          利益(役員報酬付加前): <span className="font-bold text-foreground">{formatYenFromManYen(profitBeforeComp)}</span>
+          {" "}（年額）
         </span>
       </div>
+
       <div className="grid grid-cols-3 gap-2">
         <RangeButton
-          label="数学的最適"
-          sub="税負担最小化のみ"
-          manYen={optimalManYen}
-          isCurrent={Math.abs(currentManYen - optimalManYen) < 0.5}
-          onClick={() => onApply(optimalManYen * 10000)}
+          label="法人優先"
+          ratioLabel="30%"
+          sub="内部留保厚め / 再投資・運転資金確保"
+          manYen={conservative}
+          isCurrent={Math.abs(currentRatio - 0.3) < 0.02}
+          onClick={() => {
+            setRatio(30);
+            onApply(conservative * 10000);
+          }}
         />
         <RangeButton
-          label="推奨（CF優先）"
-          sub="× 0.85 / 運転資金確保込み"
-          manYen={recommended}
+          label="バランス"
+          ratioLabel="45%"
+          sub="標準的な配分"
+          manYen={balanced}
           emphasis
-          isCurrent={Math.abs(currentManYen - recommended) < 0.5}
-          onClick={() => onApply(recommended * 10000)}
+          isCurrent={Math.abs(currentRatio - 0.45) < 0.02}
+          onClick={() => {
+            setRatio(45);
+            onApply(balanced * 10000);
+          }}
         />
         <RangeButton
-          label="退職金併用"
-          sub="× 0.7 / 在任中を抑え退職時に取崩し"
-          manYen={retirement}
-          isCurrent={Math.abs(currentManYen - retirement) < 0.5}
-          onClick={() => onApply(retirement * 10000)}
+          label="個人優先"
+          ratioLabel="60%"
+          sub="稼いだ実感 / 生活水準UP"
+          manYen={aggressive}
+          isCurrent={Math.abs(currentRatio - 0.6) < 0.02}
+          onClick={() => {
+            setRatio(60);
+            onApply(aggressive * 10000);
+          }}
         />
       </div>
+
+      {/* 比率カスタムスライダー */}
+      <div className="mt-3 rounded bg-muted/30 p-2">
+        <div className="mb-1 flex items-center justify-between text-[11px]">
+          <span className="text-muted-foreground">比率を調整</span>
+          <span className="font-bold text-[var(--color-primary)]">
+            {ratio}% → 月額 {formatYenFromManYen(customMonthly)}（年額 {formatYenFromManYen(customMonthly * 12)}）
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <input
+            type="range"
+            min={20}
+            max={70}
+            step={1}
+            value={ratio}
+            onChange={(e) => setRatio(parseInt(e.target.value, 10) || 0)}
+            className="flex-1"
+          />
+          <button
+            type="button"
+            onClick={() => onApply(customMonthly * 10000)}
+            className="rounded bg-[var(--color-primary)] px-2 py-1 text-[11px] font-semibold text-white hover:opacity-90"
+          >
+            この比率で反映
+          </button>
+        </div>
+      </div>
+
       <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+        比率 = 役員報酬年額 ÷ 利益(役員報酬付加前 = 売上 − 経費)。
         個人側の上乗せレバーは <strong>小規模企業共済</strong>（年84万まで全額所得控除）と{" "}
-        <strong>iDeCo</strong>（企業年金なしの場合 年27.6万まで）を推奨。詳細設定の
-        「小規模企業共済掛金」欄に入れると、当シミュにも反映されます。
+        <strong>iDeCo</strong>（企業年金なしの場合 年27.6万まで）。詳細設定の
+        「小規模企業共済掛金」欄に入れると当シミュに反映されます。
+      </p>
+      <p className="mt-1 text-[10px] text-muted-foreground/80">
+        参考: 税負担最小化のみで計算した最適点 = 月額 {formatYenFromManYen(optimalReferenceManYen)}
+        {" "}（社保等級の境目で決まる構造的な値。実務では生活水準・CF・退職金との合算で判断）
       </p>
     </div>
   );
@@ -517,6 +542,7 @@ function RecommendedRangeCard({
 
 function RangeButton({
   label,
+  ratioLabel,
   sub,
   manYen,
   emphasis,
@@ -524,6 +550,7 @@ function RangeButton({
   onClick,
 }: {
   label: string;
+  ratioLabel: string;
   sub: string;
   manYen: number;
   emphasis?: boolean;
@@ -540,7 +567,10 @@ function RangeButton({
         isCurrent && "ring-2 ring-[var(--color-primary)]",
       )}
     >
-      <div className="text-[11px] font-semibold text-muted-foreground">{label}</div>
+      <div className="flex items-baseline justify-between">
+        <span className="text-[11px] font-semibold text-muted-foreground">{label}</span>
+        <span className="text-[11px] font-bold text-muted-foreground">{ratioLabel}</span>
+      </div>
       <div
         className={cn(
           "mt-0.5 text-base font-bold tabular-nums",
@@ -549,7 +579,7 @@ function RangeButton({
       >
         月額 {formatYenFromManYen(manYen)}
       </div>
-      <div className="text-[10px] text-muted-foreground">{sub}</div>
+      <div className="text-[10px] leading-tight text-muted-foreground">{sub}</div>
     </button>
   );
 }
