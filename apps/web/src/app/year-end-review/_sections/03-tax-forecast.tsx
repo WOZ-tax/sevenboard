@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMfPL, useMfBS } from "@/hooks/use-mf-data";
 import { usePeriodStore } from "@/lib/period-store";
 import { calcCorpTax, formatYenFromManYen } from "@/lib/payroll-tax-calc";
@@ -55,23 +55,26 @@ export function TaxForecastSection() {
   const lockedMonth = usePeriodStore((s) => s.month);
   const [form, setForm] = useState<FormState>(DEFAULT_FORM);
   const [hydrated, setHydrated] = useState(false);
+  const userEditedRef = useRef(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage 復元（client only）
-      if (raw) setForm((p) => ({ ...p, ...JSON.parse(raw) }));
+      if (raw) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage 復元（client only）
+        setForm((p) => ({ ...p, ...JSON.parse(raw) }));
+        userEditedRef.current = true;
+      }
     } catch {
       // ignore
     }
-     
     setHydrated(true);
   }, []);
 
   useEffect(() => {
     if (!hydrated) return;
-    if (typeof window !== "undefined" && localStorage.getItem(STORAGE_KEY)) return;
+    if (userEditedRef.current) return;
 
     const findPl = (key: string): number | null => {
       if (!Array.isArray(pl.data)) return null;
@@ -106,12 +109,19 @@ export function TaxForecastSection() {
 
   useEffect(() => {
     if (!hydrated) return;
+    if (!userEditedRef.current) return;
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(form));
     } catch {
       // ignore
     }
   }, [form, hydrated]);
+
+  // ユーザー編集ハンドラ（ref を立てる）
+  const updateForm = (updater: (prev: FormState) => FormState) => {
+    userEditedRef.current = true;
+    setForm(updater);
+  };
 
   const taxableIncome = useMemo(() => {
     const base = parseNum(form.pretaxProfit);
@@ -145,7 +155,7 @@ export function TaxForecastSection() {
   const corpPeriodEnd = Math.max(0, totalCorp - corpMid);
 
   const setItem = (id: string, amount: string) =>
-    setForm((p) => ({
+    updateForm((p) => ({
       ...p,
       items: p.items.map((it) => (it.id === id ? { ...it, amount } : it)),
     }));
@@ -162,7 +172,7 @@ export function TaxForecastSection() {
               <YenField
                 label="通期予想税引前利益（万円）"
                 value={form.pretaxProfit}
-                onChange={(v) => setForm((p) => ({ ...p, pretaxProfit: v }))}
+                onChange={(v) => updateForm((p) => ({ ...p, pretaxProfit: v }))}
               />
               <div className="border-t pt-2">
                 <div className="mb-1 text-[11px] font-semibold text-muted-foreground">
@@ -200,17 +210,17 @@ export function TaxForecastSection() {
               <YenField
                 label="資本金（円）"
                 value={form.capital}
-                onChange={(v) => setForm((p) => ({ ...p, capital: v }))}
+                onChange={(v) => updateForm((p) => ({ ...p, capital: v }))}
               />
               <NumField
                 label="従業員数"
                 value={parseInt(form.employees, 10) || 0}
-                onChange={(v) => setForm((p) => ({ ...p, employees: String(v) }))}
+                onChange={(v) => updateForm((p) => ({ ...p, employees: String(v) }))}
               />
               <YenField
                 label="法人税系 中間納付額（万円）"
                 value={form.midPayment}
-                onChange={(v) => setForm((p) => ({ ...p, midPayment: v }))}
+                onChange={(v) => updateForm((p) => ({ ...p, midPayment: v }))}
               />
             </div>
           </div>
@@ -223,17 +233,17 @@ export function TaxForecastSection() {
               <YenField
                 label="仮受消費税（年換算・円）"
                 value={form.vatReceived}
-                onChange={(v) => setForm((p) => ({ ...p, vatReceived: v }))}
+                onChange={(v) => updateForm((p) => ({ ...p, vatReceived: v }))}
               />
               <YenField
                 label="仮払消費税（年換算・円）"
                 value={form.vatPaid}
-                onChange={(v) => setForm((p) => ({ ...p, vatPaid: v }))}
+                onChange={(v) => updateForm((p) => ({ ...p, vatPaid: v }))}
               />
               <YenField
                 label="中間納付額（円）"
                 value={form.vatMid}
-                onChange={(v) => setForm((p) => ({ ...p, vatMid: v }))}
+                onChange={(v) => updateForm((p) => ({ ...p, vatMid: v }))}
               />
             </div>
           </div>

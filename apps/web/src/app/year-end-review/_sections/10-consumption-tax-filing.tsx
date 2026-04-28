@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMfPL } from "@/hooks/use-mf-data";
 import { usePeriodStore } from "@/lib/period-store";
 import { cn } from "@/lib/utils";
@@ -50,13 +50,22 @@ export function ConsumptionTaxFilingSection() {
   const lockedMonth = usePeriodStore((s) => s.month);
   const [form, setForm] = useState<FormState>(DEFAULT_FORM);
   const [hydrated, setHydrated] = useState(false);
+  const userEditedRef = useRef(false);
+
+  const updateForm = (updater: (prev: FormState) => FormState) => {
+    userEditedRef.current = true;
+    setForm(updater);
+  };
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage 復元
-      if (raw) setForm((p) => ({ ...p, ...JSON.parse(raw) }));
+      if (raw) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage 復元
+        setForm((p) => ({ ...p, ...JSON.parse(raw) }));
+        userEditedRef.current = true;
+      }
     } catch {
       // ignore
     }
@@ -67,7 +76,7 @@ export function ConsumptionTaxFilingSection() {
   // MF実績からプリセット
   useEffect(() => {
     if (!hydrated) return;
-    if (typeof window !== "undefined" && localStorage.getItem(STORAGE_KEY)) return;
+    if (userEditedRef.current) return;
     if (!Array.isArray(pl.data)) return;
 
     const findPl = (key: string, exclude?: string[]): number => {
@@ -114,6 +123,7 @@ export function ConsumptionTaxFilingSection() {
 
   useEffect(() => {
     if (!hydrated) return;
+    if (!userEditedRef.current) return;
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(form));
     } catch {
@@ -154,12 +164,12 @@ export function ConsumptionTaxFilingSection() {
             <YenField
               label="課税売上高（税抜・円）"
               value={form.taxableSales}
-              onChange={(v) => setForm((p) => ({ ...p, taxableSales: v }))}
+              onChange={(v) => updateForm((p) => ({ ...p, taxableSales: v }))}
             />
             <YenField
               label="課税仕入高（税抜・円）"
               value={form.taxablePurchase}
-              onChange={(v) => setForm((p) => ({ ...p, taxablePurchase: v }))}
+              onChange={(v) => updateForm((p) => ({ ...p, taxablePurchase: v }))}
             />
             <div>
               <label className="mb-0.5 block text-[11px] font-semibold text-muted-foreground">
@@ -168,7 +178,7 @@ export function ConsumptionTaxFilingSection() {
               <select
                 value={form.bizCategory}
                 onChange={(e) =>
-                  setForm((p) => ({ ...p, bizCategory: parseInt(e.target.value, 10) as FormState["bizCategory"] }))
+                  updateForm((p) => ({ ...p, bizCategory: parseInt(e.target.value, 10) as FormState["bizCategory"] }))
                 }
                 className="w-full rounded border bg-white px-2 py-1.5 text-xs"
               >

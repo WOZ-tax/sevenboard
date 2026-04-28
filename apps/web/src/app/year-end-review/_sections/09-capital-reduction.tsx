@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMfBS } from "@/hooks/use-mf-data";
 import { GAIKEI_CAPITAL_RATE } from "@/lib/tax-rates-2026";
 
@@ -13,9 +13,20 @@ const fmtComma = (n: number): string =>
 
 export function CapitalReductionSection() {
   const bs = useMfBS();
-  const [capital, setCapital] = useState("0");
-  const [capitalLegalReserve, setCapitalLegalReserve] = useState("0");
+  const [capital, setCapitalRaw] = useState("0");
+  const [capitalLegalReserve, setCapitalLegalReserveRaw] = useState("0");
   const [hydrated, setHydrated] = useState(false);
+  const userEditedRef = useRef(false);
+
+  // ユーザー編集を識別するラッパー
+  const setCapital = (v: string) => {
+    userEditedRef.current = true;
+    setCapitalRaw(v);
+  };
+  const setCapitalLegalReserve = (v: string) => {
+    userEditedRef.current = true;
+    setCapitalLegalReserveRaw(v);
+  };
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -24,20 +35,20 @@ export function CapitalReductionSection() {
       if (raw) {
         const p = JSON.parse(raw);
         // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage 復元
-        if (p.capital) setCapital(p.capital);
+        if (p.capital) setCapitalRaw(p.capital);
          
-        if (p.capitalLegalReserve) setCapitalLegalReserve(p.capitalLegalReserve);
+        if (p.capitalLegalReserve) setCapitalLegalReserveRaw(p.capitalLegalReserve);
+        userEditedRef.current = true;
       }
     } catch {
       // ignore
     }
-     
     setHydrated(true);
   }, []);
 
   useEffect(() => {
     if (!hydrated) return;
-    if (typeof window !== "undefined" && localStorage.getItem(STORAGE_KEY)) return;
+    if (userEditedRef.current) return;
     if (!bs.data) return;
 
     const all = [...bs.data.assets, ...bs.data.liabilitiesEquity];
@@ -53,14 +64,15 @@ export function CapitalReductionSection() {
     const cap = find("資本金", ["準備", "剰余"]);
     // 資本準備金（資本剰余金内訳の１つ。中小では多くがこれ）
     const legalReserve = find("資本準備金");
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- MF実績からの初期プリセット
-    if (cap) setCapital(String(cap));
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- MF実績からの初期プリセット（userEditedRef を立てない）
+    if (cap) setCapitalRaw(String(cap));
      
-    if (legalReserve) setCapitalLegalReserve(String(legalReserve));
+    if (legalReserve) setCapitalLegalReserveRaw(String(legalReserve));
   }, [hydrated, bs.data]);
 
   useEffect(() => {
     if (!hydrated) return;
+    if (!userEditedRef.current) return;
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({ capital, capitalLegalReserve }));
     } catch {

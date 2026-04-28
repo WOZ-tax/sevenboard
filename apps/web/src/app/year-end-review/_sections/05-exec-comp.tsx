@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CartesianGrid,
   Legend,
@@ -71,6 +71,8 @@ export function ExecCompSimulatorSection() {
 
   const [form, setForm] = useState<FormState>(DEFAULT_FORM);
   const [hydrated, setHydrated] = useState(false);
+  // 「ユーザーが実際に編集したか」を追跡。MFプリセットでは true にしない
+  const userEditedRef = useRef(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -80,19 +82,18 @@ export function ExecCompSimulatorSection() {
         const parsed = JSON.parse(raw);
         // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage 復元（client only）
         setForm((prev) => ({ ...prev, ...parsed }));
+        userEditedRef.current = true; // 復元できた = 過去にユーザーが編集している
       }
     } catch {
       // ignore
     }
-     
     setHydrated(true);
   }, []);
 
-  // MF実績からプリセット（hydratedしてユーザー入力が無い場合のみ）
+  // MF実績からプリセット（ユーザーが編集していない場合のみ）
   useEffect(() => {
     if (!hydrated) return;
-    if (typeof window === "undefined") return;
-    if (localStorage.getItem(STORAGE_KEY)) return;
+    if (userEditedRef.current) return;
     if (!Array.isArray(pl.data)) return;
 
     const findPl = (key: string, exclude?: string[]): number => {
@@ -128,8 +129,10 @@ export function ExecCompSimulatorSection() {
     }
   }, [hydrated, pl.data, lockedMonth]);
 
+  // ユーザーが編集した時だけ localStorage 保存
   useEffect(() => {
     if (!hydrated) return;
+    if (!userEditedRef.current) return;
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(form));
     } catch {
@@ -175,8 +178,10 @@ export function ExecCompSimulatorSection() {
 
   void office;
 
-  const setField = <K extends keyof FormState>(k: K, v: FormState[K]) =>
+  const setField = <K extends keyof FormState>(k: K, v: FormState[K]) => {
+    userEditedRef.current = true;
     setForm((prev) => ({ ...prev, [k]: v }));
+  };
 
   return (
     <div className="space-y-3">
