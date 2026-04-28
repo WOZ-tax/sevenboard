@@ -1246,6 +1246,8 @@ export const api = {
         fiscalYear?: number;
         endMonth?: number;
         runwayMode?: 'worstCase' | 'netBurn' | 'actual';
+        /** 業種別知識（getKnowledgeForAI で生成） */
+        industryContext?: string;
         messages: { role: "user" | "assistant"; content: string }[];
       },
     ) =>

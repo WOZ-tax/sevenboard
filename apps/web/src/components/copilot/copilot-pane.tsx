@@ -15,6 +15,8 @@ import {
 } from "@/components/agent/evidence-chips";
 import type { Confidence } from "@/lib/agent-voice";
 import { useScopedOrgId } from "@/hooks/use-scoped-org-id";
+import { useIndustryCode } from "@/hooks/use-industry-code";
+import { getKnowledgeForAI } from "@/lib/industry-knowledge";
 import { usePeriodStore } from "@/lib/period-store";
 import {
   AGENTS,
@@ -39,6 +41,7 @@ export function CopilotPane() {
   const orgId = useScopedOrgId();
   const { fiscalYear, month } = usePeriodStore();
   const [runwayMode] = useRunwayMode();
+  const [industryCode] = useIndustryCode();
 
   const open = useCopilotStore((s) => s.open);
   const setOpen = useCopilotStore((s) => s.setOpen);
@@ -88,6 +91,7 @@ export function CopilotPane() {
         fiscalYear,
         endMonth: month,
         runwayMode,
+        industryContext: getKnowledgeForAI(industryCode),
         messages: [
           ...messages.map((m) => ({ role: m.role, content: m.content })),
           { role: "user" as const, content: draft },
