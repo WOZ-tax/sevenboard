@@ -1,8 +1,17 @@
 "use client";
 
-import { useState } from "react";
-import { AlertTriangle, ShieldCheck, ChevronDown, ChevronUp } from "lucide-react";
+import { useEffect, useState } from "react";
+import {
+  AlertTriangle,
+  ShieldCheck,
+  ChevronDown,
+  ChevronUp,
+  CheckCircle2,
+  Circle,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
+
+const STORAGE_KEY = "sevenboard:tax-saving-done";
 
 type Tier = 1 | 2 | 3 | 4;
 
@@ -32,7 +41,8 @@ const ITEMS: SavingItem[] = [
     tier: 1,
     title: "小規模企業共済（役員個人）",
     effect: "個人の所得控除 / 月額最大7万 / 年額最大84万",
-    summary: "役員個人の退職金準備。掛金は全額所得控除で、所得税・住民税が下がる。役員報酬シミュ⑤と連動して個人手取りが改善。",
+    summary:
+      "役員個人の退職金準備。掛金は全額所得控除で、所得税・住民税が下がる。役員報酬シミュ⑤と連動して個人手取りが改善。",
     caveat: "解約時に共済金として受取り、退職所得 or 公的年金等の雑所得として課税。",
   },
   // Tier 2: 資金不要型（損失計上系）
@@ -45,28 +55,24 @@ const ITEMS: SavingItem[] = [
     caveat: "債権放棄の内容証明郵便送付など要件あり。事業年度内に手続き。",
   },
   {
-    id: "inventory-write-down",
+    id: "valuation-loss",
     tier: 2,
-    title: "棚卸評価損の計上",
+    title: "棚卸資産・有価証券の評価損計上",
     effect: "▲法人税等",
-    summary: "破損・陳腐化した在庫の評価損計上。",
-    caveat: "破損写真等エビデンス必須。評価方法の変更後単価の合理的理由を残す。",
-  },
-  {
-    id: "securities-write-down",
-    tier: 2,
-    title: "有価証券評価損の計上",
-    effect: "▲法人税等",
-    summary: "上場有価証券の含み損は売却で実現可能。",
-    caveat: "同時に買い戻すクロス取引は売買がなかったとみなされる（否認リスク）。",
+    summary:
+      "破損・陳腐化した在庫の評価損、上場有価証券の含み損実現。資金流出ゼロで損失を確定。",
+    caveat:
+      "税務上の損金算入要件は厳格。棚卸は破損写真・評価方法変更の合理的理由が必須、有価証券はクロス取引（同時買戻し）は否認リスク。安易な計上は税務調査で否認されるため、要件充足の証拠書類を必ず残す。",
   },
   {
     id: "asset-disposal",
     tier: 2,
     title: "固定資産除却・有姿除却",
     effect: "▲法人税等",
-    summary: "未使用の固定資産を除却損で経費計上。物理廃棄が原則だが、撤去困難な場合は有姿除却も可。",
-    caveat: "有姿除却は3要件（使用完全廃止 / 今後使用見込み無し / 他用途転用不可）を満たし、議事録・現況写真が必要。",
+    summary:
+      "未使用の固定資産を除却損で経費計上。物理廃棄が原則だが、撤去困難な場合は有姿除却も可。",
+    caveat:
+      "有姿除却は3要件（使用完全廃止 / 今後使用見込み無し / 他用途転用不可）を満たし、議事録・現況写真が必要。",
   },
   // Tier 3: 必然性があれば
   {
@@ -75,23 +81,18 @@ const ITEMS: SavingItem[] = [
     title: "決算賞与（従業員還元）",
     effect: "▲法人税等",
     summary: "従業員への利益還元として支給。全額経費計上。",
-    caveat: "3要件（期末までに全員へ支給額通知 / 期末までに損金経理(未払計上) / 1ヶ月以内に支払完了）。",
-  },
-  {
-    id: "major-repair",
-    tier: 3,
-    title: "大規模修繕の実施",
-    effect: "▲法人税等 ▲消費税等",
-    summary: "現状復旧修繕は全額経費計上可能。期末までの完了が条件。",
-    caveat: "機能向上や耐用年数延長は資本的支出になり資産計上が必要。",
+    caveat:
+      "3要件（期末までに全員へ支給額通知 / 期末までに損金経理(未払計上) / 1ヶ月以内に支払完了）。",
   },
   {
     id: "short-term-prepaid",
     tier: 3,
     title: "短期前払費用（年払切替）",
     effect: "▲法人税等",
-    summary: "地代家賃・サーバー保守料・年契約サービスを月払→年払に切替。1年以内分は支払時に経費計上可。",
-    caveat: "翌期以降も継続適用が必須（初年度のみ効果）。賃貸人が個人の場合の家賃年払いは慎重判断。",
+    summary:
+      "地代家賃・サーバー保守料・年契約サービスを月払→年払に切替。1年以内分は支払時に経費計上可。",
+    caveat:
+      "翌期以降も継続適用が必須（初年度のみ効果）。賃貸人が個人の場合の家賃年払いは慎重判断。",
   },
   {
     id: "annual-life-insurance",
@@ -99,7 +100,8 @@ const ITEMS: SavingItem[] = [
     title: "年払生命保険",
     effect: "▲法人税等（保険種類による）",
     summary: "保障を確保しつつ、1年分の保険料を支払時に経費化。",
-    caveat: "解約返戻金は益金。返戻率ピークと出口戦略（退職金支給等）を合わせた設計が必須。",
+    caveat:
+      "解約返戻金は益金。返戻率ピークと出口戦略（退職金支給等）を合わせた設計が必須。",
   },
   // Tier 4: 慎重判断
   {
@@ -107,8 +109,10 @@ const ITEMS: SavingItem[] = [
     tier: 4,
     title: "オペレーティングリース",
     effect: "▲法人税等（初年度70-80%損金）",
-    summary: "航空機・船舶等のリース事業に匿名組合出資。突発的な高収益対策として利益を数年〜10年後に繰延。",
-    caveat: "出口戦略（役員退職金・大型設備投資）が無い加入は単なる課税の先送り。資金繰り圧迫リスク大。",
+    summary:
+      "航空機・船舶等のリース事業に匿名組合出資。突発的な高収益対策として利益を数年〜10年後に繰延。",
+    caveat:
+      "出口戦略（役員退職金・大型設備投資）が無い加入は単なる課税の先送り。資金繰り圧迫リスク大。",
   },
   {
     id: "company-housing",
@@ -139,8 +143,10 @@ const ITEMS: SavingItem[] = [
     tier: 4,
     title: "決算期の変更",
     effect: "▲法人税等（時期調整）",
-    summary: "非経常的な大きな利益が単発で出る場合、決算期変更で納税時期をずらして対策期間を確保。",
-    caveat: "メリットが大きい場合かつ利益操作とみなされない合理的説明ができるケースに限る。",
+    summary:
+      "非経常的な大きな利益が単発で出る場合、決算期変更で納税時期をずらして対策期間を確保。",
+    caveat:
+      "メリットが大きい場合かつ利益操作とみなされない合理的説明ができるケースに限る。",
   },
   {
     id: "spinoff",
@@ -148,7 +154,8 @@ const ITEMS: SavingItem[] = [
     title: "分社化の検討",
     effect: "軽減税率枠ダブル / 消費税免税期間活用",
     summary: "中小法人の所得800万円以下軽減枠を複数利用。リスク分散・部門別採算管理。",
-    caveat: "事務負担増、均等割の重複、資金移動の制約。年間所得が数千万円規模で安定し多角化が進む段階での検討。",
+    caveat:
+      "事務負担増、均等割の重複、資金移動の制約。年間所得が数千万円規模で安定し多角化が進む段階での検討。",
   },
 ];
 
@@ -177,16 +184,56 @@ const TIER_META: Record<Tier, { label: string; tone: string; hint: string }> = {
 
 export function TaxSavingPlanSection() {
   const [showTier4, setShowTier4] = useState(false);
+  const [doneIds, setDoneIds] = useState<Record<string, boolean>>({});
+  const [hydrated, setHydrated] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage 復元
+      if (raw) setDoneIds(JSON.parse(raw));
+    } catch {
+      // ignore
+    }
+    setHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(doneIds));
+    } catch {
+      // ignore
+    }
+  }, [doneIds, hydrated]);
+
+  const toggleDone = (id: string) =>
+    setDoneIds((prev) => ({ ...prev, [id]: !prev[id] }));
 
   const groupedItems: Record<Tier, SavingItem[]> = { 1: [], 2: [], 3: [], 4: [] };
   ITEMS.forEach((it) => groupedItems[it.tier].push(it));
+
+  const totalCount = ITEMS.length;
+  const doneCount = ITEMS.filter((it) => doneIds[it.id]).length;
 
   return (
     <div className="space-y-5">
       <StanceBanner />
 
+      <div className="text-xs text-muted-foreground">
+        実行済み: <span className="font-bold text-foreground">{doneCount}/{totalCount}</span>
+        <span className="ml-2 text-[10px]">— 各カードの○/✓ をクリックで切替</span>
+      </div>
+
       {([1, 2, 3] as Tier[]).map((tier) => (
-        <TierBlock key={tier} tier={tier} items={groupedItems[tier]} />
+        <TierBlock
+          key={tier}
+          tier={tier}
+          items={groupedItems[tier]}
+          doneIds={doneIds}
+          onToggle={toggleDone}
+        />
       ))}
 
       {/* Tier 4 は折りたたみ */}
@@ -205,7 +252,13 @@ export function TaxSavingPlanSection() {
         </button>
         {showTier4 && (
           <div className="mt-2">
-            <TierBlock tier={4} items={groupedItems[4]} hideHeader />
+            <TierBlock
+              tier={4}
+              items={groupedItems[4]}
+              hideHeader
+              doneIds={doneIds}
+              onToggle={toggleDone}
+            />
           </div>
         )}
       </div>
@@ -239,10 +292,14 @@ function TierBlock({
   tier,
   items,
   hideHeader = false,
+  doneIds,
+  onToggle,
 }: {
   tier: Tier;
   items: SavingItem[];
   hideHeader?: boolean;
+  doneIds: Record<string, boolean>;
+  onToggle: (id: string) => void;
 }) {
   const meta = TIER_META[tier];
   return (
@@ -258,24 +315,77 @@ function TierBlock({
       )}
       <div className={cn("grid gap-2 p-3", tier === 1 ? "md:grid-cols-2" : "md:grid-cols-3")}>
         {items.map((it) => (
-          <SavingCard key={it.id} item={it} emphasized={tier === 1} />
+          <SavingCard
+            key={it.id}
+            item={it}
+            emphasized={tier === 1}
+            done={!!doneIds[it.id]}
+            onToggle={() => onToggle(it.id)}
+          />
         ))}
       </div>
     </div>
   );
 }
 
-function SavingCard({ item, emphasized }: { item: SavingItem; emphasized: boolean }) {
+function SavingCard({
+  item,
+  emphasized,
+  done,
+  onToggle,
+}: {
+  item: SavingItem;
+  emphasized: boolean;
+  done: boolean;
+  onToggle: () => void;
+}) {
   return (
     <div
       className={cn(
         "rounded border bg-white p-3 transition-shadow hover:shadow",
         emphasized && "ring-1 ring-emerald-300",
+        done && "bg-emerald-50/40",
       )}
     >
-      <div className="mb-1 text-sm font-semibold leading-tight">{item.title}</div>
-      <div className="mb-2 text-[11px] font-medium text-emerald-700">{item.effect}</div>
-      <p className="mb-2 text-xs leading-relaxed text-muted-foreground">{item.summary}</p>
+      <div className="mb-1 flex items-start justify-between gap-2">
+        <div
+          className={cn(
+            "flex-1 text-sm font-semibold leading-tight",
+            done && "text-muted-foreground line-through",
+          )}
+        >
+          {item.title}
+        </div>
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-label={done ? "実行済みを解除" : "実行済みにする"}
+          title={done ? "実行済み（クリックで解除）" : "実行済みとしてマーク"}
+          className="shrink-0 transition-colors"
+        >
+          {done ? (
+            <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+          ) : (
+            <Circle className="h-5 w-5 text-muted-foreground hover:text-foreground" />
+          )}
+        </button>
+      </div>
+      <div
+        className={cn(
+          "mb-2 text-[11px] font-medium",
+          done ? "text-muted-foreground" : "text-emerald-700",
+        )}
+      >
+        {item.effect}
+      </div>
+      <p
+        className={cn(
+          "mb-2 text-xs leading-relaxed",
+          done ? "text-muted-foreground/70" : "text-muted-foreground",
+        )}
+      >
+        {item.summary}
+      </p>
       {item.caveat && (
         <p className="rounded bg-amber-50/70 p-2 text-[11px] leading-relaxed text-amber-900">
           ⚠ {item.caveat}
