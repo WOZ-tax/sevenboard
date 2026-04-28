@@ -153,9 +153,9 @@ export default function AiReportPage() {
         </div>
 
         <PeriodSegmentControl
-          showAllPeriod={false}
+          showAllPeriod={true}
           highlightRange={false}
-          label="対象月（単月）"
+          label="対象期間（月選択=単月分析 / 全期間=通期分析）"
         />
 
         {!aiTriggered && (
@@ -167,7 +167,8 @@ export default function AiReportPage() {
                   AI CFO レポートを生成
                 </p>
                 <p className="text-xs text-muted-foreground max-w-md">
-                  選択した期間の業績データから、AI が単月 KPI・月次推移・リスク評価・施策提言までを一気にドラフト化します。生成には数秒〜十数秒かかります。
+                  選択した期間の業績データから、AI が KPI・月次推移・リスク評価・施策提言までを一気にドラフト化します。
+                  対象月選択時は単月分析、全期間選択時は通期分析になります。生成には数秒〜十数秒かかります。
                 </p>
               </div>
               <Button
@@ -307,7 +308,7 @@ export default function AiReportPage() {
             <CardTitle className="flex items-center justify-between text-base font-semibold text-[var(--color-text-primary)]">
               <span className="flex items-center gap-2">
                 <FileBarChart className="h-5 w-5 text-[var(--color-tertiary)]" />
-                {aiData?.targetMonth ? `${aiData.targetMonth}の経営分析` : "単月経営分析"}
+                {aiData?.targetMonth ? `${aiData.targetMonth}の経営分析` : "経営分析"}
               </span>
               <div className="flex items-center gap-2">
                 <Badge
