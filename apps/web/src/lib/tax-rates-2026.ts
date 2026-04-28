@@ -164,7 +164,8 @@ export function spouseDeduction(
 
 /**
  * 標準報酬月額（健康保険50等級・厚生年金32等級、東京都・万円単位）
- * 月額報酬から上下限を考慮した health/pension の標準月額を返す
+ * 月額報酬から上下限を考慮した health/pension の標準月額を返す。
+ * 月額が最低等級閾値(53,000円)未満の場合は社保適用外として 0 を返す。
  */
 export function standardCompensation(monthlyManYen: number): {
   health: number;
@@ -175,6 +176,11 @@ export function standardCompensation(monthlyManYen: number): {
     19, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 41, 44, 47, 50, 53, 56, 59, 62,
     65, 68, 71, 75, 79, 83, 88, 93, 98, 103, 107, 114, 121, 127, 133, 139,
   ];
+  // 月額が最低等級の境界(5.3万円)未満なら社保適用外
+  const minThresholdYen = grades[0] * 10000 - 5000;
+  if (monthlyManYen * 10000 < minThresholdYen) {
+    return { health: 0, pension: 0 };
+  }
   let h = grades[0];
   for (const g of grades) {
     if (monthlyManYen * 10000 >= g * 10000 - 5000) h = g;
