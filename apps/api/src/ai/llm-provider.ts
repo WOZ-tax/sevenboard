@@ -60,6 +60,14 @@ export interface LlmProvider {
     handler: ToolUseHandler,
     options?: LlmToolRunOptions,
   ): Promise<LlmToolRunResult>;
+  /**
+   * LLM レスポンスを streaming で取得。トークンが届くたびに yield する。
+   * 未対応のプロバイダーは undefined を返してよい（呼び出し側はバッチ generate にフォールバック）。
+   */
+  generateStream?(
+    prompt: string,
+    options?: { maxTokens?: number },
+  ): AsyncGenerator<string, void, unknown>;
 }
 
 /**
@@ -94,6 +102,82 @@ export class ClaudeProvider implements LlmProvider {
 
     const text = res.data?.content?.[0]?.text || '';
     return { text };
+  }
+
+  /**
+   * Anthropic Messages streaming (SSE)
+   * https://docs.anthropic.com/en/api/messages-streaming
+   * content_block_delta の text_delta だけを yield する。
+   */
+  async *generateStream(
+    prompt: string,
+    options?: { maxTokens?: number },
+  ): AsyncGenerator<string, void, unknown> {
+    const body = JSON.stringify({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: options?.maxTokens || 2048,
+      messages: [{ role: 'user', content: prompt }],
+      stream: true,
+    });
+
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': this.apiKey,
+        'anthropic-version': '2023-06-01',
+        'Content-Type': 'application/json',
+      },
+      body,
+    });
+    if (!res.ok || !res.body) {
+      const errText = await res.text().catch(() => '');
+      throw new Error(`Anthropic stream failed: ${res.status} ${errText}`);
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let buffer = '';
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        // SSE event = "event: ...\ndata: ...\n\n"
+        let idx: number;
+        while ((idx = buffer.indexOf('\n\n')) >= 0) {
+          const block = buffer.slice(0, idx);
+          buffer = buffer.slice(idx + 2);
+          // 各 SSE block 内 "data: <json>" 行を抽出
+          for (const line of block.split('\n')) {
+            if (!line.startsWith('data:')) continue;
+            const dataStr = line.slice(5).trim();
+            if (!dataStr || dataStr === '[DONE]') continue;
+            try {
+              const data = JSON.parse(dataStr) as {
+                type?: string;
+                delta?: { type?: string; text?: string };
+              };
+              if (
+                data.type === 'content_block_delta' &&
+                data.delta?.type === 'text_delta' &&
+                typeof data.delta.text === 'string'
+              ) {
+                yield data.delta.text;
+              }
+            } catch {
+              // ignore malformed line
+            }
+          }
+        }
+      }
+    } finally {
+      try {
+        reader.releaseLock();
+      } catch {
+        // ignore
+      }
+    }
   }
 
   async runWithTools(

@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Bot } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const STAGES = [
+const DEFAULT_STAGES = [
   "MFデータ取得中",
   "業種知識を参照中",
   "AIが分析中",
@@ -17,15 +17,27 @@ const STAGES = [
  * - 最後のステージに到達したらそこで止まる（応答が遅い場合は AI が分析中… でホールド）
  * - 点々アニメは常時動いてる
  */
-export function ThinkingIndicator({ className }: { className?: string }) {
+export function ThinkingIndicator({
+  className,
+  stages,
+}: {
+  className?: string;
+  stages?: string[];
+}) {
+  const STAGES = stages?.length ? stages : DEFAULT_STAGES;
   const [stageIndex, setStageIndex] = useState(0);
   const [dots, setDots] = useState(0);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- stages prop 変更時に index リセット
+    setStageIndex(0);
+  }, [stages]);
 
   useEffect(() => {
     if (stageIndex >= STAGES.length - 1) return;
     const t = setTimeout(() => setStageIndex((i) => i + 1), 900);
     return () => clearTimeout(t);
-  }, [stageIndex]);
+  }, [stageIndex, STAGES.length]);
 
   useEffect(() => {
     const id = setInterval(() => {

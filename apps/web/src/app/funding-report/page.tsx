@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
@@ -9,7 +9,6 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
   Landmark,
-  Bot,
   TrendingUp,
   AlertTriangle,
   CheckCircle2,
@@ -23,11 +22,19 @@ import { useAiFundingReport, useMfOffice } from "@/hooks/use-mf-data";
 import { usePeriodStore, getPeriodLabel } from "@/lib/period-store";
 import { api, isMfNotConnected } from "@/lib/api";
 import { useCurrentOrg } from "@/contexts/current-org";
-import { useAuthStore } from "@/lib/auth";
 import { MfEmptyState } from "@/components/ui/mf-empty-state";
 import { PeriodSegmentControl } from "@/components/ui/period-segment-control";
 import { useRunwayMode } from "@/components/ui/runway-mode-toggle";
+import { ThinkingIndicator } from "@/components/ai/thinking-indicator";
+import { useTypewriter } from "@/hooks/use-typewriter";
 import type { FundingReport, FundingScenarioSeed } from "@/lib/api-types";
+
+const FUNDING_STAGES = [
+  "MFデータ取得中",
+  "財務ハイライト抽出中",
+  "資金調達オプション検討中",
+  "レポート生成中",
+];
 
 const REPAYMENT_LABELS: Record<string, string> = {
   EQUAL_INSTALLMENT: "元利均等",
@@ -71,6 +78,7 @@ export default function FundingReportPage() {
 
   const [storedScenarios, setStoredScenarios] = useState<FundingScenarioSeed[]>([]);
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- mount 時の sessionStorage hydrate
     setStoredScenarios(loadStoredScenarios());
   }, []);
 
@@ -113,6 +121,54 @@ export default function FundingReportPage() {
   const generatedAtDisplay = report?.generatedAt
     ? new Date(report.generatedAt).toLocaleString("ja-JP")
     : null;
+
+  // 「思考中 → 文字打ち出し → 完了」演出（ai-report と同じ仕組み）
+  const MIN_THINKING_MS = 3000;
+  const [phase, setPhase] = useState<"idle" | "thinking" | "typing" | "done">(
+    "idle",
+  );
+  const thinkingStartedAtRef = useRef(0);
+
+  // generated && busy → thinking フェーズ
+  /* eslint-disable react-hooks/set-state-in-effect -- generated/busy 同期で phase を切替 */
+  useEffect(() => {
+    if (!generated) {
+      setPhase("idle");
+      return;
+    }
+    if (busy) {
+      setPhase("thinking");
+      thinkingStartedAtRef.current = Date.now();
+    }
+  }, [generated, busy]);
+  /* eslint-enable react-hooks/set-state-in-effect */
+
+  // 応答が届き、最低3秒経過したら typing へ
+  useEffect(() => {
+    if (phase !== "thinking") return;
+    if (busy) return;
+    if (!report) return;
+    const elapsed = Date.now() - thinkingStartedAtRef.current;
+    const remaining = Math.max(0, MIN_THINKING_MS - elapsed);
+    const t = setTimeout(() => setPhase("typing"), remaining);
+    return () => clearTimeout(t);
+  }, [phase, busy, report]);
+
+  // typewriter で executiveSummary を1文字ずつ表示
+  const summaryText = report?.executiveSummary ?? "";
+  const { displayed: typedSummary, isComplete: isTypingComplete } =
+    useTypewriter(summaryText, {
+      speed: 70,
+      enabled: phase === "typing" || phase === "done",
+    });
+
+  // typewriter 完了 → done フェーズ
+  useEffect(() => {
+    if (phase === "typing" && isTypingComplete) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- typewriter 完了の同期
+      setPhase("done");
+    }
+  }, [phase, isTypingComplete]);
 
   return (
     <DashboardShell>
@@ -202,17 +258,11 @@ export default function FundingReportPage() {
 
         {mfNotConnected && <MfEmptyState />}
 
-        {/* Loading */}
-        {generated && busy && !report && (
+        {/* Thinking indicator (3秒以上ホールド) */}
+        {phase === "thinking" && (
           <Card>
-            <CardContent className="flex flex-col items-center justify-center py-16">
-              <Bot className="h-12 w-12 animate-pulse text-[var(--color-tertiary)]" />
-              <p className="mt-4 text-sm font-medium text-[var(--color-text-primary)]">
-                レポートを生成中...
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                AI CFOが財務データを分析しています
-              </p>
+            <CardContent className="py-6">
+              <ThinkingIndicator stages={FUNDING_STAGES} />
             </CardContent>
           </Card>
         )}
@@ -235,10 +285,10 @@ export default function FundingReportPage() {
           </Card>
         )}
 
-        {/* Generated Report */}
-        {report && (
+        {/* Generated Report — typing/done フェーズで表示 */}
+        {report && (phase === "typing" || phase === "done") && (
           <>
-            {/* Executive Summary */}
+            {/* Executive Summary（typewriter で打ち出し） */}
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="flex items-center gap-2 text-base font-semibold text-[var(--color-text-primary)]">
@@ -248,10 +298,17 @@ export default function FundingReportPage() {
               </CardHeader>
               <CardContent>
                 <p className="whitespace-pre-wrap text-sm leading-relaxed text-[var(--color-text-primary)]">
-                  {report.executiveSummary || "（未生成）"}
+                  {typedSummary || "（未生成）"}
+                  {phase === "typing" && (
+                    <span className="ml-0.5 inline-block h-3 w-1.5 animate-pulse bg-[var(--color-tertiary)] align-middle" />
+                  )}
                 </p>
               </CardContent>
             </Card>
+
+            {/* 以下のセクションは typewriter 完了後にフェードイン */}
+            {phase === "done" && (
+              <div className="space-y-4 animate-in fade-in duration-500">
 
             {/* Financial Highlights */}
             {report.financialHighlights?.length > 0 && (
@@ -452,6 +509,8 @@ export default function FundingReportPage() {
                     : "レポートを再生成"}
               </Button>
             </div>
+              </div>
+            )}
           </>
         )}
       </div>

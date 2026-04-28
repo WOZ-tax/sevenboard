@@ -200,6 +200,18 @@ const FOCUS_SECTIONS: Record<AiFocus, string[]> = {
   ],
 };
 
+/**
+ * Streaming AI summary に server から送るイベントの型。
+ * SSE 経由でフロントへ。
+ */
+export type AiSummaryStreamEvent =
+  | { type: 'phase'; phase: 'fetching-data' | 'building-context' | 'generating' }
+  | { type: 'summary-chunk'; text: string }
+  | { type: 'final'; payload: AiSummaryResponse }
+  | { type: 'error'; message: string };
+
+const SUMMARY_END_MARKER = '===STRUCTURED===';
+
 @Injectable()
 export class AiService {
   private readonly logger = new Logger(AiService.name);
