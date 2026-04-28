@@ -410,6 +410,11 @@ ${plRows.map((r) => `${r.category}: ${r.current}円`).join('\n')}`;
     endMonth?: number,
     runwayMode?: 'worstCase' | 'netBurn' | 'actual',
   ): Promise<AiSummaryResponse> {
+    // endMonth 未指定 = 全期間/通期モード
+    if (endMonth === undefined || endMonth === null) {
+      return this.generateCumulativeSummary(orgId, fiscalYear, runwayMode);
+    }
+
     const [{ targetMonthData, trend }, finCtx] = await Promise.all([
       this.getMonthlyContext(orgId, fiscalYear, endMonth),
       this.getFinancialContext(orgId, fiscalYear, endMonth).catch(() => null),
@@ -563,6 +568,245 @@ ${primaryMode === 'actual'
         highlights: [],
         targetMonth: targetMonthData.month,
         targetMonthData,
+        monthlyTrend: trend,
+        generatedAt: new Date().toISOString(),
+      };
+    }
+  }
+
+  // =========================================
+  // 通期(全期間)AIサマリー — endMonth 未指定時に呼ばれる
+  // =========================================
+  private async generateCumulativeSummary(
+    orgId: string,
+    fiscalYear?: number,
+    runwayMode?: 'worstCase' | 'netBurn' | 'actual',
+  ): Promise<AiSummaryResponse> {
+    const [finCtx, transitionPl] = await Promise.all([
+      this.getFinancialContext(orgId, fiscalYear).catch(() => null),
+      this.mfApi.getTransitionPL(orgId, fiscalYear).catch(() => null),
+    ]);
+
+    const burnContext = finCtx?.cashflowDerived
+      ? this.mfTransform.formatBurnContextForPrompt(finCtx.cashflowDerived, runwayMode)
+      : '';
+    const primaryMode: 'worstCase' | 'netBurn' | 'actual' = runwayMode ?? 'netBurn';
+    const primaryLabel: Record<typeof primaryMode, string> = {
+      worstCase: 'Gross Burn(売上ゼロ最悪)',
+      netBurn: 'Net Burn(構造的損失)',
+      actual: 'Actual Burn(BS純減ベース)',
+    };
+
+    // 通期累計データ（trial balance PL から）
+    const plRows = finCtx?.plRows ?? [];
+    const find = (key: string, exclude?: string[]): number => {
+      const row = plRows.find(
+        (r) =>
+          r.category.includes(key) &&
+          (!exclude || !exclude.some((e) => r.category.includes(e))),
+      );
+      return row?.current ?? 0;
+    };
+    const cumRevenue = find('売上高', ['原価', '総利益']);
+    const cumCogs = find('売上原価');
+    const cumSga = find('販売費及び一般管理費');
+    const cumOp = find('営業利益');
+    const cumOrd = find('経常利益');
+    const cumGrossProfit = cumRevenue - cumCogs;
+
+    // 月次推移（実績月のみ）
+    const trend: AiMonthlyTrendPoint[] = transitionPl
+      ? this.mfTransform.transformTransitionPL(transitionPl).map((p, i, arr) => {
+          const sgaTrend = transitionPl
+            ? this.mfTransform.getAccountTransition(transitionPl, '販売費及び一般管理費合計')
+            : [];
+          const cogsTrend = transitionPl
+            ? this.mfTransform.getAccountTransition(transitionPl, '売上原価')
+            : [];
+          const sga = sgaTrend[i]?.amount ?? 0;
+          const cogs = cogsTrend[i]?.amount ?? 0;
+          void arr;
+          return {
+            month: p.month,
+            revenue: p.revenue,
+            operatingProfit: p.operatingProfit,
+            actual: sga > 100_000 || cogs > 0,
+          };
+        })
+      : [];
+
+    const periodLabel = fiscalYear ? `${fiscalYear}年度通期` : '当期通期';
+
+    try {
+      const llm = this.ensureLlm();
+      const profileBlock = await this.getCustomerProfileBlock(orgId);
+      const policyBlock = await this.getOrgPolicyBlock(orgId);
+      const trendLines = trend
+        .filter((p) => p.actual)
+        .map(
+          (p) =>
+            `${p.month}: 売上 ${p.revenue.toLocaleString()}円 / 営業利益 ${p.operatingProfit.toLocaleString()}円`,
+        )
+        .join('\n');
+
+      const prompt = `あなたは中小企業のCFO代行として、顧問先の財務を経営者向けにわかりやすく分析する会計事務所の経営コンサルタントです。
+
+以下は「${periodLabel}」の累計財務データと、当期の月次推移です。
+
+主題は「${periodLabel}の通期分析」です。
+単月のブレに引きずられず、累計値で当期の収益構造・資金繰りを評価してください。
+月次推移は当期の傾向(改善/悪化)を読むための補助情報として扱ってください。
+
+分析の目的は、経営者が「当期累計の到達点」「資金繰り上の体力」「期末までに取るべき打ち手」を短時間で把握できるようにすることです。
+大企業向けの高度な財務理論や過度な専門用語は避け、中小企業のCFOが社長に説明するような実務的なトーンにしてください。
+${profileBlock ? '\n' + profileBlock + '\n※ 上記プロファイルを踏まえ、業種・規模を断定しすぎず、読み取れる範囲で中小企業・スタートアップ寄りの観点から分析してください。\n※ 不明な情報は推測しすぎず、「確認したい論点」として自然に触れてください。\n' : ''}
+${policyBlock ? '\n' + policyBlock + '\n' : ''}
+## ${periodLabel} 累計財務データ
+
+- 売上高(累計): ${cumRevenue.toLocaleString()}円
+- 売上総利益(累計): ${cumGrossProfit.toLocaleString()}円
+- 販管費(累計): ${cumSga.toLocaleString()}円
+- 営業利益(累計): ${cumOp.toLocaleString()}円
+- 経常利益(累計): ${cumOrd.toLocaleString()}円
+
+${burnContext}
+
+## 月次推移（実績月のみ）
+
+${trendLines || '（推移データなし）'}
+
+## 分析方針
+
+${periodLabel}の累計売上、累計販管費、累計営業利益・経常利益、当期のランウェイを中心に分析してください。
+月次推移は「当期の傾向(改善 or 悪化)」を確認する補助として使ってください。
+当期累計が黒字か赤字か、改善トレンドか悪化トレンドかをはっきり評価してください。
+
+特に以下の観点を含めてください。
+
+1. ${periodLabel}累計の損益状況
+売上高に対する販管費比率、粗利率、営業利益率を踏まえて、固定費を売上で吸収できているかを評価してください。
+
+2. 資金繰りとランウェイ
+主指標は **${primaryLabel[primaryMode]}** ベースのランウェイです（資金繰りページでユーザーが選択中のモードに合わせています）。現預金水準と比較してください。
+${
+  primaryMode === 'actual'
+    ? 'Actual Burn は AR 回収や前受金取崩しなど一時要因に影響されやすく、構造的体力(Net Burn)とは乖離することがあります。両者の乖離が大きい場合は必ず触れ、Net Burn ペースが経営判断のアンカーである旨を添えてください。'
+    : primaryMode === 'worstCase'
+      ? 'Gross Burn は売上ゼロを仮定した最悪ケースです。実際は売上で一部相殺されるため、Net Burn と Actual Burn のレンジを併記して現実的な見立ても示してください。'
+      : 'Net Burn は経常損失から非資金費用を差し引いた構造的損失です。Actual Burn が一見楽観的に見える場合は、AR 回収や前受金など一時要因の影響を必ず指摘し、経営判断では Net Burn を主指標にする旨を明示してください。'
+}
+中小企業 CFO 目線で、資金繰りの余裕度合い、黒字化の必要性、追加資金確保の検討要否を述べてください。
+
+3. 当期の良い兆し
+売上の成長、収益構造の改善など、月次推移から読み取れる前向きな変化を評価してください。
+ただし、再現性のある成長かどうかを確認すべきと添え、楽観しすぎないでください。
+
+4. 注意点と次に見るべき論点
+販管費の内訳分解（人件費・外注費・広告費・システム費・その他固定費）、月次のばらつき、季節性などを確認事項として整理してください。
+通期着地予測との乖離(残月でリカバリ可能か)も触れてください。
+
+5. 提案の粒度
+提案は大げさな経営改革ではなく、期末までに実行できる現実的なものにしてください。
+販管費の内訳確認、継続売上の確保、入金予定表の更新、固定費の見直し、3ヶ月資金繰り表の作成などを優先してください。
+
+## 表現ルール
+
+- 経営者向けに、わかりやすく端的に書いてください。
+- 専門用語を使う場合は、自然な文章の中で意味が伝わるようにしてください。
+- 危機感は出すが、不安を煽りすぎないでください。
+- 「改善しているが、まだ安心できない」というバランスで書いてください。
+- 断定しすぎず、確認すべき点は確認事項として扱ってください。
+- 銀行提出資料のような硬すぎる文体ではなく、CFO が社長に月次報告するような実務的な文体にしてください。
+
+## 出力ルール（厳守）
+
+- 各 content は必ず 2〜3 文の平文のみ
+- 箇条書き、番号リスト、マークダウン記法、太字は禁止
+- summary は 3〜5 文の平文。${periodLabel}累計の具体的な数字を含めること
+- 「${periodLabel}は…」のように主語を通期に置くこと
+- 単月のブレに引きずられず、累計の収益構造で語ること
+- highlights の text は 15 文字以内の短いフレーズにすること
+- 数字は円・万円・ヶ月を使い、経営者が直感的に読める表現にすること
+- highlights の type は positive / negative / warning / neutral のいずれかにすること
+- JSON として正しくパースできる形式で出力すること
+- JSON 外の説明文は出力しないこと
+
+## 出力形式
+
+以下のJSON形式で回答してください。
+{"summary":"${periodLabel}累計のエグゼクティブサマリー(3〜5文、具体的な数字を含める)","sections":[{"title":"${periodLabel}累計の損益","content":"売上・販管費・利益の関係を 2-3 文で"},{"title":"資金繰りとランウェイ","content":"${primaryLabel[primaryMode]} 主指標で資金繰り状況を 2-3 文で"},{"title":"良い兆し","content":"当期から読み取れる前向きな変化を 2-3 文で"},{"title":"注意点","content":"通期で注意すべきリスク・確認事項を 2-3 文で"},{"title":"次の打ち手","content":"期末までに実行できる現実的アクションを 2-3 文で"}],"highlights":[{"text":"15字以内","type":"positive"},{"text":"15字以内","type":"warning"}]}`;
+
+      const res = await llm.generate(prompt, { maxTokens: 4096, json: true });
+      let parsed = extractJson<{
+        summary: string;
+        sections?: AiSectionItem[];
+        highlights: AiHighlight[];
+      }>(res.text);
+
+      if (parsed?.summary && parsed.summary.trim().startsWith('{')) {
+        const inner = extractJson<{
+          summary: string;
+          sections?: AiSectionItem[];
+          highlights: AiHighlight[];
+        }>(parsed.summary);
+        if (inner) parsed = { ...parsed, ...inner };
+      }
+
+      let summary = parsed?.summary || '';
+      if (!summary || summary.includes('summary:')) {
+        const summaryMatch = res.text.match(/summary["\s:]+([^"}{]+)/);
+        summary = summaryMatch
+          ? summaryMatch[1].trim()
+          : res.text
+              .replace(/[{}"\\n]/g, ' ')
+              .replace(/\s+/g, ' ')
+              .replace(/^\s*summary\s*:\s*/i, '')
+              .substring(0, 500);
+      }
+
+      let sections = parsed?.sections || [];
+      if (sections.length === 0) {
+        const sectionMatches = [
+          ...res.text.matchAll(/"title"\s*:\s*"([^"]+)"\s*,\s*"content"\s*:\s*"([^"]+)"/g),
+        ];
+        sections = sectionMatches.map((m) => ({ title: m[1], content: m[2] }));
+      }
+
+      let highlights = parsed?.highlights || [];
+      if (highlights.length === 0) {
+        const hlMatches = [
+          ...res.text.matchAll(
+            /"type"\s*:\s*"(positive|negative|warning|neutral)"\s*,\s*"text"\s*:\s*"([^"]+)"/g,
+          ),
+        ];
+        highlights = hlMatches.map((m) => ({
+          type: m[1] as AiHighlight['type'],
+          text: m[2],
+        }));
+      }
+
+      return {
+        summary,
+        sections,
+        highlights,
+        targetMonth: periodLabel,
+        targetMonthData: {
+          month: periodLabel,
+          revenue: cumRevenue,
+          grossProfit: cumGrossProfit,
+          sga: cumSga,
+          operatingProfit: cumOp,
+          ordinaryProfit: cumOrd,
+        },
+        monthlyTrend: trend,
+        generatedAt: new Date().toISOString(),
+      };
+    } catch (err: any) {
+      this.logger.error('AI cumulative summary generation failed', err?.message);
+      return {
+        summary: `AIサマリー生成エラー: ${err?.message || '不明'}`,
+        highlights: [],
+        targetMonth: periodLabel,
         monthlyTrend: trend,
         generatedAt: new Date().toISOString(),
       };
