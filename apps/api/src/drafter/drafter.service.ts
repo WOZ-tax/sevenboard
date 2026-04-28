@@ -28,7 +28,11 @@ export interface DrafterResponse {
 
 type RunwayMode = 'worstCase' | 'netBurn' | 'actual';
 
+type ReportKind = 'monthly' | 'cumulative';
+
 type MonthlyContext = {
+  /** 'monthly' = 単月分析 / 'cumulative' = 通期(全期間)分析 */
+  kind: ReportKind;
   targetMonth: string;
   revenue: number;
   grossProfit: number;
@@ -226,17 +230,25 @@ export class DrafterService {
         }
         return -1;
       })();
-      const targetLabel = options?.endMonth
-        ? `${options.endMonth}月`
-        : lastOperationalIdx >= 0
-          ? allPoints[lastOperationalIdx].month
-          : allPoints[0]?.month ?? '';
-      const targetIdx = allPoints.findIndex((p) => p.month === targetLabel);
-      // 対象月までの実績のみ（翌月以降は AI に渡さない）
-      const actualTrend = allPoints
-        .slice(0, targetIdx >= 0 ? targetIdx + 1 : allPoints.length)
-        .filter((_, i) => isOperationallyActual(i));
+      // endMonth 未指定 = 通期/全期間モード
+      const isCumulative = !options?.endMonth;
+      const targetLabel = isCumulative
+        ? options?.fiscalYear
+          ? `${options.fiscalYear}年度通期`
+          : '当期通期'
+        : `${options!.endMonth}月`;
+      // 月次推移（実績月のみ）。通期モードでは全月、単月モードでは対象月までに切る
+      const actualTrend = (() => {
+        if (isCumulative) {
+          return allPoints.filter((_, i) => isOperationallyActual(i));
+        }
+        const targetIdx = allPoints.findIndex((p) => p.month === targetLabel);
+        return allPoints
+          .slice(0, targetIdx >= 0 ? targetIdx + 1 : allPoints.length)
+          .filter((_, i) => isOperationallyActual(i));
+      })();
 
+      // 単月値の取得（通期モードでは累計値を別途取る）
       const at = (arr: { month: string; amount: number }[]) =>
         arr.find((p) => p.month === targetLabel)?.amount ?? 0;
 
@@ -248,7 +260,44 @@ export class DrafterService {
       const primaryMonths = primaryVariant?.months ?? dashboardCum.runway;
       const netBurnMonths = netBurnVariant?.months ?? dashboardCum.runway;
 
+      if (isCumulative) {
+        // 通期累計データは pl (trial balance PL) から取得
+        const plRows = this.mfTransform.transformTrialBalancePL(pl);
+        const findCum = (key: string, exclude?: string[]): number => {
+          const row = plRows.find(
+            (r) =>
+              r.category.includes(key) &&
+              (!exclude || !exclude.some((e) => r.category.includes(e))),
+          );
+          return row?.current ?? 0;
+        };
+        const cumRevenue = findCum('売上高', ['原価', '総利益']);
+        const cumCogs = findCum('売上原価');
+        const cumSga = findCum('販売費及び一般管理費');
+        const cumOp = findCum('営業利益');
+        const cumOrd = findCum('経常利益');
+        const cumNet = findCum('当期純利益');
+
+        return {
+          kind: 'cumulative',
+          targetMonth: targetLabel,
+          revenue: cumRevenue,
+          grossProfit: cumRevenue - cumCogs,
+          sga: cumSga,
+          operatingProfit: cumOp,
+          ordinaryProfit: cumOrd,
+          netIncome: cumNet,
+          cashBalance: dashboardCum.cashBalance,
+          runway: primaryMonths,
+          runwayMode,
+          runwayLabel: RUNWAY_LABELS[runwayMode],
+          runwayNetBurnMonths: netBurnMonths,
+          trend: actualTrend,
+        };
+      }
+
       return {
+        kind: 'monthly',
         targetMonth: targetLabel,
         revenue: at(revTrend),
         grossProfit: at(revTrend) - at(cogsTrend),
@@ -302,9 +351,12 @@ export class DrafterService {
 
     const opMarginPct = d.revenue > 0 ? (d.operatingProfit / d.revenue) * 100 : 0;
     const monthTag = d.targetMonth || '当月';
+    const isCum = d.kind === 'cumulative';
+    // 「単月」/「累計」の語をモードで切替
+    const periodWord = isCum ? '累計' : '単月';
     const targetIdx = d.trend.findIndex((p) => p.month === d.targetMonth);
-    const prev = targetIdx > 0 ? d.trend[targetIdx - 1] : null;
-    const pastMonths = targetIdx > 0 ? d.trend.slice(0, targetIdx) : [];
+    const prev = !isCum && targetIdx > 0 ? d.trend[targetIdx - 1] : null;
+    const pastMonths = !isCum && targetIdx > 0 ? d.trend.slice(0, targetIdx) : d.trend;
     const pastAvgRev =
       pastMonths.length > 0
         ? pastMonths.reduce((s, p) => s + p.revenue, 0) / pastMonths.length
@@ -327,21 +379,23 @@ export class DrafterService {
 
     // 原価計算未運用なら売上総利益（粗利）には触れない。営業利益基準で語る。
     const summaryFirstLine = usesCostAccounting
-      ? `${monthTag}単月の売上高 ${formatYen(d.revenue)}、売上総利益 ${formatYen(d.grossProfit)}、販管費 ${formatYen(d.sga)}。`
-      : `${monthTag}単月の売上高 ${formatYen(d.revenue)}、販管費 ${formatYen(d.sga)}（原価計算未運用のため売上総利益は省略）。`;
+      ? `${monthTag}${periodWord}の売上高 ${formatYen(d.revenue)}、売上総利益 ${formatYen(d.grossProfit)}、販管費 ${formatYen(d.sga)}。`
+      : `${monthTag}${periodWord}の売上高 ${formatYen(d.revenue)}、販管費 ${formatYen(d.sga)}（原価計算未運用のため売上総利益は省略）。`;
 
     return [
       {
         heading: `${monthTag}の業績サマリー`,
         body: [
           summaryFirstLine,
-          `${monthTag}単月の営業利益 ${formatYen(d.operatingProfit)}(営業利益率 ${opMarginPct.toFixed(1)}%)、経常利益 ${formatYen(d.ordinaryProfit)}、当期純利益 ${formatYen(d.netIncome)}。`,
-          `月末時点の現預金残高 ${formatYen(d.cashBalance)}、${d.runwayLabel} 基準のランウェイ ${runwayMonthsTxt}${showNetBurnAnchor ? `（構造的アンカー Net Burn 基準では ${netBurnMonthsTxt}）` : ''}。`,
+          `${monthTag}${periodWord}の営業利益 ${formatYen(d.operatingProfit)}(営業利益率 ${opMarginPct.toFixed(1)}%)、経常利益 ${formatYen(d.ordinaryProfit)}、当期純利益 ${formatYen(d.netIncome)}。`,
+          `${isCum ? '期末時点' : '月末時点'}の現預金残高 ${formatYen(d.cashBalance)}、${d.runwayLabel} 基準のランウェイ ${runwayMonthsTxt}${showNetBurnAnchor ? `（構造的アンカー Net Burn 基準では ${netBurnMonthsTxt}）` : ''}。`,
         ].join('\n'),
         evidence: {
-          source: 'MF会計 推移表(対象月の単月列)+ 試算表BS(月末残高)',
+          source: isCum
+            ? 'MF会計 試算表PL(累計)+ 試算表BS(期末残高)'
+            : 'MF会計 推移表(対象月の単月列)+ 試算表BS(月末残高)',
           confidence: 'HIGH',
-          premise: `主指標は資金繰りページの選択モード(${d.runwayMode})。現預金・ランウェイは月末時点の残高`,
+          premise: `主指標は資金繰りページの選択モード(${d.runwayMode})。${isCum ? '累計' : '月末'}時点の残高`,
         },
       },
       {
@@ -350,37 +404,51 @@ export class DrafterService {
           d.runway < 6
             ? `${d.runwayLabel} 基準のランウェイが${runwayMonthsTxt}と6ヶ月を下回ります。${showNetBurnAnchor ? `構造的体力(Net Burn)では${netBurnMonthsTxt}。` : ''}資金調達またはコスト構造の見直しを早期に検討する必要があります。`
             : d.operatingProfit < 0
-              ? `${monthTag}単月は営業赤字 ${formatYen(d.operatingProfit)}です。赤字要因の分解と改善策の優先順位付けが必要です。`
-              : '現時点で大きな資金リスクは検出されていません。次月も営業利益率とランウェイの推移を観察します。',
+              ? `${monthTag}${periodWord}は営業赤字 ${formatYen(d.operatingProfit)}です。赤字要因の分解と改善策の優先順位付けが必要です。`
+              : isCum
+                ? '当期累計で大きな資金リスクは検出されていません。残月も営業利益率とランウェイの推移を観察します。'
+                : '現時点で大きな資金リスクは検出されていません。次月も営業利益率とランウェイの推移を観察します。',
         evidence: {
           source: 'MF会計 推移表から算出',
           confidence: 'MEDIUM',
-          premise: `主指標は ${d.runwayMode}。単月値とランウェイ試算から導出`,
+          premise: `主指標は ${d.runwayMode}。${isCum ? '累計' : '単月'}値とランウェイ試算から導出`,
         },
       },
       {
-        heading: '過去からの推移',
-        body: prev
-          ? [
-              `売上は前月(${prev.month} ${formatYen(prev.revenue)})比で${d.revenue >= prev.revenue ? '増加' : '減少'}。${monthTag}は${formatYen(d.revenue)}。`,
-              `営業利益は前月(${prev.month} ${formatYen(prev.operatingProfit)})比で${d.operatingProfit >= prev.operatingProfit ? '改善' : '悪化'}。${monthTag}は${formatYen(d.operatingProfit)}。`,
-              pastMonths.length > 0
-                ? `${monthTag}以前の月平均: 売上${formatYen(Math.round(pastAvgRev))} / 営業利益${formatYen(Math.round(pastAvgOp))}。`
-                : '',
-            ]
-              .filter(Boolean)
-              .join('\n')
-          : '当期最初の実績月のため、過去月との比較はありません。',
+        heading: isCum ? '当期の月次推移' : '過去からの推移',
+        body: isCum
+          ? d.trend.length > 0
+            ? [
+                `当期実績月数: ${d.trend.length}ヶ月。月平均売上 ${formatYen(Math.round(pastAvgRev))} / 月平均営業利益 ${formatYen(Math.round(pastAvgOp))}。`,
+                d.trend.length >= 2
+                  ? `直近月(${d.trend[d.trend.length - 1].month}) 売上${formatYen(d.trend[d.trend.length - 1].revenue)} / 営業利益${formatYen(d.trend[d.trend.length - 1].operatingProfit)}。`
+                  : '',
+              ]
+                .filter(Boolean)
+                .join('\n')
+            : '当期実績月の月次データが取得できませんでした。'
+          : prev
+            ? [
+                `売上は前月(${prev.month} ${formatYen(prev.revenue)})比で${d.revenue >= prev.revenue ? '増加' : '減少'}。${monthTag}は${formatYen(d.revenue)}。`,
+                `営業利益は前月(${prev.month} ${formatYen(prev.operatingProfit)})比で${d.operatingProfit >= prev.operatingProfit ? '改善' : '悪化'}。${monthTag}は${formatYen(d.operatingProfit)}。`,
+                pastMonths.length > 0
+                  ? `${monthTag}以前の月平均: 売上${formatYen(Math.round(pastAvgRev))} / 営業利益${formatYen(Math.round(pastAvgOp))}。`
+                  : '',
+              ]
+                .filter(Boolean)
+                .join('\n')
+            : '当期最初の実績月のため、過去月との比較はありません。',
         evidence: {
           source: 'MF会計 推移表(当期全月)',
           confidence: 'MEDIUM',
-          premise: '単月の時系列比較',
+          premise: isCum ? '通期の月次推移' : '単月の時系列比較',
         },
       },
       {
-        heading: '次月に向けた提案(ドラフト)',
-        body:
-          '(ドラフト)営業利益率・ランウェイ・債権回収の3点を重点指標として次月モニタリング。特に売上上位取引先の回収サイト変化と、固定費の前年同期比の確認を推奨します。',
+        heading: isCum ? '期末までに向けた提案(ドラフト)' : '次月に向けた提案(ドラフト)',
+        body: isCum
+          ? '(ドラフト)期末までの営業利益・ランウェイ・債権回収を重点モニタリング。特に通期着地予測の精緻化と、固定費の前年同期比の確認、季節性の確認を推奨します。'
+          : '(ドラフト)営業利益率・ランウェイ・債権回収の3点を重点指標として次月モニタリング。特に売上上位取引先の回収サイト変化と、固定費の前年同期比の確認を推奨します。',
         evidence: {
           source: 'ドラフト提案',
           confidence: 'LOW',
@@ -396,6 +464,8 @@ export class DrafterService {
     usesCostAccounting: boolean = false,
   ): string {
     const monthTag = d.targetMonth || '当月';
+    const isCum = d.kind === 'cumulative';
+    const periodWord = isCum ? '累計' : '単月';
     const trendLines = d.trend
       .map(
         (p) =>
@@ -404,14 +474,14 @@ export class DrafterService {
       .join('\n');
     // 原価計算未運用なら売上総利益はプロンプトから外す（LLM が触らないように）
     const dataBlock = [
-      `${monthTag}単月`,
+      `${monthTag}${periodWord}`,
       `売上高: ${formatYen(d.revenue)}`,
       ...(usesCostAccounting ? [`売上総利益: ${formatYen(d.grossProfit)}`] : []),
       `販管費: ${formatYen(d.sga)}`,
       `営業利益: ${formatYen(d.operatingProfit)}`,
       `経常利益: ${formatYen(d.ordinaryProfit)}`,
       `当期純利益: ${formatYen(d.netIncome)}`,
-      `月末現預金: ${formatYen(d.cashBalance)}`,
+      `${isCum ? '期末' : '月末'}現預金: ${formatYen(d.cashBalance)}`,
       `ランウェイ(Net Burn基準): ${Number.isFinite(d.runway) ? `${d.runway}ヶ月` : '—'}`,
     ].join('\n');
 
@@ -424,11 +494,16 @@ export class DrafterService {
           '- 収益性は **営業利益 / 営業利益率** ベースで語る。販管費を売上で吸収できているかを軸に書く。',
         ];
 
+    const reportLabel = isCum ? `${monthTag}の通期分析レポート` : `${monthTag}単月の分析レポート`;
+    const subjectRule = isCum
+      ? '- 単月のブレに引きずられず、当期累計値を主題に語る。'
+      : '- 累計ではなく、対象月の単月値を主題に語る。累計表現は使わない。';
+
     return [
       'あなたはSevenBoardのAI CFOレポート生成エンジン(drafter)です。',
-      `顧問による編集を前提とした「${monthTag}単月の分析レポート」の初稿を日本語で作成します。`,
+      `顧問による編集を前提とした「${reportLabel}」の初稿を日本語で作成します。`,
       '【厳守事項】',
-      '- 累計ではなく、対象月の単月値を主題に語る。累計表現は使わない。',
+      subjectRule,
       '- 断定表現は避け、「ドラフト」「仮」等のラベルを維持する。',
       '- 推測や一般論は書かない。与えられた数値から直接導ける範囲に留める。',
       '- 各セクションは3〜5文で簡潔に。',
@@ -437,10 +512,10 @@ export class DrafterService {
       ...ruleSections.map((s, i) => `  ${i + 1}. ${s.heading}`),
       ...(policyLines.length ? ['', ...policyLines] : []),
       '',
-      `--- ${monthTag}単月データ(主題) ---`,
+      `--- ${monthTag}${periodWord}データ(主題) ---`,
       dataBlock,
       '',
-      '--- 過去からの月次推移(比較用の文脈、主題ではない) ---',
+      `--- 月次推移(${isCum ? '当期傾向の確認用、主題ではない' : '比較用の文脈、主題ではない'}) ---`,
       trendLines,
       '',
       '--- 雛形(必要に応じて参考、数値は上記を優先) ---',

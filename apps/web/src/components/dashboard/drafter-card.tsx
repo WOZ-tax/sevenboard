@@ -15,6 +15,7 @@ export function DrafterCard() {
   const orgId = useCurrentOrg().currentOrgId ?? "";
   const { fiscalYear, month } = usePeriodStore();
   const [runwayMode] = useRunwayMode();
+  const isCumulative = month === undefined;
 
   const { data, isLoading } = useQuery({
     queryKey: ["drafter-monthly", orgId, fiscalYear, month, runwayMode],
@@ -36,7 +37,7 @@ export function DrafterCard() {
           <div>
             <CardTitle className="flex items-center gap-2 text-base font-semibold text-[var(--color-text-primary)]">
               <FileText className="h-4 w-4" />
-              月次レポート初稿
+              {isCumulative ? "通期レポート初稿" : "月次レポート初稿"}
               <Badge
                 variant="outline"
                 className="border-[var(--color-warning)] text-[var(--color-warning)]"
@@ -45,13 +46,13 @@ export function DrafterCard() {
               </Badge>
             </CardTitle>
             <p className="mt-1 text-xs text-muted-foreground">
-              drafter が試算表から生成した初稿です。顧問による編集・最終責任を前提とします。
+              drafter が{isCumulative ? "通期累計値" : "対象月の単月値"}から生成した初稿です。顧問による編集・最終責任を前提とします。
             </p>
           </div>
           <CopilotOpenButton
             agentKey="drafter"
             mode="dialog"
-            seed="この月次レポート初稿について、もっと深掘りすべき論点や追加で触れるべき事項を提案してください。"
+            seed={`この${isCumulative ? "通期" : "月次"}レポート初稿について、もっと深掘りすべき論点や追加で触れるべき事項を提案してください。`}
           />
         </div>
       </CardHeader>
