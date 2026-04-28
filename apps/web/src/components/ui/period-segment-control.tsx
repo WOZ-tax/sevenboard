@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import { Lock, Unlock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { usePeriodStore } from "@/lib/period-store";
 import { useMfOffice } from "@/hooks/use-mf-data";
@@ -12,6 +13,8 @@ interface PeriodSegmentControlProps {
   highlightRange?: boolean;
   /** 上部に出すラベル。空文字で非表示 */
   label?: string;
+  /** ロック切替ボタンを表示するか（デフォルト true） */
+  showLockToggle?: boolean;
   className?: string;
 }
 
@@ -23,11 +26,14 @@ export function PeriodSegmentControl({
   showAllPeriod = true,
   highlightRange = true,
   label = "表示期間（期首から選択月までの累計）",
+  showLockToggle = true,
   className,
 }: PeriodSegmentControlProps) {
   const fiscalYear = usePeriodStore((s) => s.fiscalYear);
   const month = usePeriodStore((s) => s.month);
   const setPeriod = usePeriodStore((s) => s.setPeriod);
+  const locked = usePeriodStore((s) => s.locked);
+  const setLocked = usePeriodStore((s) => s.setLocked);
   const office = useMfOffice();
 
   const fyStartMonth = useFyStartMonth();
@@ -50,6 +56,7 @@ export function PeriodSegmentControl({
       {label && (
         <div className="text-xs font-medium text-muted-foreground">{label}</div>
       )}
+      <div className="inline-flex items-stretch gap-2">
       <div className="inline-flex overflow-hidden rounded-md border border-input">
         {monthSequence.map((m, idx) => {
           const endIdx =
@@ -91,6 +98,36 @@ export function PeriodSegmentControl({
             全期間
           </button>
         )}
+      </div>
+      {showLockToggle && (
+        <button
+          type="button"
+          onClick={() => setLocked(!locked)}
+          title={
+            locked
+              ? "対象月をロック中（自動デフォルトを無効化）。クリックで解除"
+              : "対象月のロックは未設定。クリックで現在の月に固定"
+          }
+          className={cn(
+            "inline-flex h-9 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition-colors",
+            locked
+              ? "border-[var(--color-primary)] bg-[var(--color-primary)]/10 text-[var(--color-primary)]"
+              : "border-input bg-background text-muted-foreground hover:bg-muted",
+          )}
+        >
+          {locked ? (
+            <>
+              <Lock className="h-3.5 w-3.5" />
+              <span>ロック中</span>
+            </>
+          ) : (
+            <>
+              <Unlock className="h-3.5 w-3.5" />
+              <span>ロックなし</span>
+            </>
+          )}
+        </button>
+      )}
       </div>
     </div>
   );

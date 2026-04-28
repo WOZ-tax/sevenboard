@@ -52,20 +52,23 @@ export function usePeriodDefaultFromKintone() {
   const monthlyClose = useMonthlyCloseDefaultMonth();
   const month = usePeriodStore((s) => s.month);
   const fiscalYear = usePeriodStore((s) => s.fiscalYear);
+  const locked = usePeriodStore((s) => s.locked);
   const setPeriod = usePeriodStore((s) => s.setPeriod);
   /** 一度だけ自動設定する（fiscalYear変更時のみ再評価） */
   const appliedForFyRef = useRef<number | undefined>(undefined);
 
   useEffect(() => {
-    // ユーザーが既に月を選択している or 会計年度未定なら触らない
+    // ユーザーが手動で月をロックしている、月を既に選択している、会計年度未定なら触らない
+    if (locked) return;
     if (month !== undefined) return;
     if (!fiscalYear) return;
     if (appliedForFyRef.current === fiscalYear) return;
 
-    // 1. MonthlyClose の解決結果を優先
+    // 1. MonthlyClose の解決結果を優先 (status=IN_REVIEW最新月 > CLOSED最新月)
     const closeMonth = monthlyClose.data?.month;
     if (typeof closeMonth === "number" && closeMonth >= 1 && closeMonth <= 12) {
-      setPeriod(fiscalYear, closeMonth);
+      // 自動適用なので lock=false で setPeriod
+      setPeriod(fiscalYear, closeMonth, { lock: false });
       appliedForFyRef.current = fiscalYear;
       return;
     }
@@ -81,7 +84,7 @@ export function usePeriodDefaultFromKintone() {
         }
       }
       if (latestDelivered > 0) {
-        setPeriod(fiscalYear, latestDelivered);
+        setPeriod(fiscalYear, latestDelivered, { lock: false });
         appliedForFyRef.current = fiscalYear;
         return;
       }
@@ -91,6 +94,7 @@ export function usePeriodDefaultFromKintone() {
     kintone.data,
     month,
     fiscalYear,
+    locked,
     setPeriod,
   ]);
 }
