@@ -1,18 +1,13 @@
-import {
-  Body,
-  Controller,
-  Get,
-  Param,
-  Put,
-  UseGuards,
-} from '@nestjs/common';
-import { IsIn, IsObject, ValidateNested } from 'class-validator';
+import { Body, Controller, Get, Param, Put, UseGuards } from '@nestjs/common';
 import { Type } from 'class-transformer';
+import { IsObject, ValidateNested } from 'class-validator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { OrgAccessGuard } from '../auth/org-access.guard';
-import { RolesGuard } from '../auth/roles.guard';
-import { Roles } from '../auth/roles.decorator';
-import { CashflowCertaintyService, CertaintyLevel } from './cashflow-certainty.service';
+import { PermissionGuard } from '../auth/permission.guard';
+import { RequirePermission } from '../auth/require-permission.decorator';
+import {
+  CashflowCertaintyService,
+  CertaintyLevel,
+} from './cashflow-certainty.service';
 
 const CERTAINTY_LEVELS: CertaintyLevel[] = ['CONFIRMED', 'PLANNED', 'ESTIMATED'];
 
@@ -24,19 +19,19 @@ class UpdateCertaintyDto {
 }
 
 @Controller('organizations/:orgId/cashflow-certainty')
-@UseGuards(JwtAuthGuard, OrgAccessGuard)
+@UseGuards(JwtAuthGuard, PermissionGuard)
 export class CashflowCertaintyController {
   constructor(private service: CashflowCertaintyService) {}
 
   @Get()
+  @RequirePermission('org:cashflow_certainty:read')
   async get(@Param('orgId') orgId: string) {
     const rules = await this.service.get(orgId);
     return { rules };
   }
 
   @Put()
-  @UseGuards(RolesGuard)
-  @Roles('owner', 'advisor')
+  @RequirePermission('org:cashflow_certainty:manage')
   async update(
     @Param('orgId') orgId: string,
     @Body() dto: UpdateCertaintyDto,

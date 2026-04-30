@@ -1,23 +1,35 @@
-import { IsEmail, IsEnum, IsString, MinLength } from 'class-validator';
+import { IsEmail, IsIn, IsOptional, IsString, MinLength } from 'class-validator';
 
 /**
- * SEVENRICH 事務所スタッフ作成 DTO。
- * - role は owner / advisor のみ。CL 側 (admin/member/viewer) は別 API
- *   (/organizations/:orgId/masters/users) で作成する
- * - 作成されるユーザーの orgId は NULL 固定（事務所スタッフはクロステナント）
+ * Tenant-scoped accounting firm staff invite DTO.
+ *
+ * Existing users can be invited by email without a password. New users need a
+ * name and initial password because email delivery is not implemented yet.
  */
+export const TENANT_STAFF_ROLES = [
+  'firm_owner',
+  'firm_admin',
+  'firm_manager',
+  'firm_advisor',
+  'firm_viewer',
+] as const;
+
+export type TenantStaffRole = (typeof TENANT_STAFF_ROLES)[number];
+
 export class CreateInternalUserDto {
   @IsEmail()
   email!: string;
 
   @IsString()
+  @IsOptional()
   @MinLength(1)
-  name!: string;
+  name?: string;
 
   @IsString()
+  @IsOptional()
   @MinLength(8)
-  password!: string;
+  password?: string;
 
-  @IsEnum(['owner', 'advisor'])
-  role!: 'owner' | 'advisor';
+  @IsIn(TENANT_STAFF_ROLES)
+  role!: TenantStaffRole;
 }

@@ -9,13 +9,15 @@ import {
 } from '@nestjs/common';
 import { SimulationService } from './simulation.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { OrgAccessGuard } from '../auth/org-access.guard';
+import { PermissionGuard } from '../auth/permission.guard';
+import { RequirePermission } from '../auth/require-permission.decorator';
 import { LoanSimulationDto } from './dto/loan-simulation.dto';
 import { LinkedStatementsDto } from './dto/linked-statements.dto';
 import { WhatIfDto } from './dto/what-if.dto';
 
 @Controller('organizations/:orgId/simulation')
-@UseGuards(JwtAuthGuard, OrgAccessGuard)
+@RequirePermission('org:simulation:read')
+@UseGuards(JwtAuthGuard, PermissionGuard)
 export class SimulationController {
   constructor(private simulationService: SimulationService) {}
 

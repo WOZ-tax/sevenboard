@@ -9,11 +9,13 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { OrgAccessGuard } from '../auth/org-access.guard';
+import { PermissionGuard } from '../auth/permission.guard';
+import { RequirePermission } from '../auth/require-permission.decorator';
 import { NotificationsService } from './notifications.service';
 
 @Controller('organizations/:orgId/notifications')
-@UseGuards(JwtAuthGuard, OrgAccessGuard)
+@RequirePermission('org:notifications:read')
+@UseGuards(JwtAuthGuard, PermissionGuard)
 export class NotificationsController {
   constructor(private notifications: NotificationsService) {}
 

@@ -1,17 +1,19 @@
 import {
+  BadRequestException,
   Controller,
   Get,
   Param,
   Query,
   UseGuards,
-  BadRequestException,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { OrgAccessGuard } from '../auth/org-access.guard';
+import { PermissionGuard } from '../auth/permission.guard';
+import { RequirePermission } from '../auth/require-permission.decorator';
 import { AlertsService } from './alerts.service';
 
 @Controller('organizations/:orgId/alerts')
-@UseGuards(JwtAuthGuard, OrgAccessGuard)
+@RequirePermission('org:insights:read')
+@UseGuards(JwtAuthGuard, PermissionGuard)
 export class AlertsController {
   constructor(private alertsService: AlertsService) {}
 

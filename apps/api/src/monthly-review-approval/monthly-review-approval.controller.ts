@@ -11,9 +11,8 @@ import {
 } from '@nestjs/common';
 import { IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { OrgAccessGuard } from '../auth/org-access.guard';
-import { RolesGuard } from '../auth/roles.guard';
-import { Roles } from '../auth/roles.decorator';
+import { PermissionGuard } from '../auth/permission.guard';
+import { RequirePermission } from '../auth/require-permission.decorator';
 import { MonthlyReviewApprovalService } from './monthly-review-approval.service';
 
 class SubmitDto {
@@ -45,11 +44,12 @@ class DecisionDto {
 }
 
 @Controller('organizations/:orgId/monthly-review-approvals')
-@UseGuards(JwtAuthGuard, OrgAccessGuard)
+@UseGuards(JwtAuthGuard, PermissionGuard)
 export class MonthlyReviewApprovalController {
   constructor(private service: MonthlyReviewApprovalService) {}
 
   @Get()
+  @RequirePermission('org:monthly_review:read')
   async list(
     @Param('orgId') orgId: string,
     @Query('fiscalYear') fiscalYear?: string,
@@ -61,6 +61,7 @@ export class MonthlyReviewApprovalController {
   }
 
   @Get('current')
+  @RequirePermission('org:monthly_review:read')
   async current(
     @Param('orgId') orgId: string,
     @Query('fiscalYear') fiscalYear: string,
@@ -74,19 +75,19 @@ export class MonthlyReviewApprovalController {
   }
 
   @Post('submit')
-  @UseGuards(RolesGuard)
-  @Roles('owner', 'advisor')
-  async submit(
-    @Param('orgId') orgId: string,
-    @Body() dto: SubmitDto,
-  ) {
-    const record = await this.service.submit(orgId, dto.fiscalYear, dto.month, dto.comment);
+  @RequirePermission('org:monthly_review:manage')
+  async submit(@Param('orgId') orgId: string, @Body() dto: SubmitDto) {
+    const record = await this.service.submit(
+      orgId,
+      dto.fiscalYear,
+      dto.month,
+      dto.comment,
+    );
     return { record };
   }
 
   @Post('approve')
-  @UseGuards(RolesGuard)
-  @Roles('owner', 'advisor')
+  @RequirePermission('org:monthly_review:manage')
   async approve(
     @Param('orgId') orgId: string,
     @Body() dto: DecisionDto,
@@ -94,13 +95,18 @@ export class MonthlyReviewApprovalController {
   ) {
     const userId = req.user?.id;
     if (!userId) throw new BadRequestException('user not identified');
-    const record = await this.service.approve(orgId, dto.fiscalYear, dto.month, userId, dto.comment);
+    const record = await this.service.approve(
+      orgId,
+      dto.fiscalYear,
+      dto.month,
+      userId,
+      dto.comment,
+    );
     return { record };
   }
 
   @Post('reject')
-  @UseGuards(RolesGuard)
-  @Roles('owner', 'advisor')
+  @RequirePermission('org:monthly_review:manage')
   async reject(
     @Param('orgId') orgId: string,
     @Body() dto: DecisionDto,
@@ -108,17 +114,19 @@ export class MonthlyReviewApprovalController {
   ) {
     const userId = req.user?.id;
     if (!userId) throw new BadRequestException('user not identified');
-    const record = await this.service.reject(orgId, dto.fiscalYear, dto.month, userId, dto.comment);
+    const record = await this.service.reject(
+      orgId,
+      dto.fiscalYear,
+      dto.month,
+      userId,
+      dto.comment,
+    );
     return { record };
   }
 
   @Post('reset')
-  @UseGuards(RolesGuard)
-  @Roles('owner', 'advisor')
-  async reset(
-    @Param('orgId') orgId: string,
-    @Body() dto: DecisionDto,
-  ) {
+  @RequirePermission('org:monthly_review:manage')
+  async reset(@Param('orgId') orgId: string, @Body() dto: DecisionDto) {
     const record = await this.service.reset(orgId, dto.fiscalYear, dto.month);
     return { record };
   }

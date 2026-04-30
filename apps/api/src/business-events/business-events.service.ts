@@ -8,7 +8,8 @@ export class BusinessEventsService {
   constructor(private prisma: PrismaService) {}
 
   async list(orgId: string, fromDate?: string, toDate?: string) {
-    const where: any = { orgId };
+    const { tenantId } = await this.prisma.orgScope(orgId);
+    const where: any = { tenantId, orgId };
     if (fromDate || toDate) {
       where.eventDate = {};
       if (fromDate) where.eventDate.gte = new Date(fromDate);
@@ -23,8 +24,10 @@ export class BusinessEventsService {
   }
 
   async create(orgId: string, dto: CreateBusinessEventDto, createdBy: string) {
+    const { tenantId } = await this.prisma.orgScope(orgId);
     const event = await this.prisma.businessEvent.create({
       data: {
+        tenantId,
         orgId,
         eventDate: new Date(dto.eventDate),
         eventType: dto.eventType,
@@ -39,10 +42,11 @@ export class BusinessEventsService {
   }
 
   async update(orgId: string, eventId: string, dto: UpdateBusinessEventDto) {
-    const existing = await this.prisma.businessEvent.findUnique({
-      where: { id: eventId },
+    const { tenantId } = await this.prisma.orgScope(orgId);
+    const existing = await this.prisma.businessEvent.findFirst({
+      where: { id: eventId, tenantId, orgId },
     });
-    if (!existing || existing.orgId !== orgId) {
+    if (!existing) {
       throw new NotFoundException('経営イベントが見つかりません');
     }
 
@@ -62,10 +66,11 @@ export class BusinessEventsService {
   }
 
   async remove(orgId: string, eventId: string) {
-    const existing = await this.prisma.businessEvent.findUnique({
-      where: { id: eventId },
+    const { tenantId } = await this.prisma.orgScope(orgId);
+    const existing = await this.prisma.businessEvent.findFirst({
+      where: { id: eventId, tenantId, orgId },
     });
-    if (!existing || existing.orgId !== orgId) {
+    if (!existing) {
       throw new NotFoundException('経営イベントが見つかりません');
     }
     await this.prisma.businessEvent.delete({ where: { id: eventId } });

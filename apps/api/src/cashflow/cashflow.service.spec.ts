@@ -2,6 +2,9 @@ import { CashflowService } from './cashflow.service';
 
 function createPrismaMock() {
   return {
+    orgScope: jest
+      .fn()
+      .mockResolvedValue({ tenantId: 'tenant-1', orgId: 'org-1' }),
     cashFlowEntry: {
       findMany: jest.fn().mockResolvedValue([]),
     },
@@ -46,6 +49,11 @@ describe('CashflowService.getRunway', () => {
     });
     const svc = createService(prisma);
     const result = await svc.getRunway('org-1');
+    expect(prisma.runwaySnapshot.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { tenantId: 'tenant-1', orgId: 'org-1' },
+      }),
+    );
     expect(result).toEqual({
       snapshotDate,
       cashBalance: 10_000_000,

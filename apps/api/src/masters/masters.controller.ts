@@ -12,9 +12,8 @@ import {
 } from '@nestjs/common';
 import { MastersService } from './masters.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { OrgAccessGuard } from '../auth/org-access.guard';
-import { RolesGuard } from '../auth/roles.guard';
-import { Roles } from '../auth/roles.decorator';
+import { PermissionGuard } from '../auth/permission.guard';
+import { RequirePermission } from '../auth/require-permission.decorator';
 import { CreateAccountDto } from './dto/create-account.dto';
 import { UpdateAccountDto } from './dto/update-account.dto';
 import { BulkUpdateVariableCostFlagsDto } from './dto/bulk-update-variable-cost-flags.dto';
@@ -26,28 +25,25 @@ import { UpdateUserDto } from './dto/update-user.dto';
 /**
  * 顧問先 (organization) のマスタ管理。
  *
- * G-1 ロール設計：
- * - 読み取り (GET) は OrgAccessGuard でアクセス制御。CL 側ユーザーも自社のマスタは閲覧可能
- * - 書き込み (POST/PUT/DELETE) は **内部スタッフ (owner / advisor) のみ**
- *   - org-aware RolesGuard により、advisor は OrganizationMembership を持つ顧問先のみで write 可
- *   - CL 側 admin / member / viewer は write 不可（masters は事務所主体で管理する設計）
+ * - 読み取り (GET) は org-scoped permission でアクセス制御。CL 側ユーザーも自社のマスタは閲覧可能
+ * - 書き込み (POST/PUT/DELETE) は org:masters:update / org:users:manage を要求
  * - CL ユーザー作成は CreateUserDto / service で role='viewer' 固定
  */
 @Controller('organizations/:orgId/masters')
-@UseGuards(JwtAuthGuard, OrgAccessGuard)
+@UseGuards(JwtAuthGuard, PermissionGuard)
 export class MastersController {
   constructor(private mastersService: MastersService) {}
 
   // --- 勘定科目 ---
 
   @Get('accounts')
+  @RequirePermission('org:masters:read')
   async getAccounts(@Param('orgId') orgId: string) {
     return this.mastersService.getAccounts(orgId);
   }
 
   @Post('accounts')
-  @Roles('owner', 'advisor')
-  @UseGuards(RolesGuard)
+  @RequirePermission('org:masters:update')
   async createAccount(
     @Param('orgId') orgId: string,
     @Body() dto: CreateAccountDto,
@@ -65,8 +61,7 @@ export class MastersController {
   // `accountId="variable-cost-flags"` として ParseUUIDPipe を通り、UUID parse 失敗で
   // P2023 を吐く（過去にハマったため記録）。
   @Put('accounts/variable-cost-flags')
-  @Roles('owner', 'advisor')
-  @UseGuards(RolesGuard)
+  @RequirePermission('org:masters:update')
   async bulkUpdateVariableCostFlags(
     @Param('orgId') orgId: string,
     @Body() body: BulkUpdateVariableCostFlagsDto,
@@ -78,8 +73,7 @@ export class MastersController {
   }
 
   @Put('accounts/:accountId')
-  @Roles('owner', 'advisor')
-  @UseGuards(RolesGuard)
+  @RequirePermission('org:masters:update')
   async updateAccount(
     @Param('orgId') orgId: string,
     @Param('accountId', ParseUUIDPipe) accountId: string,
@@ -89,8 +83,7 @@ export class MastersController {
   }
 
   @Delete('accounts/:accountId')
-  @Roles('owner', 'advisor')
-  @UseGuards(RolesGuard)
+  @RequirePermission('org:masters:update')
   async deleteAccount(
     @Param('orgId') orgId: string,
     @Param('accountId', ParseUUIDPipe) accountId: string,
@@ -101,13 +94,13 @@ export class MastersController {
   // --- 部門 ---
 
   @Get('departments')
+  @RequirePermission('org:masters:read')
   async getDepartments(@Param('orgId') orgId: string) {
     return this.mastersService.getDepartments(orgId);
   }
 
   @Post('departments')
-  @Roles('owner', 'advisor')
-  @UseGuards(RolesGuard)
+  @RequirePermission('org:masters:update')
   async createDepartment(
     @Param('orgId') orgId: string,
     @Body() dto: CreateDepartmentDto,
@@ -116,8 +109,7 @@ export class MastersController {
   }
 
   @Put('departments/:deptId')
-  @Roles('owner', 'advisor')
-  @UseGuards(RolesGuard)
+  @RequirePermission('org:masters:update')
   async updateDepartment(
     @Param('orgId') orgId: string,
     @Param('deptId') deptId: string,
@@ -127,8 +119,7 @@ export class MastersController {
   }
 
   @Delete('departments/:deptId')
-  @Roles('owner', 'advisor')
-  @UseGuards(RolesGuard)
+  @RequirePermission('org:masters:update')
   async deleteDepartment(
     @Param('orgId') orgId: string,
     @Param('deptId') deptId: string,
@@ -139,13 +130,13 @@ export class MastersController {
   // --- ユーザー ---
 
   @Get('users')
+  @RequirePermission('org:users:read')
   async getUsers(@Param('orgId') orgId: string) {
     return this.mastersService.getUsers(orgId);
   }
 
   @Post('users')
-  @Roles('owner', 'advisor')
-  @UseGuards(RolesGuard)
+  @RequirePermission('org:users:manage')
   async createUser(
     @Param('orgId') orgId: string,
     @Body() dto: CreateUserDto,
@@ -154,8 +145,7 @@ export class MastersController {
   }
 
   @Put('users/:userId')
-  @Roles('owner', 'advisor')
-  @UseGuards(RolesGuard)
+  @RequirePermission('org:users:manage')
   async updateUser(
     @Param('orgId') orgId: string,
     @Param('userId') userId: string,
@@ -165,8 +155,7 @@ export class MastersController {
   }
 
   @Delete('users/:userId')
-  @Roles('owner', 'advisor')
-  @UseGuards(RolesGuard)
+  @RequirePermission('org:users:manage')
   async deleteUser(
     @Param('orgId') orgId: string,
     @Param('userId') userId: string,

@@ -61,8 +61,17 @@ const NAME_MAP: Record<string, string> = {
 
 async function main() {
   const prisma = new PrismaClient();
+  const org = await prisma.organization.findUnique({
+    where: { id: ORG_ID },
+    select: { tenantId: true },
+  });
+  if (!org) {
+    throw new Error(`Organization not found: ${ORG_ID}`);
+  }
+  const tenantId = org.tenantId;
+
   const accounts = await prisma.accountMaster.findMany({
-    where: { orgId: ORG_ID },
+    where: { tenantId, orgId: ORG_ID },
     select: { id: true, name: true },
   });
   const accountByName = new Map(accounts.map((a) => [a.name, a.id]));
@@ -101,7 +110,7 @@ async function main() {
     const month = new Date(Date.UTC(year, mm, 1));
 
     const existing = await prisma.actualEntry.findFirst({
-      where: { orgId: ORG_ID, accountId, departmentId: null, month },
+      where: { tenantId, orgId: ORG_ID, accountId, departmentId: null, month },
     });
     if (existing) {
       await prisma.actualEntry.update({
@@ -111,7 +120,15 @@ async function main() {
       updated++;
     } else {
       await prisma.actualEntry.create({
-        data: { orgId: ORG_ID, accountId, month, amount, source: 'MF_CLOUD', syncedAt },
+        data: {
+          tenantId,
+          orgId: ORG_ID,
+          accountId,
+          month,
+          amount,
+          source: 'MF_CLOUD',
+          syncedAt,
+        },
       });
       created++;
     }

@@ -1,29 +1,29 @@
 import {
+  Body,
   Controller,
+  Delete,
   Get,
+  Param,
   Post,
   Put,
-  Delete,
-  Param,
   Query,
-  Body,
   Request,
   UseGuards,
 } from '@nestjs/common';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { PermissionGuard } from '../auth/permission.guard';
+import { RequirePermission } from '../auth/require-permission.decorator';
 import { CalendarService } from './calendar.service';
 import { CreateCalendarEventDto } from './dto/create-calendar-event.dto';
 import { UpdateCalendarEventDto } from './dto/update-calendar-event.dto';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { OrgAccessGuard } from '../auth/org-access.guard';
-import { RolesGuard } from '../auth/roles.guard';
-import { Roles } from '../auth/roles.decorator';
 
 @Controller('organizations/:orgId/calendar')
-@UseGuards(JwtAuthGuard, OrgAccessGuard)
+@UseGuards(JwtAuthGuard, PermissionGuard)
 export class CalendarController {
   constructor(private calendarService: CalendarService) {}
 
   @Get()
+  @RequirePermission('org:calendar:read')
   async getEvents(
     @Param('orgId') orgId: string,
     @Query('year') year: string,
@@ -35,8 +35,7 @@ export class CalendarController {
   }
 
   @Post()
-  @Roles('owner', 'advisor')
-  @UseGuards(RolesGuard)
+  @RequirePermission('org:calendar:manage')
   async createEvent(
     @Param('orgId') orgId: string,
     @Body() dto: CreateCalendarEventDto,
@@ -46,8 +45,7 @@ export class CalendarController {
   }
 
   @Put(':eventId')
-  @Roles('owner', 'advisor')
-  @UseGuards(RolesGuard)
+  @RequirePermission('org:calendar:manage')
   async updateEvent(
     @Param('orgId') orgId: string,
     @Param('eventId') eventId: string,
@@ -57,8 +55,7 @@ export class CalendarController {
   }
 
   @Delete(':eventId')
-  @Roles('owner', 'advisor')
-  @UseGuards(RolesGuard)
+  @RequirePermission('org:calendar:manage')
   async deleteEvent(
     @Param('orgId') orgId: string,
     @Param('eventId') eventId: string,

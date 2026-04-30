@@ -7,13 +7,15 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { OrgAccessGuard } from '../auth/org-access.guard';
+import { PermissionGuard } from '../auth/permission.guard';
+import { RequirePermission } from '../auth/require-permission.decorator';
 import { RateLimitGuard } from '../common/rate-limit.guard';
 import { CopilotService } from './copilot.service';
 import { CopilotChatDto } from './copilot.dto';
 
 @Controller('organizations/:orgId/copilot')
-@UseGuards(JwtAuthGuard, OrgAccessGuard, RateLimitGuard)
+@RequirePermission('org:ai:run')
+@UseGuards(JwtAuthGuard, PermissionGuard, RateLimitGuard)
 export class CopilotController {
   constructor(private copilot: CopilotService) {}
 

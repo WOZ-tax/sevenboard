@@ -11,8 +11,7 @@ import { IsString, IsEmail, MinLength, IsEnum, IsOptional } from 'class-validato
  * CL 内のユーザーを作成する用途。CL に owner / admin / advisor 権限を
  * 渡さないため、role は 'viewer' のみ許可する。
  *
- * 事務所スタッフ自身（owner / advisor）は別の管理画面 (/internal/users 等)
- * から作成する想定。
+ * 事務所スタッフ自身は `/tenants/:tenantId/staff` から招待する。
  */
 export class CreateUserDto {
   @IsEmail()

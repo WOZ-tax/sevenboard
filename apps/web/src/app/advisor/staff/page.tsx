@@ -37,30 +37,28 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { api } from "@/lib/api";
+import { useCurrentOrg } from "@/contexts/current-org";
+import { api, type TenantStaffRole, type TenantStaffRow } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth";
 import { useIsClient } from "@/hooks/use-is-client";
 import { cn } from "@/lib/utils";
 
-type StaffRow = {
-  id: string;
-  email: string;
-  name: string;
-  role: "owner" | "advisor";
-  avatarUrl: string | null;
-  createdAt: string;
-  updatedAt: string;
-  _count: { memberships: number };
+type StaffRow = TenantStaffRow;
+
+const ROLE_BADGE: Record<TenantStaffRole, string> = {
+  firm_owner: "bg-purple-100 text-purple-700 border-purple-200",
+  firm_admin: "bg-blue-100 text-blue-700 border-blue-200",
+  firm_manager: "bg-emerald-100 text-emerald-700 border-emerald-200",
+  firm_advisor: "bg-amber-100 text-amber-700 border-amber-200",
+  firm_viewer: "bg-gray-100 text-gray-700 border-gray-200",
 };
 
-const ROLE_BADGE: Record<StaffRow["role"], string> = {
-  owner: "bg-purple-100 text-purple-700 border-purple-200",
-  advisor: "bg-amber-100 text-amber-700 border-amber-200",
-};
-
-const ROLE_LABEL: Record<StaffRow["role"], string> = {
-  owner: "事務所オーナー",
-  advisor: "顧問スタッフ",
+const ROLE_LABEL: Record<TenantStaffRole, string> = {
+  firm_owner: "事務所オーナー",
+  firm_admin: "管理者",
+  firm_manager: "マネージャー",
+  firm_advisor: "顧問スタッフ",
+  firm_viewer: "閲覧者",
 };
 
 function formatDate(iso: string) {
@@ -79,21 +77,23 @@ export default function InternalStaffPage() {
 function InternalStaffContent() {
   const router = useRouter();
   const user = useAuthStore((s) => s.user);
+  const { currentOrg, isLoading: orgLoading } = useCurrentOrg();
   const hydrated = useIsClient();
   const queryClient = useQueryClient();
+  const tenantId = currentOrg?.tenantId ?? "";
 
-  // owner のみ閲覧可
-  const canAccess = user?.role === "owner";
+  // Tenant owner のみ閲覧可。platform_owner だけではここに入れない。
+  const canAccess = currentOrg?.tenantRole === "firm_owner";
   useEffect(() => {
-    if (hydrated && user && !canAccess) {
+    if (hydrated && user && !orgLoading && !canAccess) {
       router.push("/advisor");
     }
-  }, [hydrated, user, canAccess, router]);
+  }, [hydrated, user, orgLoading, canAccess, router]);
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ["internal-users"],
-    queryFn: () => api.internalUsers.list(),
-    enabled: canAccess,
+    queryKey: ["tenant-staff", tenantId],
+    queryFn: () => api.tenantStaff.list(tenantId),
+    enabled: canAccess && !!tenantId,
     staleTime: 30_000,
   });
 
@@ -102,7 +102,7 @@ function InternalStaffContent() {
   const [deleteTarget, setDeleteTarget] = useState<StaffRow | null>(null);
 
   const refresh = () =>
-    queryClient.invalidateQueries({ queryKey: ["internal-users"] });
+    queryClient.invalidateQueries({ queryKey: ["tenant-staff", tenantId] });
 
   return (
     <div className="space-y-4">
@@ -123,7 +123,7 @@ function InternalStaffContent() {
               事務所スタッフ管理
             </h1>
             <p className="text-sm text-muted-foreground">
-              SEVENRICH 事務所の owner / advisor を管理します（CL 側ユーザーは各顧問先の設定画面へ）
+              現在の会計事務所テナントに所属するスタッフを管理します（顧問先ユーザーは各顧問先の設定画面へ）
             </p>
           </div>
         </div>
@@ -218,6 +218,7 @@ function InternalStaffContent() {
       </div>
 
       <CreateStaffDialog
+        tenantId={tenantId}
         open={createOpen}
         onClose={() => setCreateOpen(false)}
         onCreated={() => {
@@ -227,6 +228,7 @@ function InternalStaffContent() {
       />
 
       <EditStaffDialog
+        tenantId={tenantId}
         target={editTarget}
         onClose={() => setEditTarget(null)}
         onUpdated={() => {
@@ -236,6 +238,7 @@ function InternalStaffContent() {
       />
 
       <DeleteStaffDialog
+        tenantId={tenantId}
         target={deleteTarget}
         onClose={() => setDeleteTarget(null)}
         onDeleted={() => {
@@ -250,10 +253,12 @@ function InternalStaffContent() {
 // ─── Create Staff Dialog ────────────────────────────────
 
 function CreateStaffDialog({
+  tenantId,
   open,
   onClose,
   onCreated,
 }: {
+  tenantId: string;
   open: boolean;
   onClose: () => void;
   onCreated: () => void;
@@ -261,7 +266,7 @@ function CreateStaffDialog({
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
-  const [role, setRole] = useState<"owner" | "advisor">("advisor");
+  const [role, setRole] = useState<TenantStaffRole>("firm_advisor");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -269,13 +274,20 @@ function CreateStaffDialog({
       setEmail("");
       setName("");
       setPassword("");
-      setRole("advisor");
+      setRole("firm_advisor");
       setError(null);
     }
   }, [open]);
 
   const mutation = useMutation({
-    mutationFn: () => api.internalUsers.create({ email, name, password, role }),
+    mutationFn: () =>
+      api.tenantStaff.create({
+        tenantId,
+        email,
+        name: name || undefined,
+        password: password || undefined,
+        role,
+      }),
     onSuccess: () => onCreated(),
     onError: (err) => {
       setError(err instanceof Error ? err.message : "登録に失敗しました");
@@ -285,8 +297,12 @@ function CreateStaffDialog({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (mutation.isPending) return;
-    if (!email || !name || password.length < 8) {
-      setError("メールアドレス・名前・8文字以上のパスワードが必要です");
+    if (!email) {
+      setError("メールアドレスが必要です");
+      return;
+    }
+    if (password && password.length < 8) {
+      setError("パスワードは 8 文字以上です");
       return;
     }
     setError(null);
@@ -300,7 +316,7 @@ function CreateStaffDialog({
           <DialogHeader>
             <DialogTitle>事務所スタッフを追加</DialogTitle>
             <DialogDescription>
-              owner = 事務所全体管理 / advisor = 担当顧問先の閲覧編集。CL 側ユーザーはここから作成できません。
+              既存ユーザーはメールアドレスだけで招待できます。新規ユーザーには名前と初期パスワードが必要です。
             </DialogDescription>
           </DialogHeader>
 
@@ -320,18 +336,17 @@ function CreateStaffDialog({
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="staff-name">
-                名前 <span className="text-red-500">*</span>
+                名前
               </Label>
               <Input
                 id="staff-name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                required
               />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="staff-password">
-                初期パスワード <span className="text-red-500">*</span>
+                初期パスワード
               </Label>
               <Input
                 id="staff-password"
@@ -339,11 +354,10 @@ function CreateStaffDialog({
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 minLength={8}
-                placeholder="8文字以上"
-                required
+                placeholder="既存ユーザー招待時は空欄可"
               />
               <p className="text-xs text-muted-foreground">
-                スタッフ本人がログイン後に変更してもらってください。
+                新規ユーザー作成時だけ必要です。既存のplatform ownerもここから通常スタッフとして招待できます。
               </p>
             </div>
             <div className="space-y-1.5">
@@ -353,11 +367,14 @@ function CreateStaffDialog({
               <select
                 id="staff-role"
                 value={role}
-                onChange={(e) => setRole(e.target.value as "owner" | "advisor")}
+                onChange={(e) => setRole(e.target.value as TenantStaffRole)}
                 className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               >
-                <option value="advisor">advisor（顧問スタッフ）</option>
-                <option value="owner">owner（事務所オーナー）</option>
+                <option value="firm_advisor">顧問スタッフ</option>
+                <option value="firm_viewer">閲覧者</option>
+                <option value="firm_manager">マネージャー</option>
+                <option value="firm_admin">管理者</option>
+                <option value="firm_owner">事務所オーナー</option>
               </select>
             </div>
 
@@ -404,16 +421,18 @@ function CreateStaffDialog({
 // ─── Edit Staff Dialog ──────────────────────────────────
 
 function EditStaffDialog({
+  tenantId,
   target,
   onClose,
   onUpdated,
 }: {
+  tenantId: string;
   target: StaffRow | null;
   onClose: () => void;
   onUpdated: () => void;
 }) {
   const [name, setName] = useState("");
-  const [role, setRole] = useState<"owner" | "advisor">("advisor");
+  const [role, setRole] = useState<TenantStaffRole>("firm_advisor");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
 
@@ -429,11 +448,11 @@ function EditStaffDialog({
   const mutation = useMutation({
     mutationFn: () => {
       if (!target) throw new Error("no target");
-      const payload: { name?: string; role?: "owner" | "advisor"; password?: string } = {};
+      const payload: { name?: string; role?: TenantStaffRole; password?: string } = {};
       if (name !== target.name) payload.name = name;
       if (role !== target.role) payload.role = role;
       if (password) payload.password = password;
-      return api.internalUsers.update(target.id, payload);
+      return api.tenantStaff.update(tenantId, target.id, payload);
     },
     onSuccess: () => onUpdated(),
     onError: (err) => {
@@ -475,11 +494,14 @@ function EditStaffDialog({
               <select
                 id="edit-staff-role"
                 value={role}
-                onChange={(e) => setRole(e.target.value as "owner" | "advisor")}
+                onChange={(e) => setRole(e.target.value as TenantStaffRole)}
                 className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               >
-                <option value="advisor">advisor</option>
-                <option value="owner">owner</option>
+                <option value="firm_advisor">顧問スタッフ</option>
+                <option value="firm_viewer">閲覧者</option>
+                <option value="firm_manager">マネージャー</option>
+                <option value="firm_admin">管理者</option>
+                <option value="firm_owner">事務所オーナー</option>
               </select>
             </div>
             <div className="space-y-1.5">
@@ -532,10 +554,12 @@ function EditStaffDialog({
 // ─── Delete Staff Dialog ────────────────────────────────
 
 function DeleteStaffDialog({
+  tenantId,
   target,
   onClose,
   onDeleted,
 }: {
+  tenantId: string;
   target: StaffRow | null;
   onClose: () => void;
   onDeleted: () => void;
@@ -549,7 +573,7 @@ function DeleteStaffDialog({
   const mutation = useMutation({
     mutationFn: () => {
       if (!target) throw new Error("no target");
-      return api.internalUsers.remove(target.id);
+      return api.tenantStaff.remove(tenantId, target.id);
     },
     onSuccess: () => onDeleted(),
     onError: (err) => {
@@ -561,11 +585,11 @@ function DeleteStaffDialog({
     <Dialog open={!!target} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle className="text-red-700">スタッフを削除</DialogTitle>
+          <DialogTitle className="text-red-700">スタッフ権限を削除</DialogTitle>
           <DialogDescription>
             <span className="font-semibold text-foreground">{target?.name}</span>{" "}
-            ({target?.email}) を削除します。担当している顧問先のアサイン (
-            {target?._count.memberships}件) も解除されます。
+            ({target?.email}) のこの会計事務所へのスタッフ権限を削除します。担当している顧問先のアサイン (
+            {target?._count.memberships}件) も解除されます。ユーザーアカウント自体は削除しません。
           </DialogDescription>
         </DialogHeader>
 

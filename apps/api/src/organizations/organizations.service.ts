@@ -1,63 +1,38 @@
 import {
   BadRequestException,
   ConflictException,
-  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import {
-  isInternalAdvisor,
-  isInternalOwner,
-  isInternalStaff,
-  UserLike,
-} from '../auth/staff.helpers';
+import { UserLike } from '../auth/staff.helpers';
+import { AuthorizationService } from '../auth/authorization.service';
 import { CreateOrganizationDto } from './dto/create-organization.dto';
 import { UpdateOrganizationDto } from './dto/update-organization.dto';
 
 /**
  * 顧問先 (Organization) 管理。
  *
- * 重要：role 単独で判定せず、必ず isInternalStaff / isInternalOwner で
- * orgId=NULL も併せて確認すること。顧問先側 owner（CL 管理者）が
- * 自社の planType 変更や削除に到達しないように防ぐ。
- *
- * - 一覧: 内部 owner=全件 / 内部 advisor=担当先 / 顧問先側=自社のみ
- * - 作成: 内部スタッフ（owner/advisor）のみ
- * - 更新（基本情報）: 内部 owner=全件、内部 advisor=担当先のみ。顧問先側は不可
- * - planType 変更: 内部 owner のみ
- * - 削除: 内部 owner のみ
+ * AuthorizationService で tenant / organization membership を permission に
+ * 展開して判定する。旧 User.role + orgId は移行中のfallbackに留める。
  */
 @Injectable()
 export class OrganizationsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private authorization: AuthorizationService,
+  ) {}
 
   async findAll(user: UserLike) {
-    // 内部 owner: 全顧問先（クロステナント）
-    if (isInternalOwner(user)) {
-      return this.prisma.organization.findMany({
-        orderBy: { name: 'asc' },
-      });
-    }
-    // 内部 advisor: 担当先のみ
-    if (isInternalAdvisor(user)) {
-      const assignments = await this.prisma.organizationMembership.findMany({
-        where: { userId: user.id },
-        include: { organization: true },
-      });
-      return assignments.map((a) => a.organization);
-    }
-    // 顧問先側ユーザー（orgId 持ち、role 任意）: 自社のみ
-    if (!user.orgId) {
-      return [];
-    }
-    const org = await this.prisma.organization.findUnique({
-      where: { id: user.orgId },
-    });
-    return org ? [org] : [];
+    return this.authorization.findAccessibleOrganizations(user);
   }
 
-  async findOne(id: string) {
+  async findOne(user: UserLike, id: string) {
+    await this.authorization.assertOrgPermission(
+      user,
+      id,
+      'org:organizations:read',
+    );
     const org = await this.prisma.organization.findUnique({
       where: { id },
       include: {
@@ -72,14 +47,15 @@ export class OrganizationsService {
   }
 
   /**
-   * 新規顧問先を作成。内部スタッフ (orgId=NULL かつ role=owner/advisor) のみ。
+   * 新規顧問先を作成。
    * - 作成者を自動で OrganizationMembership に登録（advisor が自分で追加した先を担当できるように）
    * - 追加で advisorUserIds の SEVENRICH スタッフをアサイン
    */
   async create(creator: UserLike, dto: CreateOrganizationDto) {
-    if (!isInternalStaff(creator)) {
-      throw new ForbiddenException('顧問先の新規作成は事務所スタッフのみ可能です');
-    }
+    const { tenantId } = await this.authorization.assertTenantPermission(
+      creator,
+      'tenant:organizations:create',
+    );
     const creatorUserId = creator.id;
     const creatorRole = creator.role;
     // 同一 code が既に存在するなら衝突エラー
@@ -108,10 +84,11 @@ export class OrganizationsService {
     if (assigneeIds.size > 0) {
       const users = await this.prisma.user.findMany({
         where: { id: { in: Array.from(assigneeIds) } },
-        select: { id: true, role: true },
+        select: { id: true, role: true, orgId: true },
       });
       const invalid = users.filter(
-        (u) => u.role !== 'owner' && u.role !== 'advisor',
+        (u) =>
+          u.orgId !== null || (u.role !== 'owner' && u.role !== 'advisor'),
       );
       if (invalid.length > 0) {
         throw new BadRequestException(
@@ -123,9 +100,9 @@ export class OrganizationsService {
       }
     }
 
-    // 作成
     const org = await this.prisma.organization.create({
       data: {
+        tenantId,
         name: dto.name,
         code: dto.code ?? null,
         fiscalMonthEnd: dto.fiscalMonthEnd,
@@ -133,38 +110,34 @@ export class OrganizationsService {
         ...(dto.usesCostAccounting !== undefined
           ? { usesCostAccounting: dto.usesCostAccounting }
           : {}),
-        // 担当者を同時に OrganizationMembership に
-        memberships: {
-          create: Array.from(assigneeIds).map((uid) => ({
-            userId: uid,
-            role: 'advisor' as const,
-          })),
-        },
       },
     });
+
+    if (assigneeIds.size > 0) {
+      await this.prisma.organizationMembership.createMany({
+        data: Array.from(assigneeIds).map((uid) => ({
+          userId: uid,
+          tenantId,
+          orgId: org.id,
+          role: 'advisor' as const,
+          side: 'advisor' as const,
+        })),
+        skipDuplicates: true,
+      });
+    }
 
     return org;
   }
 
   /**
-   * 顧問先情報の更新。
-   * - 内部 owner: 全顧問先を編集可
-   * - 内部 advisor: 担当先のみ
-   * - 顧問先側ユーザー（CL 管理者含む）: 編集不可
-   * - planType 変更は内部 owner のみ
+   * 顧問先情報の更新。planType 変更は delete 相当の強い permission を要求する。
    */
   async update(user: UserLike, orgId: string, dto: UpdateOrganizationDto) {
-    if (isInternalAdvisor(user)) {
-      const assignment = await this.prisma.organizationMembership.findUnique({
-        where: { userId_orgId: { userId: user.id, orgId } },
-      });
-      if (!assignment) {
-        throw new ForbiddenException('この顧問先の編集権限がありません');
-      }
-    } else if (!isInternalOwner(user)) {
-      // CL 側 owner / admin / member / viewer は到達不可
-      throw new ForbiddenException('顧問先の編集は事務所スタッフのみ可能です');
-    }
+    await this.authorization.assertOrgPermission(
+      user,
+      orgId,
+      'org:organizations:update',
+    );
 
     // code 重複チェック（自分以外）
     if (dto.code) {
@@ -178,9 +151,12 @@ export class OrganizationsService {
       }
     }
 
-    // planType 変更は内部 owner のみ
-    if (dto.planType !== undefined && !isInternalOwner(user)) {
-      throw new ForbiddenException('プラン変更は事務所オーナーのみ可能です');
+    if (dto.planType !== undefined) {
+      await this.authorization.assertOrgPermission(
+        user,
+        orgId,
+        'org:organizations:delete',
+      );
     }
 
     return this.prisma.organization.update({
@@ -201,14 +177,109 @@ export class OrganizationsService {
   }
 
   /**
-   * 顧問先削除。内部 owner のみ。
-   * 顧問先側 owner (CL 管理者) からは到達不可。データ全部消えるので注意。
+   * 顧問先削除。データ全部消えるので強い permission のみ許可する。
    */
   async remove(user: UserLike, orgId: string) {
-    if (!isInternalOwner(user)) {
-      throw new ForbiddenException('顧問先の削除は事務所オーナーのみ可能です');
-    }
+    await this.authorization.assertOrgPermission(
+      user,
+      orgId,
+      'org:organizations:delete',
+    );
     // FK の onDelete: Cascade を信頼。無い場合は手動で関連削除が必要
     return this.prisma.organization.delete({ where: { id: orgId } });
+  }
+
+  /**
+   * この顧問先に担当としてアサインされている advisor 側スタッフ一覧。
+   */
+  async listAdvisors(user: UserLike, orgId: string) {
+    const { tenantId } = await this.authorization.assertOrgPermission(
+      user,
+      orgId,
+      'org:users:read',
+    );
+    const memberships = await this.prisma.organizationMembership.findMany({
+      where: { orgId, tenantId, side: 'advisor' },
+      include: {
+        user: {
+          select: { id: true, email: true, name: true, avatarUrl: true },
+        },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+    return memberships.map((m) => ({
+      userId: m.userId,
+      role: m.role,
+      side: m.side,
+      createdAt: m.createdAt,
+      user: m.user,
+    }));
+  }
+
+  /**
+   * 既存の事務所スタッフを既存顧問先の担当として追加。
+   * - 同 tenant の active な tenantMembership を持つユーザーのみ許可
+   * - 重複は skipDuplicates で無視
+   */
+  async addAdvisors(user: UserLike, orgId: string, userIds: string[]) {
+    const { tenantId } = await this.authorization.assertOrgPermission(
+      user,
+      orgId,
+      'org:users:manage',
+    );
+    if (userIds.length === 0) {
+      throw new BadRequestException('userIds が空です');
+    }
+
+    const tenantMembers = await this.prisma.tenantMembership.findMany({
+      where: {
+        tenantId,
+        userId: { in: userIds },
+        status: 'active',
+      },
+      select: { userId: true },
+    });
+    const validIds = new Set(tenantMembers.map((m) => m.userId));
+    const invalid = userIds.filter((id) => !validIds.has(id));
+    if (invalid.length > 0) {
+      throw new BadRequestException(
+        `指定 user が事務所スタッフではありません: ${invalid.join(', ')}`,
+      );
+    }
+
+    await this.prisma.organizationMembership.createMany({
+      data: userIds.map((userId) => ({
+        userId,
+        tenantId,
+        orgId,
+        role: 'advisor' as const,
+        side: 'advisor' as const,
+      })),
+      skipDuplicates: true,
+    });
+
+    return this.listAdvisors(user, orgId);
+  }
+
+  /**
+   * 担当アサインを 1 件解除。
+   */
+  async removeAdvisor(user: UserLike, orgId: string, userId: string) {
+    await this.authorization.assertOrgPermission(
+      user,
+      orgId,
+      'org:users:manage',
+    );
+    const membership = await this.prisma.organizationMembership.findFirst({
+      where: { orgId, userId, side: 'advisor' },
+      select: { id: true },
+    });
+    if (!membership) {
+      throw new NotFoundException('担当が見つかりません');
+    }
+    await this.prisma.organizationMembership.delete({
+      where: { id: membership.id },
+    });
+    return { success: true };
   }
 }

@@ -26,7 +26,8 @@ export class ActionsService {
   constructor(private prisma: PrismaService) {}
 
   async list(orgId: string, filter: ListActionsFilter) {
-    const where: Prisma.ActionWhereInput = { orgId };
+    const { tenantId } = await this.prisma.orgScope(orgId);
+    const where: Prisma.ActionWhereInput = { tenantId, orgId };
 
     if (filter.status) where.status = filter.status;
     if (filter.ownerUserId) where.ownerUserId = filter.ownerUserId;
@@ -57,8 +58,9 @@ export class ActionsService {
   }
 
   async getById(orgId: string, actionId: string) {
-    const action = await this.prisma.action.findUnique({
-      where: { id: actionId },
+    const { tenantId } = await this.prisma.orgScope(orgId);
+    const action = await this.prisma.action.findFirst({
+      where: { id: actionId, tenantId, orgId },
       include: {
         owner: { select: { id: true, name: true } },
         creator: { select: { id: true, name: true } },
@@ -69,7 +71,7 @@ export class ActionsService {
       },
     });
 
-    if (!action || action.orgId !== orgId) {
+    if (!action) {
       throw new NotFoundException('Actionが見つかりません');
     }
 
@@ -86,7 +88,8 @@ export class ActionsService {
   }
 
   async summary(orgId: string, ownerUserId?: string) {
-    const baseWhere: Prisma.ActionWhereInput = { orgId };
+    const { tenantId } = await this.prisma.orgScope(orgId);
+    const baseWhere: Prisma.ActionWhereInput = { tenantId, orgId };
     if (ownerUserId) baseWhere.ownerUserId = ownerUserId;
 
     const [total, notStarted, inProgress, overdue] = await Promise.all([
@@ -108,8 +111,10 @@ export class ActionsService {
   }
 
   async create(orgId: string, dto: CreateActionDto, createdBy: string) {
+    const { tenantId } = await this.prisma.orgScope(orgId);
     const action = await this.prisma.action.create({
       data: {
+        tenantId,
         orgId,
         title: dto.title,
         description: dto.description,
@@ -144,10 +149,11 @@ export class ActionsService {
     dto: UpdateActionDto,
     actingUserId: string,
   ) {
-    const existing = await this.prisma.action.findUnique({
-      where: { id: actionId },
+    const { tenantId } = await this.prisma.orgScope(orgId);
+    const existing = await this.prisma.action.findFirst({
+      where: { id: actionId, tenantId, orgId },
     });
-    if (!existing || existing.orgId !== orgId) {
+    if (!existing) {
       throw new NotFoundException('Actionが見つかりません');
     }
 
@@ -213,10 +219,11 @@ export class ActionsService {
   }
 
   async remove(orgId: string, actionId: string) {
-    const existing = await this.prisma.action.findUnique({
-      where: { id: actionId },
+    const { tenantId } = await this.prisma.orgScope(orgId);
+    const existing = await this.prisma.action.findFirst({
+      where: { id: actionId, tenantId, orgId },
     });
-    if (!existing || existing.orgId !== orgId) {
+    if (!existing) {
       throw new NotFoundException('Actionが見つかりません');
     }
     await this.prisma.action.delete({ where: { id: actionId } });

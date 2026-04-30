@@ -17,9 +17,8 @@ import {
   Min,
 } from 'class-validator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { OrgAccessGuard } from '../auth/org-access.guard';
-import { RolesGuard } from '../auth/roles.guard';
-import { Roles } from '../auth/roles.decorator';
+import { PermissionGuard } from '../auth/permission.guard';
+import { RequirePermission } from '../auth/require-permission.decorator';
 import { PrismaService } from '../prisma/prisma.service';
 import { BriefingService } from './briefing.service';
 import { BriefingSchedulerService } from './briefing-scheduler.service';
@@ -41,7 +40,7 @@ class UpdatePushConfigDto {
 }
 
 @Controller('organizations/:orgId/briefing')
-@UseGuards(JwtAuthGuard, OrgAccessGuard)
+@UseGuards(JwtAuthGuard, PermissionGuard)
 export class BriefingController {
   constructor(
     private briefing: BriefingService,
@@ -50,6 +49,7 @@ export class BriefingController {
   ) {}
 
   @Get('today')
+  @RequirePermission('org:ai:run')
   async today(
     @Param('orgId') orgId: string,
     @Query('fiscalYear') fiscalYear?: string,
@@ -62,6 +62,7 @@ export class BriefingController {
   }
 
   @Get('history')
+  @RequirePermission('org:briefing:read')
   async history(
     @Param('orgId') orgId: string,
     @Query('limit') limit?: string,
@@ -74,6 +75,7 @@ export class BriefingController {
   }
 
   @Get('push-config')
+  @RequirePermission('org:briefing:read')
   async getPushConfig(@Param('orgId') orgId: string) {
     const org = await this.prisma.organization.findUnique({
       where: { id: orgId },
@@ -91,8 +93,7 @@ export class BriefingController {
   }
 
   @Patch('push-config')
-  @UseGuards(RolesGuard)
-  @Roles('owner', 'advisor')
+  @RequirePermission('org:briefing:manage')
   async updatePushConfig(
     @Param('orgId') orgId: string,
     @Body() dto: UpdatePushConfigDto,
@@ -112,8 +113,7 @@ export class BriefingController {
   }
 
   @Post('push-test')
-  @UseGuards(RolesGuard)
-  @Roles('owner', 'advisor')
+  @RequirePermission('org:briefing:manage')
   async pushTest(@Param('orgId') orgId: string) {
     return this.scheduler.dispatchNow(orgId);
   }

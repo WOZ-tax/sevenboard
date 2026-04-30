@@ -1,25 +1,25 @@
 import {
+  Body,
   Controller,
   Get,
-  Post,
   Param,
-  Body,
+  Post,
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { CashflowService } from './cashflow.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { OrgAccessGuard } from '../auth/org-access.guard';
-import { RolesGuard } from '../auth/roles.guard';
-import { Roles } from '../auth/roles.decorator';
+import { PermissionGuard } from '../auth/permission.guard';
+import { RequirePermission } from '../auth/require-permission.decorator';
+import { CashflowService } from './cashflow.service';
 import { CreateCashflowCategoryDto } from './dto/create-cashflow-category.dto';
 
 @Controller('organizations/:orgId/cashflow')
-@UseGuards(JwtAuthGuard, OrgAccessGuard)
+@UseGuards(JwtAuthGuard, PermissionGuard)
 export class CashflowController {
   constructor(private cashflowService: CashflowService) {}
 
   @Get('actual')
+  @RequirePermission('org:cashflow:read')
   async getActual(
     @Param('orgId') orgId: string,
     @Query('startDate') startDate?: string,
@@ -32,18 +32,19 @@ export class CashflowController {
   }
 
   @Get('runway')
+  @RequirePermission('org:cashflow:read')
   async getRunway(@Param('orgId') orgId: string) {
     return this.cashflowService.getRunway(orgId);
   }
 
   @Get('categories')
+  @RequirePermission('org:cashflow:read')
   async getCategories(@Param('orgId') orgId: string) {
     return this.cashflowService.getCategories(orgId);
   }
 
   @Post('categories')
-  @Roles('owner', 'advisor')
-  @UseGuards(RolesGuard)
+  @RequirePermission('org:cashflow:manage')
   async createCategory(
     @Param('orgId') orgId: string,
     @Body() dto: CreateCashflowCategoryDto,

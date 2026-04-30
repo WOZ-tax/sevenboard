@@ -20,6 +20,9 @@ import {
   Loader2,
   Pencil,
   Trash2,
+  Users,
+  X,
+  UserPlus,
 } from "lucide-react";
 import {
   Dialog,
@@ -42,9 +45,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
-import { api } from "@/lib/api";
+import { api, type OrgAdvisor, type TenantStaffRow } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth";
 import { useCurrentOrg } from "@/contexts/current-org";
 import { useIsClient } from "@/hooks/use-is-client";
@@ -145,7 +148,7 @@ function AdvisorPortalContent() {
   const router = useRouter();
   const switchOrg = useAuthStore((s) => s.switchOrg);
   const user = useAuthStore((s) => s.user);
-  const { setCurrentOrgId } = useCurrentOrg();
+  const { currentOrg, setCurrentOrgId } = useCurrentOrg();
   const queryClient = useQueryClient();
   const hydrated = useIsClient();
 
@@ -160,12 +163,14 @@ function AdvisorPortalContent() {
   const canCreateOrg = canAccess;
   const canEditOrg = canAccess;
   const canDeleteOrg = user?.role === "owner";
+  const canManageStaff = currentOrg?.tenantRole === "firm_owner";
 
   // 新規顧問先追加 modal
   const [newOrgOpen, setNewOrgOpen] = useState(false);
   // 編集 / 削除 ターゲット（null なら閉じてる）
   const [editTarget, setEditTarget] = useState<OrgListItem | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<OrgListItem | null>(null);
+  const [membersTarget, setMembersTarget] = useState<OrgListItem | null>(null);
 
   // Data state
   const [summary, setSummary] = useState<SummaryData | null>(null);
@@ -379,7 +384,7 @@ function AdvisorPortalContent() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {user?.role === "owner" && (
+          {canManageStaff && (
             <Button
               variant="outline"
               onClick={() => router.push("/advisor/staff")}
@@ -434,6 +439,12 @@ function AdvisorPortalContent() {
           setDeleteTarget(null);
           fetchOrgs();
         }}
+      />
+
+      <MembersDialog
+        target={membersTarget}
+        tenantId={currentOrg?.tenantId ?? null}
+        onClose={() => setMembersTarget(null)}
       />
 
       {fetchFailed && (
@@ -713,6 +724,21 @@ function AdvisorPortalContent() {
                           </>
                         )}
                       </Button>
+                      {canEditOrg && (
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          className="h-7 w-7 text-muted-foreground hover:text-[var(--color-navy)]"
+                          aria-label="担当者"
+                          title="担当者"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setMembersTarget(org);
+                          }}
+                        >
+                          <Users className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
                       {canEditOrg && (
                         <Button
                           variant="ghost"
@@ -1429,5 +1455,301 @@ function DeleteOrgDialog({ target, onClose, onDeleted }: DeleteOrgDialogProps) {
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// ─── Members Dialog (担当アサイン管理) ─────────────────────
+
+interface MembersDialogProps {
+  target: OrgListItem | null;
+  tenantId: string | null;
+  onClose: () => void;
+}
+
+function MembersDialog({ target, tenantId, onClose }: MembersDialogProps) {
+  const queryClient = useQueryClient();
+  const orgId = target?.id ?? null;
+
+  const advisorsQuery = useQuery({
+    queryKey: ["org-advisors", orgId],
+    queryFn: () => api.organizationAdvisors.list(orgId!),
+    enabled: !!orgId,
+  });
+
+  const staffQuery = useQuery({
+    queryKey: ["tenant-staff", tenantId],
+    queryFn: () => api.tenantStaff.list(tenantId!),
+    enabled: !!tenantId && !!orgId,
+    staleTime: 30_000,
+  });
+
+  const [picking, setPicking] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!target) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- target が null になる close 時のフォーム reset
+      setPicking(false);
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- target 変更時のエラー clear
+      setError(null);
+    }
+  }, [target]);
+
+  const advisors = advisorsQuery.data ?? [];
+  const allStaff = staffQuery.data ?? [];
+  const assignedIds = useMemo(
+    () => new Set(advisors.map((a) => a.userId)),
+    [advisors],
+  );
+  const candidates = useMemo(
+    () =>
+      allStaff.filter(
+        (s) => s.status === "active" && !assignedIds.has(s.id),
+      ),
+    [allStaff, assignedIds],
+  );
+
+  const refresh = () => {
+    queryClient.invalidateQueries({ queryKey: ["org-advisors", orgId] });
+  };
+
+  const addMutation = useMutation({
+    mutationFn: (userIds: string[]) =>
+      api.organizationAdvisors.add(orgId!, userIds),
+    onSuccess: () => {
+      refresh();
+      setPicking(false);
+      setError(null);
+    },
+    onError: (e: unknown) => {
+      setError(e instanceof Error ? e.message : "追加に失敗しました");
+    },
+  });
+
+  const removeMutation = useMutation({
+    mutationFn: (userId: string) =>
+      api.organizationAdvisors.remove(orgId!, userId),
+    onSuccess: () => {
+      refresh();
+      setError(null);
+    },
+    onError: (e: unknown) => {
+      setError(e instanceof Error ? e.message : "削除に失敗しました");
+    },
+  });
+
+  return (
+    <Dialog open={!!target} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Users className="h-5 w-5 text-[var(--color-navy)]" />
+            担当者を管理
+          </DialogTitle>
+          <DialogDescription>
+            {target?.name} の担当アサイン (advisor 側) を追加・削除します。
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-3">
+          {advisorsQuery.isLoading ? (
+            <div className="flex items-center justify-center py-6">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : (
+            <div className="rounded-md border border-gray-200">
+              {advisors.length === 0 ? (
+                <p className="px-3 py-4 text-center text-sm text-muted-foreground">
+                  まだ担当者がアサインされていません
+                </p>
+              ) : (
+                <ul className="divide-y divide-gray-100">
+                  {advisors.map((a) => (
+                    <li
+                      key={a.userId}
+                      className="flex items-center justify-between gap-2 px-3 py-2"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-foreground">
+                          {a.user.name}
+                        </p>
+                        <p className="truncate text-xs text-muted-foreground">
+                          {a.user.email}
+                        </p>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        className="h-7 w-7 text-muted-foreground hover:text-red-600"
+                        aria-label="削除"
+                        title="アサイン解除"
+                        disabled={removeMutation.isPending}
+                        onClick={() => removeMutation.mutate(a.userId)}
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+
+          {!picking ? (
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full gap-1.5"
+              onClick={() => setPicking(true)}
+              disabled={!tenantId}
+            >
+              <UserPlus className="h-4 w-4" />
+              担当者を追加
+            </Button>
+          ) : (
+            <MemberPicker
+              candidates={candidates}
+              loading={staffQuery.isLoading}
+              submitting={addMutation.isPending}
+              onCancel={() => setPicking(false)}
+              onSubmit={(userIds) => addMutation.mutate(userIds)}
+            />
+          )}
+
+          {error && (
+            <div className="rounded-md border border-red-300 bg-red-50 p-2 text-sm text-red-700">
+              {error}
+            </div>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={onClose}>
+            閉じる
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+interface MemberPickerProps {
+  candidates: TenantStaffRow[];
+  loading: boolean;
+  submitting: boolean;
+  onCancel: () => void;
+  onSubmit: (userIds: string[]) => void;
+}
+
+function MemberPicker({
+  candidates,
+  loading,
+  submitting,
+  onCancel,
+  onSubmit,
+}: MemberPickerProps) {
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [filter, setFilter] = useState("");
+
+  const toggle = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const filtered = useMemo(() => {
+    const q = filter.trim().toLowerCase();
+    if (!q) return candidates;
+    return candidates.filter(
+      (c) =>
+        c.name.toLowerCase().includes(q) ||
+        c.email.toLowerCase().includes(q),
+    );
+  }, [candidates, filter]);
+
+  return (
+    <div className="space-y-2 rounded-md border border-gray-200 p-3">
+      <div className="flex items-center gap-2">
+        <Search className="h-4 w-4 text-muted-foreground" />
+        <Input
+          placeholder="名前・メールで検索"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          className="h-8 flex-1"
+        />
+      </div>
+      <div className="max-h-56 overflow-y-auto rounded border border-gray-100">
+        {loading ? (
+          <div className="flex items-center justify-center py-4">
+            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+          </div>
+        ) : filtered.length === 0 ? (
+          <p className="px-3 py-4 text-center text-xs text-muted-foreground">
+            追加できるスタッフがいません
+          </p>
+        ) : (
+          <ul className="divide-y divide-gray-100">
+            {filtered.map((s) => {
+              const checked = selected.has(s.id);
+              return (
+                <li key={s.id}>
+                  <button
+                    type="button"
+                    onClick={() => toggle(s.id)}
+                    className={cn(
+                      "flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-gray-50",
+                      checked && "bg-blue-50",
+                    )}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      readOnly
+                      className="h-3.5 w-3.5"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-medium text-foreground">
+                        {s.name}
+                      </p>
+                      <p className="truncate text-xs text-muted-foreground">
+                        {s.email}
+                      </p>
+                    </div>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+      <div className="flex items-center justify-end gap-2">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={onCancel}
+          disabled={submitting}
+        >
+          キャンセル
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          disabled={selected.size === 0 || submitting}
+          onClick={() => onSubmit(Array.from(selected))}
+          className="gap-1.5 bg-[var(--color-primary)] text-white hover:bg-[var(--color-primary)]/90"
+        >
+          {submitting ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <UserPlus className="h-3.5 w-3.5" />
+          )}
+          {selected.size > 0 ? `${selected.size}名 追加` : "追加"}
+        </Button>
+      </div>
+    </div>
   );
 }

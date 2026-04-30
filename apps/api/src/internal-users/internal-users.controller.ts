@@ -10,48 +10,54 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import {
-  InternalRoles,
-  InternalStaffGuard,
-} from '../auth/internal-staff.guard';
+import { PermissionGuard } from '../auth/permission.guard';
+import { RequirePermission } from '../auth/require-permission.decorator';
 import { InternalUsersService } from './internal-users.service';
 import { CreateInternalUserDto } from './dto/create-internal-user.dto';
 import { UpdateInternalUserDto } from './dto/update-internal-user.dto';
 
 /**
- * SEVENRICH 事務所スタッフ管理エンドポイント。
- *
- * - 内部スタッフ (orgId=NULL かつ role=owner) のみアクセス可能
- * - 顧問先側 owner（CL 管理者）は許可しない（InternalStaffGuard で遮断）
- * - CL（顧問先）側ユーザー管理は /organizations/:orgId/masters/users
- *   （そちらは role=viewer 固定で別経路）
+ * Tenant-scoped accounting firm staff management.
+ * Platform owners do not get tenant staff access unless that tenant explicitly
+ * invites them through this API.
  */
-@Controller('internal/users')
-@UseGuards(JwtAuthGuard, InternalStaffGuard)
-@InternalRoles('owner')
+@Controller('tenants/:tenantId/staff')
+@UseGuards(JwtAuthGuard, PermissionGuard)
 export class InternalUsersController {
   constructor(private internalUsers: InternalUsersService) {}
 
   @Get()
-  async list() {
-    return this.internalUsers.list();
+  @RequirePermission('tenant:staff:read')
+  async list(@Param('tenantId') tenantId: string) {
+    return this.internalUsers.list(tenantId);
   }
 
   @Post()
-  async create(@Body() dto: CreateInternalUserDto) {
-    return this.internalUsers.create(dto);
+  @RequirePermission('tenant:staff:manage')
+  async create(
+    @Param('tenantId') tenantId: string,
+    @Body() dto: CreateInternalUserDto,
+  ) {
+    return this.internalUsers.create(tenantId, dto);
   }
 
   @Put(':userId')
+  @RequirePermission('tenant:staff:manage')
   async update(
+    @Param('tenantId') tenantId: string,
     @Param('userId') userId: string,
     @Body() dto: UpdateInternalUserDto,
   ) {
-    return this.internalUsers.update(userId, dto);
+    return this.internalUsers.update(tenantId, userId, dto);
   }
 
   @Delete(':userId')
-  async remove(@Request() req, @Param('userId') userId: string) {
-    return this.internalUsers.remove(req.user.id, userId);
+  @RequirePermission('tenant:staff:manage')
+  async remove(
+    @Request() req,
+    @Param('tenantId') tenantId: string,
+    @Param('userId') userId: string,
+  ) {
+    return this.internalUsers.remove(req.user.id, tenantId, userId);
   }
 }

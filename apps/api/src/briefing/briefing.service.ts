@@ -45,9 +45,10 @@ export class BriefingService {
     options?: { fiscalYear?: number; endMonth?: number },
   ): Promise<BriefingResponse> {
     const startedAt = Date.now();
+    const { tenantId } = await this.prisma.orgScope(orgId);
     const response = await this.generateToday(orgId, options);
     // 履歴保存（失敗してもレスポンスは返す）
-    await this.persistSnapshot(orgId, response, {
+    await this.persistSnapshot(orgId, tenantId, response, {
       urgent: response.headlines.length > 0 ? this.countUrgent(response.headlines) : 0,
       thisWeek: 0,
     }).catch((err) =>
@@ -87,10 +88,11 @@ export class BriefingService {
     }>
   > {
     const limit = Math.min(Math.max(options?.limit ?? 14, 1), 60);
+    const { tenantId } = await this.prisma.orgScope(orgId);
     const since = new Date();
     since.setDate(since.getDate() - (options?.days ?? 30));
     const rows = await this.prisma.briefingSnapshot.findMany({
-      where: { orgId, generatedAt: { gte: since } },
+      where: { tenantId, orgId, generatedAt: { gte: since } },
       orderBy: { generatedAt: 'desc' },
       take: limit,
     });
@@ -190,11 +192,13 @@ export class BriefingService {
 
   private async persistSnapshot(
     orgId: string,
+    tenantId: string,
     response: BriefingResponse,
     counts: { urgent: number; thisWeek: number },
   ): Promise<void> {
     await this.prisma.briefingSnapshot.create({
       data: {
+        tenantId,
         orgId,
         generatedAt: new Date(response.generatedAt),
         greeting: response.greeting,

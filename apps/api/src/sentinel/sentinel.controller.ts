@@ -1,10 +1,12 @@
 import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { OrgAccessGuard } from '../auth/org-access.guard';
+import { PermissionGuard } from '../auth/permission.guard';
+import { RequirePermission } from '../auth/require-permission.decorator';
 import { SentinelService } from './sentinel.service';
 
 @Controller('organizations/:orgId/sentinel')
-@UseGuards(JwtAuthGuard, OrgAccessGuard)
+@RequirePermission('org:ai:run')
+@UseGuards(JwtAuthGuard, PermissionGuard)
 export class SentinelController {
   constructor(private sentinel: SentinelService) {}
 

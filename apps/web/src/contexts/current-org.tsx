@@ -21,8 +21,12 @@ import {
 export type MembershipRole = "owner" | "admin" | "member" | "viewer" | "advisor";
 
 export interface Membership {
+  tenantId: string;
   orgId: string;
   role: MembershipRole;
+  tenantRole?: string;
+  orgRole?: string;
+  side?: "advisor" | "client";
   orgName: string;
   orgCode: string | null;
   industry?: string | null;

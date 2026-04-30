@@ -1,9 +1,8 @@
 import { Controller, Get, NotFoundException, Param, Query, UseGuards } from '@nestjs/common';
 import { AgentRunKey } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { OrgAccessGuard } from '../auth/org-access.guard';
-import { RolesGuard } from '../auth/roles.guard';
-import { Roles } from '../auth/roles.decorator';
+import { PermissionGuard } from '../auth/permission.guard';
+import { RequirePermission } from '../auth/require-permission.decorator';
 import { AgentRunsService } from './agent-runs.service';
 
 const VALID_KEYS: AgentRunKey[] = ['BRIEF', 'SENTINEL', 'DRAFTER', 'AUDITOR', 'COPILOT'];
@@ -15,12 +14,12 @@ function parsePositiveInt(v?: string): number | undefined {
 }
 
 @Controller('organizations/:orgId/agent-runs')
-@UseGuards(JwtAuthGuard, OrgAccessGuard, RolesGuard)
-@Roles('owner', 'advisor')
+@UseGuards(JwtAuthGuard, PermissionGuard)
 export class AgentRunsController {
   constructor(private readonly agentRuns: AgentRunsService) {}
 
   @Get()
+  @RequirePermission('org:agent_runs:read')
   async list(
     @Param('orgId') orgId: string,
     @Query('agentKey') agentKey?: string,
@@ -39,6 +38,7 @@ export class AgentRunsController {
   }
 
   @Get(':id')
+  @RequirePermission('org:agent_runs:read')
   async get(@Param('orgId') orgId: string, @Param('id') id: string) {
     const run = await this.agentRuns.get(orgId, id);
     if (!run) throw new NotFoundException();

@@ -1,6 +1,6 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
 import type { MonthlyCloseStatus } from '@prisma/client';
+import { PrismaService } from '../prisma/prisma.service';
 
 const VALID_STATUSES: MonthlyCloseStatus[] = ['OPEN', 'IN_REVIEW', 'CLOSED'];
 
@@ -8,22 +8,28 @@ const VALID_STATUSES: MonthlyCloseStatus[] = ['OPEN', 'IN_REVIEW', 'CLOSED'];
 export class MonthlyCloseService {
   constructor(private prisma: PrismaService) {}
 
-  /** 指定会計年度の MonthlyClose を全件返す（フロントの一覧/UI用） */
   async listForFiscalYear(orgId: string, fiscalYear: number) {
+    const { tenantId } = await this.prisma.orgScope(orgId);
     return this.prisma.monthlyClose.findMany({
-      where: { orgId, fiscalYear },
+      where: { tenantId, orgId, fiscalYear },
       orderBy: { month: 'asc' },
     });
   }
 
-  /** 単月のステータスを取得（無ければ null）。デフォルト month 解決ロジック側でも使う */
   async getOne(orgId: string, fiscalYear: number, month: number) {
+    const { tenantId } = await this.prisma.orgScope(orgId);
     return this.prisma.monthlyClose.findUnique({
-      where: { orgId_fiscalYear_month: { orgId, fiscalYear, month } },
+      where: {
+        tenantId_orgId_fiscalYear_month: {
+          tenantId,
+          orgId,
+          fiscalYear,
+          month,
+        },
+      },
     });
   }
 
-  /** ステータス変更 (upsert)。OPEN→IN_REVIEW→CLOSEDの遷移は自由（ユーザー判断） */
   async setStatus(
     orgId: string,
     fiscalYear: number,
@@ -38,9 +44,19 @@ export class MonthlyCloseService {
     if (month < 1 || month > 12) {
       throw new BadRequestException('month must be 1-12');
     }
+
+    const { tenantId } = await this.prisma.orgScope(orgId);
     return this.prisma.monthlyClose.upsert({
-      where: { orgId_fiscalYear_month: { orgId, fiscalYear, month } },
+      where: {
+        tenantId_orgId_fiscalYear_month: {
+          tenantId,
+          orgId,
+          fiscalYear,
+          month,
+        },
+      },
       create: {
+        tenantId,
         orgId,
         fiscalYear,
         month,
@@ -57,13 +73,14 @@ export class MonthlyCloseService {
     });
   }
 
-  /**
-   * 締まっている月（IN_REVIEW or CLOSED）の番号を返す。
-   * Burn rate / runway 計算で「実績として信用できる月」のフィルタに使う。
-   */
-  async getSettledMonths(orgId: string, fiscalYear: number): Promise<number[]> {
+  async getSettledMonths(
+    orgId: string,
+    fiscalYear: number,
+  ): Promise<number[]> {
+    const { tenantId } = await this.prisma.orgScope(orgId);
     const rows = await this.prisma.monthlyClose.findMany({
       where: {
+        tenantId,
         orgId,
         fiscalYear,
         status: { in: ['IN_REVIEW', 'CLOSED'] },
@@ -71,28 +88,28 @@ export class MonthlyCloseService {
       select: { month: true },
       orderBy: { month: 'asc' },
     });
-    return rows.map((r) => r.month);
+    return rows.map((row) => row.month);
   }
 
-  /**
-   * デフォルト表示月の解決:
-   * 1. status=IN_REVIEW の最新月（複数あれば最大）
-   * 2. なければ status=CLOSED の最新月
-   * 3. なければ null（呼び出し側で kintone フォールバックへ）
-   */
-  async resolveDefaultMonth(orgId: string, fiscalYear: number): Promise<number | null> {
+  async resolveDefaultMonth(
+    orgId: string,
+    fiscalYear: number,
+  ): Promise<number | null> {
+    const { tenantId } = await this.prisma.orgScope(orgId);
     const inReview = await this.prisma.monthlyClose.findFirst({
-      where: { orgId, fiscalYear, status: 'IN_REVIEW' },
+      where: { tenantId, orgId, fiscalYear, status: 'IN_REVIEW' },
       orderBy: { month: 'desc' },
       select: { month: true },
     });
     if (inReview) return inReview.month;
+
     const closed = await this.prisma.monthlyClose.findFirst({
-      where: { orgId, fiscalYear, status: 'CLOSED' },
+      where: { tenantId, orgId, fiscalYear, status: 'CLOSED' },
       orderBy: { month: 'desc' },
       select: { month: true },
     });
     if (closed) return closed.month;
+
     return null;
   }
 }

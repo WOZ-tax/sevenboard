@@ -57,6 +57,17 @@ export class MfApiService {
       'https://beta.mcp.developers.biz.moneyforward.com/mcp/ca/v3';
   }
 
+  private async integrationWhere(orgId: string) {
+    const { tenantId } = await this.prisma.orgScope(orgId);
+    return {
+      tenantId_orgId_provider: {
+        tenantId,
+        orgId,
+        provider: 'MF_CLOUD' as const,
+      },
+    };
+  }
+
   // ============================
   // Token management
   // ============================
@@ -71,7 +82,7 @@ export class MfApiService {
 
     const promise = (async () => {
       const integration = await this.prisma.integration.findUnique({
-        where: { orgId_provider: { orgId, provider: 'MF_CLOUD' } },
+        where: await this.integrationWhere(orgId),
       });
 
       if (!integration?.accessToken) {
@@ -114,7 +125,7 @@ export class MfApiService {
     lastRefreshedAt: string;
   }> {
     const integration = await this.prisma.integration.findUnique({
-      where: { orgId_provider: { orgId, provider: 'MF_CLOUD' } },
+      where: await this.integrationWhere(orgId),
     });
     if (!integration || !integration.accessToken) {
       throw new ServiceUnavailableException(
@@ -134,7 +145,7 @@ export class MfApiService {
     await this.refreshToken(orgId, decryptedRefresh);
 
     const updated = await this.prisma.integration.findUnique({
-      where: { orgId_provider: { orgId, provider: 'MF_CLOUD' } },
+      where: await this.integrationWhere(orgId),
     });
     return {
       refreshed: true,
@@ -180,7 +191,7 @@ export class MfApiService {
       const newRefreshToken = res.data.refresh_token || refreshToken;
 
       await this.prisma.integration.update({
-        where: { orgId_provider: { orgId, provider: 'MF_CLOUD' } },
+        where: await this.integrationWhere(orgId),
         data: {
           accessToken: encryptIfAvailable(newAccessToken),
           refreshToken: encryptIfAvailable(newRefreshToken),
@@ -507,7 +518,7 @@ export class MfApiService {
       if (status === 401 || status === 403 || String(msg).includes('invalid_token')) {
         this.logger.warn('MF MCP 401, attempting token refresh');
         const integration = await this.prisma.integration.findUnique({
-          where: { orgId_provider: { orgId, provider: 'MF_CLOUD' } },
+          where: await this.integrationWhere(orgId),
         });
         const newToken = await this.refreshToken(
           orgId,

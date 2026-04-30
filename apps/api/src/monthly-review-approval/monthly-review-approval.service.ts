@@ -47,15 +47,24 @@ export class MonthlyReviewApprovalService {
   constructor(private prisma: PrismaService) {}
 
   async get(orgId: string, fiscalYear: number, month: number): Promise<ApprovalRecord | null> {
+    const { tenantId } = await this.prisma.orgScope(orgId);
     const row = await this.prisma.monthlyReviewApproval.findUnique({
-      where: { orgId_fiscalYear_month: { orgId, fiscalYear, month } },
+      where: {
+        tenantId_orgId_fiscalYear_month: {
+          tenantId,
+          orgId,
+          fiscalYear,
+          month,
+        },
+      },
     });
     return row ? toRecord(row) : null;
   }
 
   async list(orgId: string, fiscalYear: number): Promise<ApprovalRecord[]> {
+    const { tenantId } = await this.prisma.orgScope(orgId);
     const rows = await this.prisma.monthlyReviewApproval.findMany({
-      where: { orgId, fiscalYear },
+      where: { tenantId, orgId, fiscalYear },
       orderBy: { month: 'asc' },
     });
     return rows.map(toRecord);
@@ -63,22 +72,39 @@ export class MonthlyReviewApprovalService {
 
   async submit(orgId: string, fiscalYear: number, month: number, comment?: string): Promise<ApprovalRecord> {
     this.assertMonth(month);
+    const { tenantId } = await this.prisma.orgScope(orgId);
     const row = await this.prisma.monthlyReviewApproval.upsert({
-      where: { orgId_fiscalYear_month: { orgId, fiscalYear, month } },
+      where: {
+        tenantId_orgId_fiscalYear_month: {
+          tenantId,
+          orgId,
+          fiscalYear,
+          month,
+        },
+      },
       update: { status: 'PENDING', comment: comment ?? null, approvedBy: null, approvedAt: null },
-      create: { orgId, fiscalYear, month, status: 'PENDING', comment: comment ?? null },
+      create: { tenantId, orgId, fiscalYear, month, status: 'PENDING', comment: comment ?? null },
     });
     return toRecord(row);
   }
 
   async approve(orgId: string, fiscalYear: number, month: number, userId: string, comment?: string): Promise<ApprovalRecord> {
     this.assertMonth(month);
+    const { tenantId } = await this.prisma.orgScope(orgId);
     const existing = await this.prisma.monthlyReviewApproval.findUnique({
-      where: { orgId_fiscalYear_month: { orgId, fiscalYear, month } },
+      where: {
+        tenantId_orgId_fiscalYear_month: {
+          tenantId,
+          orgId,
+          fiscalYear,
+          month,
+        },
+      },
     });
     if (!existing) {
       const created = await this.prisma.monthlyReviewApproval.create({
         data: {
+          tenantId,
           orgId,
           fiscalYear,
           month,
@@ -104,8 +130,16 @@ export class MonthlyReviewApprovalService {
 
   async reject(orgId: string, fiscalYear: number, month: number, userId: string, comment?: string): Promise<ApprovalRecord> {
     this.assertMonth(month);
+    const { tenantId } = await this.prisma.orgScope(orgId);
     const existing = await this.prisma.monthlyReviewApproval.findUnique({
-      where: { orgId_fiscalYear_month: { orgId, fiscalYear, month } },
+      where: {
+        tenantId_orgId_fiscalYear_month: {
+          tenantId,
+          orgId,
+          fiscalYear,
+          month,
+        },
+      },
     });
     if (!existing) {
       throw new NotFoundException('Approval record not found');
@@ -124,8 +158,16 @@ export class MonthlyReviewApprovalService {
 
   async reset(orgId: string, fiscalYear: number, month: number): Promise<ApprovalRecord | null> {
     this.assertMonth(month);
+    const { tenantId } = await this.prisma.orgScope(orgId);
     const existing = await this.prisma.monthlyReviewApproval.findUnique({
-      where: { orgId_fiscalYear_month: { orgId, fiscalYear, month } },
+      where: {
+        tenantId_orgId_fiscalYear_month: {
+          tenantId,
+          orgId,
+          fiscalYear,
+          month,
+        },
+      },
     });
     if (!existing) return null;
     const updated = await this.prisma.monthlyReviewApproval.update({

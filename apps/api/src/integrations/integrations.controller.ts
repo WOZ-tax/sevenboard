@@ -7,23 +7,22 @@ import {
 } from '@nestjs/common';
 import { IntegrationsService } from './integrations.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { OrgAccessGuard } from '../auth/org-access.guard';
-import { RolesGuard } from '../auth/roles.guard';
-import { Roles } from '../auth/roles.decorator';
+import { PermissionGuard } from '../auth/permission.guard';
+import { RequirePermission } from '../auth/require-permission.decorator';
 
 @Controller('organizations/:orgId/integrations')
-@UseGuards(JwtAuthGuard, OrgAccessGuard)
+@UseGuards(JwtAuthGuard, PermissionGuard)
 export class IntegrationsController {
   constructor(private integrationsService: IntegrationsService) {}
 
   @Get()
+  @RequirePermission('org:integrations:read')
   async findAll(@Param('orgId') orgId: string) {
     return this.integrationsService.findAll(orgId);
   }
 
   @Post(':provider/connect')
-  @Roles('owner', 'advisor')
-  @UseGuards(RolesGuard)
+  @RequirePermission('org:integrations:manage')
   async connect(
     @Param('orgId') orgId: string,
     @Param('provider') provider: string,
@@ -32,8 +31,7 @@ export class IntegrationsController {
   }
 
   @Post(':provider/disconnect')
-  @Roles('owner', 'advisor')
-  @UseGuards(RolesGuard)
+  @RequirePermission('org:integrations:manage')
   async disconnect(
     @Param('orgId') orgId: string,
     @Param('provider') provider: string,
@@ -42,8 +40,7 @@ export class IntegrationsController {
   }
 
   @Post(':provider/sync')
-  @Roles('owner', 'advisor')
-  @UseGuards(RolesGuard)
+  @RequirePermission('org:integrations:sync')
   async sync(
     @Param('orgId') orgId: string,
     @Param('provider') provider: string,
@@ -52,6 +49,7 @@ export class IntegrationsController {
   }
 
   @Get(':provider/status')
+  @RequirePermission('org:integrations:read')
   async getStatus(
     @Param('orgId') orgId: string,
     @Param('provider') provider: string,

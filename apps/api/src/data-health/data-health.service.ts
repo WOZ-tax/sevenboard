@@ -15,6 +15,7 @@ export class DataHealthService {
   constructor(private prisma: PrismaService) {}
 
   async getStatus(orgId: string) {
+    const tenantId = await this.resolveTenantId(orgId);
     // 各sourceの最新ログを取得
     const sources: SyncSource[] = [
       'MF_CLOUD',
@@ -27,7 +28,7 @@ export class DataHealthService {
     const statuses = await Promise.all(
       sources.map(async (source) => {
         const latest = await this.prisma.dataSyncLog.findFirst({
-          where: { orgId, source },
+          where: { tenantId, orgId, source },
           orderBy: { syncedAt: 'desc' },
         });
         return {
@@ -46,8 +47,9 @@ export class DataHealthService {
   }
 
   async getRecentLogs(orgId: string, limit = 50) {
+    const tenantId = await this.resolveTenantId(orgId);
     const logs = await this.prisma.dataSyncLog.findMany({
-      where: { orgId },
+      where: { tenantId, orgId },
       orderBy: { syncedAt: 'desc' },
       take: Math.min(limit, 200),
     });
@@ -62,8 +64,10 @@ export class DataHealthService {
   }
 
   async record(params: RecordSyncParams) {
+    const tenantId = await this.resolveTenantId(params.orgId);
     return this.prisma.dataSyncLog.create({
       data: {
+        tenantId,
         orgId: params.orgId,
         source: params.source,
         status: params.status,
@@ -71,6 +75,17 @@ export class DataHealthService {
         durationMs: params.durationMs ?? null,
       },
     });
+  }
+
+  private async resolveTenantId(orgId: string): Promise<string> {
+    const org = await this.prisma.organization.findUnique({
+      where: { id: orgId },
+      select: { tenantId: true },
+    });
+    if (!org) {
+      throw new Error(`Organization ${orgId} not found`);
+    }
+    return org.tenantId;
   }
 
   private computeOverall(

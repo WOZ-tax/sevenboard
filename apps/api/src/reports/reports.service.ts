@@ -41,18 +41,19 @@ export class ReportsService {
     },
   ): Promise<VarianceRow[]> {
     const { budgetVersionId, startMonth, endMonth } = query;
+    const { tenantId } = await this.prisma.orgScope(orgId);
 
     // IDOR 対策: budgetVersionId が route の orgId と同じ org に属することを必ず検証。
     // OrgAccessGuard が orgId への access は保証しているが、別 org の bvId が渡されても
     // org-bv の親子関係を確認しない限り、別 org の予算明細が漏れる。
     const bv = await this.prisma.budgetVersion.findUnique({
       where: { id: budgetVersionId },
-      include: { fiscalYear: { select: { orgId: true } } },
+      include: { fiscalYear: { select: { tenantId: true, orgId: true } } },
     });
     if (!bv) {
       throw new NotFoundException('Budget version not found');
     }
-    if (bv.fiscalYear.orgId !== orgId) {
+    if (bv.fiscalYear.tenantId !== tenantId || bv.fiscalYear.orgId !== orgId) {
       throw new ForbiddenException(
         '指定された budgetVersionId はこの組織に属していません',
       );
@@ -75,7 +76,7 @@ export class ReportsService {
     });
 
     // Get actual entries for the same period
-    const actualWhere: any = { orgId };
+    const actualWhere: any = { tenantId, orgId };
     if (startMonth) {
       actualWhere.month = { ...(actualWhere.month || {}), gte: new Date(startMonth) };
     }
@@ -107,6 +108,7 @@ export class ReportsService {
       const priorMax = new Date(Date.UTC(maxMonth.getUTCFullYear() - 1, maxMonth.getUTCMonth(), 1));
       const priorActuals = await this.prisma.actualEntry.findMany({
         where: {
+          tenantId,
           orgId,
           month: { gte: priorMin, lte: priorMax },
         },
@@ -166,7 +168,8 @@ export class ReportsService {
     orgId: string,
     query: { startMonth?: string; endMonth?: string },
   ): Promise<PlRow[]> {
-    const where: any = { orgId };
+    const { tenantId } = await this.prisma.orgScope(orgId);
+    const where: any = { tenantId, orgId };
     if (query.startMonth) {
       where.month = { ...(where.month || {}), gte: new Date(query.startMonth) };
     }
@@ -224,10 +227,11 @@ export class ReportsService {
     fiscalYear?: number,
     endMonth?: number,
   ) {
+    const { tenantId } = await this.prisma.orgScope(orgId);
     const pl = await this.mfApi.getTrialBalancePL(orgId, fiscalYear, endMonth);
 
     const overrides = await this.prisma.accountMaster.findMany({
-      where: { orgId },
+      where: { tenantId, orgId },
       select: { name: true, isVariableCost: true },
     });
     const overrideMap = new Map(overrides.map((a) => [a.name, a.isVariableCost]));

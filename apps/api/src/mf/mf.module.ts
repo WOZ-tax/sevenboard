@@ -1,5 +1,6 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { HttpModule } from '@nestjs/axios';
+import { AuthModule } from '../auth/auth.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { MfApiService } from './mf-api.service';
 import { MfTransformService } from './mf-transform.service';
@@ -10,7 +11,14 @@ import { DataHealthModule } from '../data-health/data-health.module';
 import { MonthlyCloseModule } from '../monthly-close/monthly-close.module';
 
 @Module({
-  imports: [HttpModule.register({ timeout: 30000, maxRedirects: 3 }), PrismaModule, KintoneModule, DataHealthModule, MonthlyCloseModule],
+  imports: [
+    HttpModule.register({ timeout: 30000, maxRedirects: 3 }),
+    forwardRef(() => AuthModule),
+    PrismaModule,
+    KintoneModule,
+    DataHealthModule,
+    MonthlyCloseModule,
+  ],
   controllers: [MfController],
   providers: [MfApiService, MfTransformService, ReviewService],
   exports: [MfApiService, MfTransformService, ReviewService],

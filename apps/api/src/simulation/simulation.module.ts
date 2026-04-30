@@ -1,11 +1,12 @@
 import { Module } from '@nestjs/common';
+import { AuthModule } from '../auth/auth.module';
 import { MfModule } from '../mf/mf.module';
 import { MonthlyCloseModule } from '../monthly-close/monthly-close.module';
 import { SimulationController } from './simulation.controller';
 import { SimulationService } from './simulation.service';
 
 @Module({
-  imports: [MfModule, MonthlyCloseModule],
+  imports: [AuthModule, MfModule, MonthlyCloseModule],
   controllers: [SimulationController],
   providers: [SimulationService],
   exports: [SimulationService],

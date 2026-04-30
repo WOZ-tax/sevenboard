@@ -10,6 +10,7 @@ import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
  */
 
 interface StatePayload {
+  tenantId: string;
   orgId: string;
   userId: string;
   nonce: string;
@@ -35,10 +36,12 @@ function sign(payloadB64: string): string {
 }
 
 export function createMfOAuthState(input: {
+  tenantId: string;
   orgId: string;
   userId: string;
 }): string {
   const payload: StatePayload = {
+    tenantId: input.tenantId,
     orgId: input.orgId,
     userId: input.userId,
     nonce: randomBytes(16).toString('base64url'),
@@ -78,6 +81,7 @@ export function verifyMfOAuthState(state: string): VerifyResult {
     return { ok: false, reason: 'malformed' };
   }
   if (
+    typeof payload.tenantId !== 'string' ||
     typeof payload.orgId !== 'string' ||
     typeof payload.userId !== 'string' ||
     typeof payload.exp !== 'number'

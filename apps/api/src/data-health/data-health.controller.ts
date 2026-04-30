@@ -7,20 +7,23 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { OrgAccessGuard } from '../auth/org-access.guard';
+import { PermissionGuard } from '../auth/permission.guard';
+import { RequirePermission } from '../auth/require-permission.decorator';
 import { DataHealthService } from './data-health.service';
 
 @Controller('organizations/:orgId/data-health')
-@UseGuards(JwtAuthGuard, OrgAccessGuard)
+@UseGuards(JwtAuthGuard, PermissionGuard)
 export class DataHealthController {
   constructor(private dataHealthService: DataHealthService) {}
 
   @Get()
+  @RequirePermission('org:sync:read')
   async status(@Param('orgId') orgId: string) {
     return this.dataHealthService.getStatus(orgId);
   }
 
   @Get('logs')
+  @RequirePermission('org:sync:read')
   async logs(
     @Param('orgId') orgId: string,
     @Query('limit') limit?: string,

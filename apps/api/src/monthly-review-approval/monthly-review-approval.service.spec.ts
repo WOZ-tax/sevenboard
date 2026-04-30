@@ -33,6 +33,9 @@ function makeRow(overrides: Partial<ApprovalRow> = {}): ApprovalRow {
 
 function createPrismaMock() {
   return {
+    orgScope: jest
+      .fn()
+      .mockResolvedValue({ tenantId: 'tenant-1', orgId: 'org-1' }),
     monthlyReviewApproval: {
       findUnique: jest.fn(),
       findMany: jest.fn(),
@@ -56,7 +59,14 @@ describe('MonthlyReviewApprovalService', () => {
       const result = await svc.get('org-1', 2026, 3);
       expect(result).toBeNull();
       expect(prisma.monthlyReviewApproval.findUnique).toHaveBeenCalledWith({
-        where: { orgId_fiscalYear_month: { orgId: 'org-1', fiscalYear: 2026, month: 3 } },
+        where: {
+          tenantId_orgId_fiscalYear_month: {
+            tenantId: 'tenant-1',
+            orgId: 'org-1',
+            fiscalYear: 2026,
+            month: 3,
+          },
+        },
       });
     });
 
@@ -82,7 +92,7 @@ describe('MonthlyReviewApprovalService', () => {
       const svc = createService(prisma);
       await svc.list('org-1', 2026);
       expect(prisma.monthlyReviewApproval.findMany).toHaveBeenCalledWith({
-        where: { orgId: 'org-1', fiscalYear: 2026 },
+        where: { tenantId: 'tenant-1', orgId: 'org-1', fiscalYear: 2026 },
         orderBy: { month: 'asc' },
       });
     });

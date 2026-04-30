@@ -53,20 +53,6 @@ export class KintoneController {
     };
     const accessible = await this.orgAccess.getAccessibleOrgIds(user);
 
-    if (accessible === 'all') {
-      // 内部 owner は全件 OK。mfCode に該当する org が存在することだけ確認
-      const exists = await this.prisma.organization.findFirst({
-        where: { code: mfCode },
-        select: { id: true },
-      });
-      if (!exists) {
-        throw new ForbiddenException(
-          'No organization with this MF office code',
-        );
-      }
-      return;
-    }
-
     // 内部 advisor / 顧問先側ユーザは accessible org に該当 code があるかを検証
     const matched = await this.prisma.organization.findFirst({
       where: { code: mfCode, id: { in: accessible } },
@@ -140,7 +126,6 @@ export class KintoneController {
 
     // 内部 advisor は担当先のみに絞り込み
     const accessible = await this.orgAccess.getAccessibleOrgIds(user);
-    if (accessible === 'all') return records;
 
     const allowedMfCodes = await this.prisma.organization
       .findMany({
@@ -217,19 +202,16 @@ export class KintoneController {
     const user = req.user as { id: string; role: string; orgId: string | null };
     const accessible = await this.orgAccess.getAccessibleOrgIds(user);
 
-    // 内部 owner は全件 OK。advisor は record の mfCode から org を引いて access 検証
-    if (accessible !== 'all') {
-      const mfCode = await this.kintoneApi.getRecordMfCode(recordId);
-      if (!mfCode) {
-        throw new NotFoundException('対象レコードが存在しないか、MF事業者番号が未設定です');
-      }
-      const org = await this.prisma.organization.findUnique({
-        where: { code: mfCode },
-        select: { id: true },
-      });
-      if (!org || !accessible.includes(org.id)) {
-        throw new ForbiddenException('この顧問先の月次進捗を更新する権限がありません');
-      }
+    const mfCode = await this.kintoneApi.getRecordMfCode(recordId);
+    if (!mfCode) {
+      throw new NotFoundException('対象レコードが存在しないか、MF事業者番号が未設定です');
+    }
+    const org = await this.prisma.organization.findUnique({
+      where: { code: mfCode },
+      select: { id: true },
+    });
+    if (!org || !accessible.includes(org.id)) {
+      throw new ForbiddenException('この顧問先の月次進捗を更新する権限がありません');
     }
 
     const ok = await this.kintoneApi.updateMonthlyStatus(

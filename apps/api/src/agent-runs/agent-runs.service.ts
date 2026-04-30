@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 
 export interface LogRunInput {
   orgId: string;
+  tenantId?: string | null;
   agentKey: AgentRunKey;
   mode?: AgentRunMode | null;
   fiscalYear?: number | null;
@@ -31,8 +32,10 @@ export class AgentRunsService {
 
   async logRun(data: LogRunInput) {
     try {
+      const tenantId = data.tenantId ?? (await this.resolveTenantId(data.orgId));
       return await this.prisma.agentRun.create({
         data: {
+          tenantId,
           orgId: data.orgId,
           agentKey: data.agentKey,
           mode: data.mode ?? null,
@@ -56,12 +59,14 @@ export class AgentRunsService {
   }
 
   async list(orgId: string, options: ListRunsOptions = {}) {
+    const tenantId = await this.resolveTenantId(orgId);
     const limit = Math.min(options.limit ?? 50, 200);
     const days = options.days ?? 30;
     const since = new Date();
     since.setDate(since.getDate() - days);
 
     const where: Prisma.AgentRunWhereInput = {
+      tenantId,
       orgId,
       generatedAt: { gte: since },
     };
@@ -87,8 +92,20 @@ export class AgentRunsService {
   }
 
   async get(orgId: string, id: string) {
+    const tenantId = await this.resolveTenantId(orgId);
     return this.prisma.agentRun.findFirst({
-      where: { id, orgId },
+      where: { id, tenantId, orgId },
     });
+  }
+
+  private async resolveTenantId(orgId: string): Promise<string> {
+    const org = await this.prisma.organization.findUnique({
+      where: { id: orgId },
+      select: { tenantId: true },
+    });
+    if (!org) {
+      throw new Error(`Organization ${orgId} not found`);
+    }
+    return org.tenantId;
   }
 }

@@ -4,9 +4,33 @@ import * as bcrypt from 'bcryptjs';
 const prisma = new PrismaClient();
 
 const isProductionSeed = process.env.IS_PRODUCTION_SEED === 'true';
+const SEVENRICH_TENANT_ID = '00000000-0000-0000-0000-000000000777';
+
+async function ensureSevenrichTenant() {
+  return prisma.tenant.upsert({
+    where: { slug: 'sevenrich' },
+    update: {
+      name: 'SEVENRICH',
+      status: 'active',
+      plan: 'PRO',
+      isolationMode: 'shared',
+      region: 'asia-northeast1',
+    },
+    create: {
+      id: SEVENRICH_TENANT_ID,
+      name: 'SEVENRICH',
+      slug: 'sevenrich',
+      status: 'active',
+      plan: 'PRO',
+      isolationMode: 'shared',
+      region: 'asia-northeast1',
+    },
+  });
+}
 
 async function seedProduction() {
   console.log('🌱 Seeding production (owner only)...');
+  const tenant = await ensureSevenrichTenant();
 
   const email = 'hiroki.tobayashi@sevenrich.jp';
   const password = process.env.PRODUCTION_OWNER_PASSWORD;
@@ -34,18 +58,45 @@ async function seedProduction() {
       orgId: null,
     },
   });
+  await prisma.platformMembership.upsert({
+    where: {
+      userId_role: { userId: owner.id, role: 'platform_owner' },
+    },
+    update: {},
+    create: {
+      userId: owner.id,
+      role: 'platform_owner',
+    },
+  });
+  await prisma.tenantMembership.upsert({
+    where: {
+      userId_tenantId: { userId: owner.id, tenantId: tenant.id },
+    },
+    update: {
+      role: 'firm_owner',
+      status: 'active',
+    },
+    create: {
+      userId: owner.id,
+      tenantId: tenant.id,
+      role: 'firm_owner',
+      status: 'active',
+    },
+  });
   console.log(`  ✅ Owner: ${owner.email}`);
   console.log('\n🎉 Production seed completed.');
 }
 
 async function seedDevelopment() {
   console.log('🌱 Seeding development (demo data)...');
+  const tenant = await ensureSevenrichTenant();
 
   // 1. 組織（デモ用）
   const org = await prisma.organization.upsert({
     where: { code: '0001-0001' },
-    update: {},
+    update: { tenantId: tenant.id },
     create: {
+      tenantId: tenant.id,
       name: 'デモ株式会社',
       code: '0001-0001',
       fiscalMonthEnd: 3,
@@ -90,11 +141,61 @@ async function seedDevelopment() {
     },
   });
 
+  await prisma.platformMembership.upsert({
+    where: {
+      userId_role: { userId: admin.id, role: 'platform_owner' },
+    },
+    update: {},
+    create: {
+      userId: admin.id,
+      role: 'platform_owner',
+    },
+  });
+  await prisma.tenantMembership.upsert({
+    where: {
+      userId_tenantId: { userId: admin.id, tenantId: tenant.id },
+    },
+    update: {
+      role: 'firm_owner',
+      status: 'active',
+    },
+    create: {
+      userId: admin.id,
+      tenantId: tenant.id,
+      role: 'firm_owner',
+      status: 'active',
+    },
+  });
+  await prisma.tenantMembership.upsert({
+    where: {
+      userId_tenantId: { userId: advisor.id, tenantId: tenant.id },
+    },
+    update: {
+      role: 'firm_advisor',
+      status: 'active',
+    },
+    create: {
+      userId: advisor.id,
+      tenantId: tenant.id,
+      role: 'firm_advisor',
+      status: 'active',
+    },
+  });
+
   // 顧問担当割当 (OrganizationMembership)
   await prisma.organizationMembership.upsert({
     where: { userId_orgId: { userId: advisor.id, orgId: org.id } },
-    update: {},
-    create: { userId: advisor.id, orgId: org.id, role: 'advisor' },
+    update: {
+      tenantId: tenant.id,
+      side: 'advisor',
+    },
+    create: {
+      userId: advisor.id,
+      tenantId: tenant.id,
+      orgId: org.id,
+      role: 'advisor',
+      side: 'advisor',
+    },
   });
   console.log(`  ✅ Users: ${admin.name}, ${advisor.name}`);
 

@@ -9,7 +9,7 @@ export class UpdateUserDto {
   @IsOptional()
   name?: string;
 
-  /** CL ユーザーは viewer 固定。昇格は /internal/users の owner 操作で行う */
+  /** CL ユーザーは viewer 固定。事務所スタッフ招待は /tenants/:tenantId/staff で行う */
   @IsEnum(['viewer'])
   @IsOptional()
   role?: 'viewer';

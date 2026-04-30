@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -7,23 +8,21 @@ import {
   Query,
   Req,
   UseGuards,
-  BadRequestException,
 } from '@nestjs/common';
+import type { MonthlyCloseStatus } from '@prisma/client';
 import type { Request } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { OrgAccessGuard } from '../auth/org-access.guard';
-import { RolesGuard } from '../auth/roles.guard';
-import { Roles } from '../auth/roles.decorator';
+import { PermissionGuard } from '../auth/permission.guard';
+import { RequirePermission } from '../auth/require-permission.decorator';
 import { MonthlyCloseService } from './monthly-close.service';
-import type { MonthlyCloseStatus } from '@prisma/client';
 
 @Controller('organizations/:orgId/monthly-closes')
-@UseGuards(JwtAuthGuard, OrgAccessGuard)
+@UseGuards(JwtAuthGuard, PermissionGuard)
 export class MonthlyCloseController {
   constructor(private service: MonthlyCloseService) {}
 
-  /** 当該会計年度の MonthlyClose を全件取得 */
   @Get()
+  @RequirePermission('org:monthly_close:read')
   async list(
     @Param('orgId') orgId: string,
     @Query('fiscalYear') fiscalYearStr: string,
@@ -35,8 +34,8 @@ export class MonthlyCloseController {
     return this.service.listForFiscalYear(orgId, fy);
   }
 
-  /** デフォルト表示月の解決結果（IN_REVIEW > CLOSED > null）*/
   @Get('default-month')
+  @RequirePermission('org:monthly_close:read')
   async getDefaultMonth(
     @Param('orgId') orgId: string,
     @Query('fiscalYear') fiscalYearStr: string,
@@ -49,10 +48,8 @@ export class MonthlyCloseController {
     return { month };
   }
 
-  /** ステータス変更（upsert）。ADMIN/ADVISOR 限定 */
   @Put(':fiscalYear/:month')
-  @Roles('owner', 'advisor')
-  @UseGuards(RolesGuard)
+  @RequirePermission('org:monthly_close:manage')
   async setStatus(
     @Req() req: Request,
     @Param('orgId') orgId: string,

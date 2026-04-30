@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { HttpModule } from '@nestjs/axios';
+import { AuthModule } from '../auth/auth.module';
 import { MfModule } from '../mf/mf.module';
 import { AlertsModule } from '../alerts/alerts.module';
 import { ActionsModule } from '../actions/actions.module';
@@ -12,6 +13,7 @@ import { CopilotService } from './copilot.service';
 @Module({
   imports: [
     HttpModule.register({ timeout: 60000, maxRedirects: 3 }),
+    AuthModule,
     MfModule,
     AlertsModule,
     ActionsModule,

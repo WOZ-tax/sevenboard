@@ -21,15 +21,18 @@ export class MastersService {
   // ===================== 勘定科目 =====================
 
   async getAccounts(orgId: string) {
+    const { tenantId } = await this.prisma.orgScope(orgId);
     return this.prisma.accountMaster.findMany({
-      where: { orgId },
+      where: { tenantId, orgId },
       orderBy: { displayOrder: 'asc' },
     });
   }
 
   async createAccount(orgId: string, dto: CreateAccountDto) {
+    const { tenantId } = await this.prisma.orgScope(orgId);
     return this.prisma.accountMaster.create({
       data: {
+        tenantId,
         orgId,
         code: dto.code,
         name: dto.name,
@@ -41,8 +44,9 @@ export class MastersService {
   }
 
   async updateAccount(orgId: string, accountId: string, dto: UpdateAccountDto) {
+    const { tenantId } = await this.prisma.orgScope(orgId);
     const account = await this.prisma.accountMaster.findFirst({
-      where: { id: accountId, orgId },
+      where: { id: accountId, tenantId, orgId },
     });
     if (!account) throw new NotFoundException('勘定科目が見つかりません');
 
@@ -66,6 +70,7 @@ export class MastersService {
     orgId: string,
     updates: Array<{ name: string; isVariableCost: boolean }>,
   ) {
+    const { tenantId } = await this.prisma.orgScope(orgId);
     if (!/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(orgId)) {
       throw new BadRequestException('Invalid orgId format');
     }
@@ -75,6 +80,7 @@ export class MastersService {
       .filter((u) => u.name && typeof u.isVariableCost === 'boolean')
       .map((u) => ({
         id: randomUUID(),
+        tenant_id: tenantId,
         org_id: orgId,
         code: u.name,
         name: u.name,
@@ -87,7 +93,7 @@ export class MastersService {
     }
     const { error } = await this.supabase.client
       .from('account_masters')
-      .upsert(rows, { onConflict: 'org_id,code' });
+      .upsert(rows, { onConflict: 'tenant_id,org_id,code' });
     if (error) {
       throw new InternalServerErrorException(
         `Supabase upsert failed: ${error.message}`,
@@ -97,8 +103,9 @@ export class MastersService {
   }
 
   async deleteAccount(orgId: string, accountId: string) {
+    const { tenantId } = await this.prisma.orgScope(orgId);
     const account = await this.prisma.accountMaster.findFirst({
-      where: { id: accountId, orgId },
+      where: { id: accountId, tenantId, orgId },
     });
     if (!account) throw new NotFoundException('勘定科目が見つかりません');
     // Check for related budget entries
@@ -113,7 +120,7 @@ export class MastersService {
 
     // Check for related actual entries
     const actualCount = await this.prisma.actualEntry.count({
-      where: { accountId },
+      where: { tenantId, orgId, accountId },
     });
     if (actualCount > 0) {
       throw new BadRequestException(
@@ -124,6 +131,8 @@ export class MastersService {
     // Check for related journal entries
     const journalCount = await this.prisma.journalEntry.count({
       where: {
+        tenantId,
+        orgId,
         OR: [
           { debitAccountId: accountId },
           { creditAccountId: accountId },
@@ -144,16 +153,19 @@ export class MastersService {
   // ===================== 部門 =====================
 
   async getDepartments(orgId: string) {
+    const { tenantId } = await this.prisma.orgScope(orgId);
     return this.prisma.department.findMany({
-      where: { orgId },
+      where: { tenantId, orgId },
       orderBy: { displayOrder: 'asc' },
       include: { children: true },
     });
   }
 
   async createDepartment(orgId: string, dto: CreateDepartmentDto) {
+    const { tenantId } = await this.prisma.orgScope(orgId);
     return this.prisma.department.create({
       data: {
+        tenantId,
         orgId,
         name: dto.name,
         parentId: dto.parentId ?? null,
@@ -164,8 +176,9 @@ export class MastersService {
   }
 
   async updateDepartment(orgId: string, deptId: string, dto: UpdateDepartmentDto) {
+    const { tenantId } = await this.prisma.orgScope(orgId);
     const dept = await this.prisma.department.findFirst({
-      where: { id: deptId, orgId },
+      where: { id: deptId, tenantId, orgId },
     });
     if (!dept) throw new NotFoundException('部門が見つかりません');
 
@@ -182,13 +195,14 @@ export class MastersService {
   }
 
   async deleteDepartment(orgId: string, deptId: string) {
+    const { tenantId } = await this.prisma.orgScope(orgId);
     const dept = await this.prisma.department.findFirst({
-      where: { id: deptId, orgId },
+      where: { id: deptId, tenantId, orgId },
     });
     if (!dept) throw new NotFoundException('部門が見つかりません');
     // Check for child departments
     const childCount = await this.prisma.department.count({
-      where: { parentId: deptId },
+      where: { tenantId, orgId, parentId: deptId },
     });
     if (childCount > 0) {
       throw new BadRequestException(
@@ -208,7 +222,7 @@ export class MastersService {
 
     // Check for related actual entries
     const actualCount = await this.prisma.actualEntry.count({
-      where: { departmentId: deptId },
+      where: { tenantId, orgId, departmentId: deptId },
     });
     if (actualCount > 0) {
       throw new BadRequestException(
@@ -239,29 +253,45 @@ export class MastersService {
   }
 
   async createUser(orgId: string, dto: CreateUserDto) {
+    const { tenantId } = await this.prisma.orgScope(orgId);
     const hashedPassword = await bcrypt.hash(dto.password, 12);
 
     // CL 側ユーザーは role に関わらず viewer 固定（G-1 ロール設計）
-    return this.prisma.user.create({
-      data: {
-        orgId,
-        email: dto.email,
-        name: dto.name,
-        password: hashedPassword,
-        role: 'viewer',
-      },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        role: true,
-        avatarUrl: true,
-        createdAt: true,
-      },
+    return this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.create({
+        data: {
+          orgId,
+          email: dto.email,
+          name: dto.name,
+          password: hashedPassword,
+          role: 'viewer',
+        },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          role: true,
+          avatarUrl: true,
+          createdAt: true,
+        },
+      });
+
+      await tx.organizationMembership.create({
+        data: {
+          userId: user.id,
+          tenantId,
+          orgId,
+          role: 'viewer',
+          side: 'client',
+        },
+      });
+
+      return user;
     });
   }
 
   async updateUser(orgId: string, userId: string, dto: UpdateUserDto) {
+    const { tenantId } = await this.prisma.orgScope(orgId);
     const user = await this.prisma.user.findFirst({
       where: { id: userId, orgId },
     });
@@ -274,21 +304,33 @@ export class MastersService {
       data.password = await bcrypt.hash(dto.password, 12);
     }
 
-    return this.prisma.user.update({
-      where: { id: userId },
-      data,
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        role: true,
-        avatarUrl: true,
-        createdAt: true,
-      },
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.user.update({
+        where: { id: userId },
+        data,
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          role: true,
+          avatarUrl: true,
+          createdAt: true,
+        },
+      });
+
+      if (dto.role !== undefined) {
+        await tx.organizationMembership.updateMany({
+          where: { userId, tenantId, orgId, side: 'client' },
+          data: { role: dto.role },
+        });
+      }
+
+      return updated;
     });
   }
 
   async deleteUser(orgId: string, userId: string, currentUserId: string) {
+    const { tenantId } = await this.prisma.orgScope(orgId);
     if (userId === currentUserId) {
       throw new BadRequestException('自分自身を削除することはできません');
     }
@@ -298,8 +340,14 @@ export class MastersService {
     });
     if (!user) throw new NotFoundException('ユーザーが見つかりません');
 
-    return this.prisma.user.delete({
-      where: { id: userId },
+    return this.prisma.$transaction(async (tx) => {
+      await tx.organizationMembership.deleteMany({
+        where: { userId, tenantId, orgId, side: 'client' },
+      });
+
+      return tx.user.delete({
+        where: { id: userId },
+      });
     });
   }
 }

@@ -1,14 +1,16 @@
 import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
 import { ReportsService } from './reports.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { OrgAccessGuard } from '../auth/org-access.guard';
+import { PermissionGuard } from '../auth/permission.guard';
+import { RequirePermission } from '../auth/require-permission.decorator';
 
 @Controller('organizations/:orgId/reports')
-@UseGuards(JwtAuthGuard, OrgAccessGuard)
+@UseGuards(JwtAuthGuard, PermissionGuard)
 export class ReportsController {
   constructor(private reportsService: ReportsService) {}
 
   @Get('variance')
+  @RequirePermission('org:reports:read')
   async getVariance(
     @Param('orgId') orgId: string,
     @Query('budgetVersionId') budgetVersionId: string,
@@ -23,6 +25,7 @@ export class ReportsController {
   }
 
   @Get('pl')
+  @RequirePermission('org:reports:read')
   async getPl(
     @Param('orgId') orgId: string,
     @Query('startMonth') startMonth?: string,
@@ -32,6 +35,7 @@ export class ReportsController {
   }
 
   @Get('variable-cost')
+  @RequirePermission('org:reports:read')
   async getVariableCost(
     @Param('orgId') orgId: string,
     @Query('fiscalYear') fiscalYear?: string,

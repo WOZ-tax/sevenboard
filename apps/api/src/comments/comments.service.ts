@@ -8,8 +8,9 @@ export class CommentsService {
   constructor(private prisma: PrismaService) {}
 
   async findAll(orgId: string, month?: string) {
+    const { tenantId } = await this.prisma.orgScope(orgId);
     const where: any = {
-      report: { orgId },
+      report: { tenantId, orgId },
     };
 
     // monthフィルタ: Report.configのJSONからmonthを参照
@@ -37,6 +38,7 @@ export class CommentsService {
   }
 
   async create(orgId: string, dto: CreateCommentDto, userId: string) {
+    const { tenantId } = await this.prisma.orgScope(orgId);
     // 月を特定（指定がなければ今月）
     const month =
       dto.month || new Date().toISOString().slice(0, 7); // "YYYY-MM"
@@ -44,6 +46,7 @@ export class CommentsService {
     // この月のReportを探す（なければ自動作成）
     let report = await this.prisma.report.findFirst({
       where: {
+        tenantId,
         orgId,
         type: 'CUSTOM',
         config: {
@@ -56,6 +59,7 @@ export class CommentsService {
     if (!report) {
       report = await this.prisma.report.create({
         data: {
+          tenantId,
           orgId,
           name: `月次コメント ${month}`,
           type: 'CUSTOM',
@@ -93,7 +97,7 @@ export class CommentsService {
   ) {
     const comment = await this.prisma.aiComment.findUnique({
       where: { id: commentId },
-      include: { report: { select: { orgId: true } } },
+      include: { report: { select: { tenantId: true, orgId: true } } },
     });
 
     if (!comment) {
@@ -103,7 +107,8 @@ export class CommentsService {
     // route の :orgId とコメント所属 org が一致するか検証（IDOR 対策）。
     // OrgAccessGuard で route の orgId は user の権限内であることが既に保証されているため、
     // ここで両者一致を確認すれば「他 org のコメントを自 org 経由で更新」を遮断できる。
-    if (comment.report.orgId !== orgId) {
+    const { tenantId } = await this.prisma.orgScope(orgId);
+    if (comment.report.orgId !== orgId || comment.report.tenantId !== tenantId) {
       throw new NotFoundException('コメントが見つかりません');
     }
 
@@ -141,14 +146,15 @@ export class CommentsService {
   async remove(commentId: string, orgId: string) {
     const comment = await this.prisma.aiComment.findUnique({
       where: { id: commentId },
-      include: { report: { select: { orgId: true } } },
+      include: { report: { select: { tenantId: true, orgId: true } } },
     });
 
     if (!comment) {
       throw new NotFoundException('コメントが見つかりません');
     }
 
-    if (comment.report.orgId !== orgId) {
+    const { tenantId } = await this.prisma.orgScope(orgId);
+    if (comment.report.orgId !== orgId || comment.report.tenantId !== tenantId) {
       throw new NotFoundException('コメントが見つかりません');
     }
 

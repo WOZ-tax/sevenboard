@@ -11,8 +11,9 @@ export class IntegrationsService {
   constructor(private prisma: PrismaService) {}
 
   async findAll(orgId: string) {
+    const { tenantId } = await this.prisma.orgScope(orgId);
     const integrations = await this.prisma.integration.findMany({
-      where: { orgId },
+      where: { tenantId, orgId },
     });
 
     // トークンは返さない（セキュリティ）
@@ -26,12 +27,16 @@ export class IntegrationsService {
 
   async connect(orgId: string, provider: string) {
     const providerEnum = this.toProviderEnum(provider);
+    const { tenantId } = await this.prisma.orgScope(orgId);
 
     // kintone: 環境変数で認証。疎通テスト後にIntegrationレコード作成
     if (providerEnum === 'BOOKKEEPING_PLUGIN') {
       await this.prisma.integration.upsert({
-        where: { orgId_provider: { orgId, provider: providerEnum } },
+        where: {
+          tenantId_orgId_provider: { tenantId, orgId, provider: providerEnum },
+        },
         create: {
+          tenantId,
           orgId,
           provider: providerEnum,
           accessToken: encryptIfAvailable('kintone_env_auth'),
@@ -57,9 +62,12 @@ export class IntegrationsService {
 
   async disconnect(orgId: string, provider: string) {
     const providerEnum = this.toProviderEnum(provider);
+    const { tenantId } = await this.prisma.orgScope(orgId);
 
     const integration = await this.prisma.integration.findUnique({
-      where: { orgId_provider: { orgId, provider: providerEnum } },
+      where: {
+        tenantId_orgId_provider: { tenantId, orgId, provider: providerEnum },
+      },
     });
 
     if (!integration) {
@@ -81,9 +89,12 @@ export class IntegrationsService {
 
   async sync(orgId: string, provider: string) {
     const providerEnum = this.toProviderEnum(provider);
+    const { tenantId } = await this.prisma.orgScope(orgId);
 
     const integration = await this.prisma.integration.findUnique({
-      where: { orgId_provider: { orgId, provider: providerEnum } },
+      where: {
+        tenantId_orgId_provider: { tenantId, orgId, provider: providerEnum },
+      },
     });
 
     if (!integration || !integration.accessToken) {
@@ -112,9 +123,12 @@ export class IntegrationsService {
 
   async getStatus(orgId: string, provider: string) {
     const providerEnum = this.toProviderEnum(provider);
+    const { tenantId } = await this.prisma.orgScope(orgId);
 
     const integration = await this.prisma.integration.findUnique({
-      where: { orgId_provider: { orgId, provider: providerEnum } },
+      where: {
+        tenantId_orgId_provider: { tenantId, orgId, provider: providerEnum },
+      },
     });
 
     if (!integration) {

@@ -7,6 +7,8 @@ import { AuthController } from './auth.controller';
 import { MfOAuthController } from './mf-oauth.controller';
 import { JwtStrategy } from './jwt.strategy';
 import { OrgAccessService } from './org-access.service';
+import { AuthorizationService } from './authorization.service';
+import { PermissionGuard } from './permission.guard';
 import { MfModule } from '../mf/mf.module';
 
 @Module({
@@ -24,8 +26,14 @@ import { MfModule } from '../mf/mf.module';
     }),
   ],
   controllers: [AuthController, MfOAuthController],
-  providers: [AuthService, JwtStrategy, OrgAccessService],
+  providers: [
+    AuthService,
+    JwtStrategy,
+    OrgAccessService,
+    AuthorizationService,
+    PermissionGuard,
+  ],
   // OrgAccessService を他 module から DI できるように export
-  exports: [AuthService, OrgAccessService],
+  exports: [AuthService, OrgAccessService, AuthorizationService, PermissionGuard],
 })
 export class AuthModule {}

@@ -1,30 +1,30 @@
 import {
-  Controller,
-  Get,
-  Post,
-  Patch,
-  Delete,
-  Param,
-  Query,
   Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
   Request,
   UseGuards,
 } from '@nestjs/common';
+import { ActionStatus } from '@prisma/client';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { PermissionGuard } from '../auth/permission.guard';
+import { RequirePermission } from '../auth/require-permission.decorator';
 import { ActionsService } from './actions.service';
 import { CreateActionDto } from './dto/create-action.dto';
 import { UpdateActionDto } from './dto/update-action.dto';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { OrgAccessGuard } from '../auth/org-access.guard';
-import { RolesGuard } from '../auth/roles.guard';
-import { Roles } from '../auth/roles.decorator';
-import { ActionStatus } from '@prisma/client';
 
 @Controller('organizations/:orgId/actions')
-@UseGuards(JwtAuthGuard, OrgAccessGuard)
+@UseGuards(JwtAuthGuard, PermissionGuard)
 export class ActionsController {
   constructor(private actionsService: ActionsService) {}
 
   @Get()
+  @RequirePermission('org:actions:read')
   async list(
     @Param('orgId') orgId: string,
     @Query('status') status?: string,
@@ -41,6 +41,7 @@ export class ActionsController {
   }
 
   @Get('summary')
+  @RequirePermission('org:actions:read')
   async summary(
     @Param('orgId') orgId: string,
     @Query('ownerUserId') ownerUserId?: string,
@@ -49,6 +50,7 @@ export class ActionsController {
   }
 
   @Get(':actionId')
+  @RequirePermission('org:actions:read')
   async getById(
     @Param('orgId') orgId: string,
     @Param('actionId') actionId: string,
@@ -57,8 +59,7 @@ export class ActionsController {
   }
 
   @Post()
-  @Roles('owner', 'advisor')
-  @UseGuards(RolesGuard)
+  @RequirePermission('org:actions:manage')
   async create(
     @Param('orgId') orgId: string,
     @Body() dto: CreateActionDto,
@@ -68,8 +69,7 @@ export class ActionsController {
   }
 
   @Patch(':actionId')
-  @Roles('owner', 'advisor')
-  @UseGuards(RolesGuard)
+  @RequirePermission('org:actions:manage')
   async update(
     @Param('orgId') orgId: string,
     @Param('actionId') actionId: string,
@@ -80,8 +80,7 @@ export class ActionsController {
   }
 
   @Delete(':actionId')
-  @Roles('owner', 'advisor')
-  @UseGuards(RolesGuard)
+  @RequirePermission('org:actions:manage')
   async remove(
     @Param('orgId') orgId: string,
     @Param('actionId') actionId: string,

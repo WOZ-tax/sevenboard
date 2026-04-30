@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { HttpModule } from '@nestjs/axios';
+import { AuthModule } from '../auth/auth.module';
 import { MfModule } from '../mf/mf.module';
 import { AgentRunsModule } from '../agent-runs/agent-runs.module';
 import { MonthlyCloseModule } from '../monthly-close/monthly-close.module';
@@ -7,7 +8,13 @@ import { DrafterController } from './drafter.controller';
 import { DrafterService } from './drafter.service';
 
 @Module({
-  imports: [HttpModule.register({ timeout: 30000 }), MfModule, AgentRunsModule, MonthlyCloseModule],
+  imports: [
+    HttpModule.register({ timeout: 30000 }),
+    AuthModule,
+    MfModule,
+    AgentRunsModule,
+    MonthlyCloseModule,
+  ],
   controllers: [DrafterController],
   providers: [DrafterService],
   exports: [DrafterService],

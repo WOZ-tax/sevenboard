@@ -10,7 +10,8 @@ export class CashflowService {
     orgId: string,
     query: { startDate?: string; endDate?: string },
   ) {
-    const where: any = { orgId, isActual: true };
+    const { tenantId } = await this.prisma.orgScope(orgId);
+    const where: any = { tenantId, orgId, isActual: true };
     if (query.startDate) {
       where.entryDate = { ...(where.entryDate || {}), gte: new Date(query.startDate) };
     }
@@ -30,9 +31,10 @@ export class CashflowService {
   }
 
   async getRunway(orgId: string) {
+    const { tenantId } = await this.prisma.orgScope(orgId);
     // Get the latest runway snapshot
     const latestSnapshot = await this.prisma.runwaySnapshot.findFirst({
-      where: { orgId },
+      where: { tenantId, orgId },
       orderBy: { snapshotDate: 'desc' },
     });
 
@@ -53,6 +55,7 @@ export class CashflowService {
 
     const recentEntries = await this.prisma.cashFlowEntry.findMany({
       where: {
+        tenantId,
         orgId,
         isActual: true,
         entryDate: { gte: threeMonthsAgo },
@@ -74,7 +77,7 @@ export class CashflowService {
 
     // Get current cash balance from the latest forecast or entries
     const latestForecast = await this.prisma.cashFlowForecast.findFirst({
-      where: { orgId },
+      where: { tenantId, orgId },
       orderBy: { forecastDate: 'desc' },
     });
 
@@ -104,15 +107,18 @@ export class CashflowService {
   }
 
   async getCategories(orgId: string) {
+    const { tenantId } = await this.prisma.orgScope(orgId);
     return this.prisma.cashFlowCategory.findMany({
-      where: { orgId },
+      where: { tenantId, orgId },
       orderBy: { displayOrder: 'asc' },
     });
   }
 
   async createCategory(orgId: string, dto: CreateCashflowCategoryDto) {
+    const { tenantId } = await this.prisma.orgScope(orgId);
     return this.prisma.cashFlowCategory.create({
       data: {
+        tenantId,
         orgId,
         name: dto.name,
         direction: dto.direction,

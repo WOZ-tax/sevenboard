@@ -22,12 +22,14 @@ export class NotificationsService {
     userId: string,
     options?: { unreadOnly?: boolean; limit?: number; days?: number },
   ): Promise<NotificationDto[]> {
+    const { tenantId } = await this.prisma.orgScope(orgId);
     const limit = Math.min(Math.max(options?.limit ?? 30, 1), 100);
     const since = new Date();
     since.setDate(since.getDate() - (options?.days ?? 30));
 
     const rows = await this.prisma.notification.findMany({
       where: {
+        tenantId,
         orgId,
         OR: [{ userId }, { userId: null }],
         ...(options?.unreadOnly ? { isRead: false } : {}),
@@ -40,8 +42,10 @@ export class NotificationsService {
   }
 
   async unreadCount(orgId: string, userId: string): Promise<number> {
+    const { tenantId } = await this.prisma.orgScope(orgId);
     return this.prisma.notification.count({
       where: {
+        tenantId,
         orgId,
         OR: [{ userId }, { userId: null }],
         isRead: false,
@@ -54,9 +58,11 @@ export class NotificationsService {
     userId: string,
     id: string,
   ): Promise<NotificationDto | null> {
+    const { tenantId } = await this.prisma.orgScope(orgId);
     const row = await this.prisma.notification.findFirst({
       where: {
         id,
+        tenantId,
         orgId,
         OR: [{ userId }, { userId: null }],
       },
@@ -70,8 +76,10 @@ export class NotificationsService {
   }
 
   async markAllRead(orgId: string, userId: string): Promise<{ count: number }> {
+    const { tenantId } = await this.prisma.orgScope(orgId);
     const res = await this.prisma.notification.updateMany({
       where: {
+        tenantId,
         orgId,
         OR: [{ userId }, { userId: null }],
         isRead: false,
@@ -89,8 +97,10 @@ export class NotificationsService {
     message: string;
     metadata?: Record<string, unknown>;
   }): Promise<NotificationDto> {
+    const { tenantId } = await this.prisma.orgScope(input.orgId);
     const row = await this.prisma.notification.create({
       data: {
+        tenantId,
         orgId: input.orgId,
         userId: input.userId ?? null,
         type: input.type,

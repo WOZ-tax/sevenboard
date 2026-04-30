@@ -1,20 +1,22 @@
 import {
+  BadRequestException,
+  Body,
   Controller,
   Get,
-  Post,
-  Body,
   Param,
+  Post,
   Query,
   UseGuards,
-  BadRequestException,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { OrgAccessGuard } from '../auth/org-access.guard';
+import { PermissionGuard } from '../auth/permission.guard';
+import { RequirePermission } from '../auth/require-permission.decorator';
 import { RateLimitGuard } from '../common/rate-limit.guard';
 import { AiService } from './ai.service';
 
 @Controller('organizations/:orgId/ai')
-@UseGuards(JwtAuthGuard, OrgAccessGuard, RateLimitGuard)
+@RequirePermission('org:ai:run')
+@UseGuards(JwtAuthGuard, PermissionGuard, RateLimitGuard)
 export class AiController {
   constructor(private aiService: AiService) {}
 

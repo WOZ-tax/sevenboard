@@ -123,6 +123,38 @@ export interface MonthlyReviewApprovalRecord {
   updatedAt: string;
 }
 
+export type TenantStaffRole =
+  | 'firm_owner'
+  | 'firm_admin'
+  | 'firm_manager'
+  | 'firm_advisor'
+  | 'firm_viewer';
+
+export interface TenantStaffRow {
+  id: string;
+  email: string;
+  name: string;
+  role: TenantStaffRole;
+  status: 'invited' | 'active' | 'suspended' | 'revoked';
+  avatarUrl: string | null;
+  createdAt: string;
+  updatedAt: string;
+  _count: { memberships: number };
+}
+
+export interface OrgAdvisor {
+  userId: string;
+  role: 'owner' | 'admin' | 'member' | 'viewer' | 'advisor';
+  side: 'advisor' | 'client';
+  createdAt: string;
+  user: {
+    id: string;
+    email: string;
+    name: string;
+    avatarUrl: string | null;
+  };
+}
+
 export const api = {
   // Auth
   login: (email: string, password: string) =>
@@ -144,8 +176,12 @@ export const api = {
   getMemberships: () =>
     apiFetch<
       Array<{
+        tenantId: string;
         orgId: string;
         role: 'owner' | 'admin' | 'member' | 'viewer' | 'advisor';
+        tenantRole?: string;
+        orgRole?: string;
+        side?: 'advisor' | 'client';
         orgName: string;
         orgCode: string | null;
         industry?: string | null;
@@ -203,58 +239,67 @@ export const api = {
       method: "DELETE",
     }),
 
-  // === Internal Users (SEVENRICH 事務所スタッフ) ===
-  internalUsers: {
-    list: () =>
-      apiFetch<
-        Array<{
-          id: string;
-          email: string;
-          name: string;
-          role: 'owner' | 'advisor';
-          avatarUrl: string | null;
-          createdAt: string;
-          updatedAt: string;
-          _count: { memberships: number };
-        }>
-      >('/internal/users'),
+  // === Tenant Staff (会計事務所スタッフ) ===
+  tenantStaff: {
+    list: (tenantId: string) =>
+      apiFetch<TenantStaffRow[]>(`/tenants/${tenantId}/staff`),
 
     create: (payload: {
+      tenantId: string;
       email: string;
-      name: string;
-      password: string;
-      role: 'owner' | 'advisor';
+      name?: string;
+      password?: string;
+      role: TenantStaffRole;
     }) =>
-      apiFetch<{
-        id: string;
-        email: string;
-        name: string;
-        role: 'owner' | 'advisor';
-      }>('/internal/users', {
+      apiFetch<TenantStaffRow>(`/tenants/${payload.tenantId}/staff`, {
         method: 'POST',
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          email: payload.email,
+          name: payload.name,
+          password: payload.password,
+          role: payload.role,
+        }),
       }),
 
     update: (
+      tenantId: string,
       userId: string,
       payload: {
         name?: string;
-        role?: 'owner' | 'advisor';
+        role?: TenantStaffRole;
         password?: string;
       },
     ) =>
-      apiFetch<{ id: string; email: string; name: string; role: string }>(
-        `/internal/users/${userId}`,
+      apiFetch<TenantStaffRow>(
+        `/tenants/${tenantId}/staff/${userId}`,
         {
           method: 'PUT',
           body: JSON.stringify(payload),
         },
       ),
 
-    remove: (userId: string) =>
-      apiFetch<{ success: boolean }>(`/internal/users/${userId}`, {
+    remove: (tenantId: string, userId: string) =>
+      apiFetch<{ success: boolean }>(`/tenants/${tenantId}/staff/${userId}`, {
         method: 'DELETE',
       }),
+  },
+
+  // === Organization Advisors (担当アサイン) ===
+  organizationAdvisors: {
+    list: (orgId: string) =>
+      apiFetch<OrgAdvisor[]>(`/organizations/${orgId}/advisors`),
+
+    add: (orgId: string, userIds: string[]) =>
+      apiFetch<OrgAdvisor[]>(`/organizations/${orgId}/advisors`, {
+        method: 'POST',
+        body: JSON.stringify({ userIds }),
+      }),
+
+    remove: (orgId: string, userId: string) =>
+      apiFetch<{ success: boolean }>(
+        `/organizations/${orgId}/advisors/${userId}`,
+        { method: 'DELETE' },
+      ),
   },
 
   getFiscalYears: (orgId: string) =>

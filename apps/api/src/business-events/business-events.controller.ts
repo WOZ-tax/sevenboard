@@ -1,29 +1,29 @@
 import {
-  Controller,
-  Get,
-  Post,
-  Patch,
-  Delete,
-  Param,
-  Query,
   Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
   Request,
   UseGuards,
 } from '@nestjs/common';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { PermissionGuard } from '../auth/permission.guard';
+import { RequirePermission } from '../auth/require-permission.decorator';
 import { BusinessEventsService } from './business-events.service';
 import { CreateBusinessEventDto } from './dto/create-business-event.dto';
 import { UpdateBusinessEventDto } from './dto/update-business-event.dto';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { OrgAccessGuard } from '../auth/org-access.guard';
-import { RolesGuard } from '../auth/roles.guard';
-import { Roles } from '../auth/roles.decorator';
 
 @Controller('organizations/:orgId/business-events')
-@UseGuards(JwtAuthGuard, OrgAccessGuard)
+@UseGuards(JwtAuthGuard, PermissionGuard)
 export class BusinessEventsController {
   constructor(private service: BusinessEventsService) {}
 
   @Get()
+  @RequirePermission('org:business_events:read')
   async list(
     @Param('orgId') orgId: string,
     @Query('fromDate') fromDate?: string,
@@ -33,8 +33,7 @@ export class BusinessEventsController {
   }
 
   @Post()
-  @Roles('owner', 'advisor')
-  @UseGuards(RolesGuard)
+  @RequirePermission('org:business_events:manage')
   async create(
     @Param('orgId') orgId: string,
     @Body() dto: CreateBusinessEventDto,
@@ -44,8 +43,7 @@ export class BusinessEventsController {
   }
 
   @Patch(':eventId')
-  @Roles('owner', 'advisor')
-  @UseGuards(RolesGuard)
+  @RequirePermission('org:business_events:manage')
   async update(
     @Param('orgId') orgId: string,
     @Param('eventId') eventId: string,
@@ -55,8 +53,7 @@ export class BusinessEventsController {
   }
 
   @Delete(':eventId')
-  @Roles('owner', 'advisor')
-  @UseGuards(RolesGuard)
+  @RequirePermission('org:business_events:manage')
   async remove(
     @Param('orgId') orgId: string,
     @Param('eventId') eventId: string,

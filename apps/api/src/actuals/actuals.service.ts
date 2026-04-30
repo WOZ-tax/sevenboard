@@ -9,7 +9,8 @@ export class ActualsService {
     orgId: string,
     query: { month?: string; accountId?: string; departmentId?: string },
   ) {
-    const where: any = { orgId };
+    const { tenantId } = await this.prisma.orgScope(orgId);
+    const where: any = { tenantId, orgId };
 
     if (query.month) {
       where.month = new Date(query.month);
@@ -32,6 +33,7 @@ export class ActualsService {
   }
 
   async importCsv(orgId: string, csvData: string) {
+    const { tenantId } = await this.prisma.orgScope(orgId);
     const MAX_CSV_ROWS = 10000;
     // Parse CSV: expected columns: accountCode, departmentName (optional), month (YYYY-MM-DD), amount
     const lines = csvData.trim().split('\n');
@@ -75,7 +77,7 @@ export class ActualsService {
 
       // Resolve account
       const account = await this.prisma.accountMaster.findFirst({
-        where: { orgId, code: accountCode },
+        where: { tenantId, orgId, code: accountCode },
       });
       if (!account) {
         errors.push({ line: i + 1, error: `Account not found: ${accountCode}` });
@@ -86,7 +88,7 @@ export class ActualsService {
       let departmentId: string | null = null;
       if (deptName) {
         const dept = await this.prisma.department.findFirst({
-          where: { orgId, name: deptName },
+          where: { tenantId, orgId, name: deptName },
         });
         if (dept) {
           departmentId = dept.id;
@@ -97,6 +99,7 @@ export class ActualsService {
         const entry = await this.prisma.actualEntry.upsert({
           where: {
             actual_entry_with_dept: {
+              tenantId,
               orgId,
               accountId: account.id,
               departmentId: departmentId,
@@ -109,6 +112,7 @@ export class ActualsService {
             syncedAt: new Date(),
           },
           create: {
+            tenantId,
             orgId,
             accountId: account.id,
             departmentId,

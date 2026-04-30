@@ -1,24 +1,24 @@
 import {
+  Body,
   Controller,
   Get,
-  Post,
   Param,
-  Body,
+  Post,
   Query,
   UseGuards,
 } from '@nestjs/common';
 import { ActualsService } from './actuals.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { OrgAccessGuard } from '../auth/org-access.guard';
-import { RolesGuard } from '../auth/roles.guard';
-import { Roles } from '../auth/roles.decorator';
+import { PermissionGuard } from '../auth/permission.guard';
+import { RequirePermission } from '../auth/require-permission.decorator';
 
 @Controller('organizations/:orgId/actuals')
-@UseGuards(JwtAuthGuard, OrgAccessGuard)
+@UseGuards(JwtAuthGuard, PermissionGuard)
 export class ActualsController {
   constructor(private actualsService: ActualsService) {}
 
   @Get()
+  @RequirePermission('org:actuals:read')
   async findAll(
     @Param('orgId') orgId: string,
     @Query('month') month?: string,
@@ -33,12 +33,8 @@ export class ActualsController {
   }
 
   @Post('import')
-  @Roles('owner', 'advisor')
-  @UseGuards(RolesGuard)
-  async importCsv(
-    @Param('orgId') orgId: string,
-    @Body('csv') csv: string,
-  ) {
+  @RequirePermission('org:actuals:import')
+  async importCsv(@Param('orgId') orgId: string, @Body('csv') csv: string) {
     return this.actualsService.importCsv(orgId, csv);
   }
 }

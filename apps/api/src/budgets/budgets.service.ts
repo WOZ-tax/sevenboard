@@ -1,11 +1,11 @@
 import {
-  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { OrgAccessService } from '../auth/org-access.service';
+import { AuthorizationService } from '../auth/authorization.service';
+import { Permission } from '../auth/permissions';
 import { UserLike } from '../auth/staff.helpers';
 import { CreateBudgetVersionDto } from './dto/create-budget-version.dto';
 import { UpdateBudgetEntriesDto } from './dto/update-budget-entries.dto';
@@ -25,12 +25,13 @@ import { UpdateBudgetEntriesDto } from './dto/update-budget-entries.dto';
 export class BudgetsService {
   constructor(
     private prisma: PrismaService,
-    private orgAccess: OrgAccessService,
+    private authorization: AuthorizationService,
   ) {}
 
   async getFiscalYears(orgId: string) {
+    const { tenantId } = await this.prisma.orgScope(orgId);
     return this.prisma.fiscalYear.findMany({
-      where: { orgId },
+      where: { tenantId, orgId },
       orderBy: { year: 'desc' },
       include: {
         budgetVersions: {
@@ -41,37 +42,59 @@ export class BudgetsService {
   }
 
   /** fyId から親 org を引いて access 検証。fy 自体も返す */
-  private async assertFyAccess(user: UserLike, fyId: string) {
+  private async assertFyAccess(
+    user: UserLike,
+    fyId: string,
+    permission: Permission,
+  ) {
     const fy = await this.prisma.fiscalYear.findUnique({
       where: { id: fyId },
-      select: { id: true, orgId: true, year: true },
+      select: { id: true, tenantId: true, orgId: true, year: true },
     });
     if (!fy) {
       throw new NotFoundException(`Fiscal year ${fyId} not found`);
     }
-    await this.orgAccess.assertOrgAccess(user, fy.orgId);
+    const orgContext = await this.authorization.assertOrgPermission(
+      user,
+      fy.orgId,
+      permission,
+    );
+    if (orgContext.tenantId !== fy.tenantId) {
+      throw new ForbiddenException('Fiscal year tenant mismatch');
+    }
     return fy;
   }
 
   /** bvId から親 fy / org を引いて access 検証。bv も返す */
-  private async assertBvAccess(user: UserLike, bvId: string) {
+  private async assertBvAccess(
+    user: UserLike,
+    bvId: string,
+    permission: Permission,
+  ) {
     const bv = await this.prisma.budgetVersion.findUnique({
       where: { id: bvId },
       select: {
         id: true,
         fiscalYearId: true,
-        fiscalYear: { select: { orgId: true } },
+        fiscalYear: { select: { tenantId: true, orgId: true } },
       },
     });
     if (!bv) {
       throw new NotFoundException(`Budget version ${bvId} not found`);
     }
-    await this.orgAccess.assertOrgAccess(user, bv.fiscalYear.orgId);
+    const orgContext = await this.authorization.assertOrgPermission(
+      user,
+      bv.fiscalYear.orgId,
+      permission,
+    );
+    if (orgContext.tenantId !== bv.fiscalYear.tenantId) {
+      throw new ForbiddenException('Budget version tenant mismatch');
+    }
     return bv;
   }
 
   async getBudgetVersions(user: UserLike, fiscalYearId: string) {
-    await this.assertFyAccess(user, fiscalYearId);
+    await this.assertFyAccess(user, fiscalYearId, 'org:budgets:read');
 
     return this.prisma.budgetVersion.findMany({
       where: { fiscalYearId },
@@ -87,7 +110,7 @@ export class BudgetsService {
     fiscalYearId: string,
     dto: CreateBudgetVersionDto,
   ) {
-    await this.assertFyAccess(user, fiscalYearId);
+    await this.assertFyAccess(user, fiscalYearId, 'org:budgets:update');
 
     return this.prisma.budgetVersion.create({
       data: {
@@ -103,7 +126,7 @@ export class BudgetsService {
   }
 
   async getBudgetEntries(user: UserLike, budgetVersionId: string) {
-    await this.assertBvAccess(user, budgetVersionId);
+    await this.assertBvAccess(user, budgetVersionId, 'org:budgets:read');
 
     return this.prisma.budgetEntry.findMany({
       where: { budgetVersionId },
@@ -120,7 +143,7 @@ export class BudgetsService {
     budgetVersionId: string,
     dto: UpdateBudgetEntriesDto,
   ) {
-    await this.assertBvAccess(user, budgetVersionId);
+    await this.assertBvAccess(user, budgetVersionId, 'org:budgets:update');
 
     // 更新対象 entry が指定 bvId に属することを保証するため、
     // updateMany({ where: { id, budgetVersionId } }) で count を取って 0 ならエラー

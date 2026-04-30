@@ -1,6 +1,5 @@
 import {
   Controller,
-  ForbiddenException,
   Get,
   Post,
   Query,
@@ -17,8 +16,8 @@ import { Request, Response } from 'express';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { PrismaService } from '../prisma/prisma.service';
 import { encryptIfAvailable } from '../common/crypto.util';
-import { isInternalAdvisor, isInternalOwner } from './staff.helpers';
 import { MfApiService } from '../mf/mf-api.service';
+import { AuthorizationService } from './authorization.service';
 import {
   createMfOAuthState,
   verifyMfOAuthState,
@@ -32,31 +31,8 @@ export class MfOAuthController {
     private httpService: HttpService,
     private prisma: PrismaService,
     private mfApiService: MfApiService,
+    private authorization: AuthorizationService,
   ) {}
-
-  /**
-   * 当該 user が orgId に access できるかを検証。失敗時 ForbiddenException。
-   * OrgAccessGuard と同じロジック（authorize / callback の両方で再利用）。
-   */
-  private async assertOrgAccess(
-    user: { id: string; role: string; orgId: string | null },
-    orgId: string,
-  ): Promise<void> {
-    if (isInternalOwner(user)) return;
-    if (isInternalAdvisor(user)) {
-      const m = await this.prisma.organizationMembership.findUnique({
-        where: { userId_orgId: { userId: user.id, orgId } },
-      });
-      if (!m) {
-        throw new ForbiddenException('この顧問先への access 権限がありません');
-      }
-      return;
-    }
-    // 顧問先側ユーザー（CL の owner/admin/member/viewer）は自社のみ
-    if (user.orgId !== orgId) {
-      throw new ForbiddenException('この組織への access 権限がありません');
-    }
-  }
 
   /**
    * Step 1: 認可URL生成 -- フロントにリダイレクトURLを返す
@@ -87,11 +63,18 @@ export class MfOAuthController {
 
     const user = req.user as { id: string; role: string; orgId: string | null };
 
-    // 対象 org への access を検証（OrgAccessGuard と同等のロジック）
-    await this.assertOrgAccess(user, orgId);
+    const orgContext = await this.authorization.assertOrgPermission(
+      user,
+      orgId,
+      'org:integrations:manage',
+    );
 
-    // 署名済み state（orgId + userId + nonce + exp）。callback 側で検証
-    const state = createMfOAuthState({ orgId, userId: user.id });
+    // 署名済み state（tenantId + orgId + userId + nonce + exp）。callback 側で検証
+    const state = createMfOAuthState({
+      tenantId: orgContext.tenantId,
+      orgId,
+      userId: user.id,
+    });
 
     // MCP HTTP transport 経由で API を叩くため、MCP サーバー URL を resource indicator として付与する。
     // これが無いと token は取れても MCP 側で弾かれる。
@@ -130,7 +113,11 @@ export class MfOAuthController {
       throw new BadRequestException('orgId is required');
     }
     const user = req.user as { id: string; role: string; orgId: string | null };
-    await this.assertOrgAccess(user, orgId);
+    await this.authorization.assertOrgPermission(
+      user,
+      orgId,
+      'org:integrations:manage',
+    );
     return this.mfApiService.manualTokenRefresh(orgId);
   }
 
@@ -148,10 +135,20 @@ export class MfOAuthController {
       throw new BadRequestException('orgId is required');
     }
     const user = req.user as { id: string; role: string; orgId: string | null };
-    await this.assertOrgAccess(user, orgId);
+    const orgContext = await this.authorization.assertOrgPermission(
+      user,
+      orgId,
+      'org:integrations:read',
+    );
 
     const integration = await this.prisma.integration.findUnique({
-      where: { orgId_provider: { orgId, provider: 'MF_CLOUD' } },
+      where: {
+        tenantId_orgId_provider: {
+          tenantId: orgContext.tenantId,
+          orgId,
+          provider: 'MF_CLOUD',
+        },
+      },
     });
     if (!integration || !integration.accessToken) {
       return { connected: false };
@@ -203,7 +200,7 @@ export class MfOAuthController {
       );
       return;
     }
-    const { orgId, userId } = verified.payload;
+    const { tenantId, orgId, userId } = verified.payload;
 
     // 念のため userId と orgId の access を再検証（authorize 時から状況が変わった場合）
     try {
@@ -211,8 +208,15 @@ export class MfOAuthController {
         where: { id: userId },
         select: { id: true, role: true, orgId: true },
       });
-      if (!user) throw new ForbiddenException('user not found');
-      await this.assertOrgAccess(user, orgId);
+      if (!user) throw new BadRequestException('user not found');
+      const orgContext = await this.authorization.assertOrgPermission(
+        user,
+        orgId,
+        'org:integrations:manage',
+      );
+      if (orgContext.tenantId !== tenantId) {
+        throw new BadRequestException('tenant mismatch');
+      }
     } catch (err) {
       this.logger.warn(
         `MF OAuth callback: post-auth access check failed: ${err instanceof Error ? err.message : err}`,
@@ -253,9 +257,10 @@ export class MfOAuthController {
       // Integration テーブルに upsert
       await this.prisma.integration.upsert({
         where: {
-          orgId_provider: { orgId, provider: 'MF_CLOUD' },
+          tenantId_orgId_provider: { tenantId, orgId, provider: 'MF_CLOUD' },
         },
         create: {
+          tenantId,
           orgId,
           provider: 'MF_CLOUD',
           accessToken: encryptIfAvailable(access_token),
