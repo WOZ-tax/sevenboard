@@ -743,28 +743,26 @@ function ScoreDetailRow({
   score: number;
   max: number;
 }) {
-  const pct = Math.max(0, Math.min(100, (score / max) * 100));
   const ratio = max > 0 ? score / max : 0;
-  const barColor =
-    ratio >= 0.75 ? "bg-emerald-500" : ratio >= 0.5 ? "bg-amber-500" : "bg-red-500";
+  const scoreColor =
+    ratio >= 0.75
+      ? "text-emerald-600"
+      : ratio >= 0.5
+        ? "text-amber-600"
+        : "text-red-600";
   return (
     <div className="text-xs">
-      <div className="flex items-center gap-2">
+      <div className="flex items-baseline gap-2">
         <span className="flex-1 truncate text-[var(--color-text-primary)]">
           {label}
         </span>
         <span className="font-medium tabular-nums">{indicatorValue}</span>
-        <span className="w-14 text-right text-muted-foreground tabular-nums">
+        <span className={cn("w-14 text-right font-medium tabular-nums", scoreColor)}>
           {score.toFixed(1)}
           <span className="text-muted-foreground/70">/{max}</span>
         </span>
       </div>
-      <div className="mt-0.5 flex items-center gap-2">
-        <div className="h-1 flex-1 overflow-hidden rounded-full bg-muted">
-          <div className={cn("h-full", barColor)} style={{ width: `${pct}%` }} />
-        </div>
-      </div>
-      <div className="mt-0.5 text-[10px] text-muted-foreground/80">{hint}</div>
+      <div className="text-[10px] text-muted-foreground/80">{hint}</div>
     </div>
   );
 }
