@@ -508,11 +508,12 @@ function HealthSummaryCard({
           </div>
         ) : (
           <div className="space-y-4">
-            {/* 上段: 左 (スコア + 3バー縦積み) | 右 (レーダー) */}
-            <div className="grid gap-6 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-              {/* 左カラム: スコアカード + 3 バー縦積み */}
-              <div className="space-y-4">
-                <div className="flex flex-col items-center justify-center rounded-md border bg-muted/10 px-6 py-5">
+            {/* 上段: 左 (スコア + 3バーを 1 カード内に統合) | 右 (レーダー) */}
+            <div className="grid gap-6 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] md:items-stretch">
+              {/* 左カラム: スコアと 3 バーを 1 カード内に。高さは右カードと揃える */}
+              <div className="flex h-full flex-col rounded-md border bg-muted/10 p-5">
+                {/* 上: スコア (中央配置) */}
+                <div className="flex flex-col items-center">
                   <div className="text-xs font-medium text-muted-foreground">
                     健康スコア
                   </div>
@@ -548,7 +549,12 @@ function HealthSummaryCard({
                     </span>
                   )}
                 </div>
-                <div className="space-y-3">
+
+                {/* 区切り線 */}
+                <div className="my-5 border-t border-[var(--color-border)]" />
+
+                {/* 下: 3 バー縦積み (flex-1 で残り高さを埋め、左右カードの高さを揃える) */}
+                <div className="flex flex-1 flex-col justify-around space-y-3">
                   <BreakdownBar
                     label="活動性"
                     sublabel="収益性"
@@ -573,12 +579,12 @@ function HealthSummaryCard({
                 </div>
               </div>
 
-              {/* 右カラム: 8 軸レーダーチャート */}
-              <div className="rounded-md border bg-muted/10 p-3">
+              {/* 右カラム: 8 軸レーダーチャート (左カードと高さ揃え) */}
+              <div className="flex h-full flex-col rounded-md border bg-muted/10 p-3">
                 <div className="mb-1 text-[11px] font-medium text-muted-foreground">
                   バランス図 (各指標の達成度 %)
                 </div>
-                <div className="h-[320px] w-full">
+                <div className="min-h-[320px] w-full flex-1">
                   <ResponsiveContainer width="100%" height="100%">
                     <RadarChart
                       data={HEALTH_SCORE_DETAIL_META.map((meta) => {
