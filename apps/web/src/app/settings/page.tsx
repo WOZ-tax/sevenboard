@@ -53,8 +53,6 @@ interface IntegrationStatus {
   syncStatus: string;
 }
 
-import { useMfOffice } from "@/hooks/use-mf-data";
-
 const initialNotifications: NotificationSetting[] = [
   { id: "budget", label: "予算超過アラート", enabled: true },
   { id: "cashflow", label: "資金繰りアラート", enabled: true },
@@ -231,7 +229,6 @@ function IntegrationCard({
 export default function SettingsPage() {
   const [notifications, setNotifications] = useState(initialNotifications);
   const orgId = useScopedOrgId();
-  const mfOffice = useMfOffice();
   const queryClient = useQueryClient();
   const searchParams = useSearchParams();
   const [syncingProviders, setSyncingProviders] = useState<Set<string>>(new Set());
@@ -557,17 +554,15 @@ function BusinessProfileCard({ orgId }: { orgId: string }) {
   const [businessContext, setBusinessContext] = useState("");
   const [hydrated, setHydrated] = useState(false);
 
-  // orgQuery が来たら state 初期化
+  // orgQuery が来たら state 初期化 (初回データ到着時のみ。hydrated フラグでガード)
   useEffect(() => {
     if (!orgQuery.data || hydrated) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- 初回データ到着時の初期化
+    /* eslint-disable react-hooks/set-state-in-effect -- 初回 fetch 完了時に form 値を 1 度だけ prefill する正当 pattern */
     setIndustry(orgQuery.data.industry ?? "");
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setWebsiteUrl(orgQuery.data.websiteUrl ?? "");
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setBusinessContext(orgQuery.data.businessContext ?? "");
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setHydrated(true);
+    /* eslint-enable react-hooks/set-state-in-effect */
   }, [orgQuery.data, hydrated]);
 
   const updateMutation = useMutation({
