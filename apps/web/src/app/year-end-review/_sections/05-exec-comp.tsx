@@ -178,9 +178,19 @@ export function ExecCompSimulatorSection() {
 
   const chartData = useMemo(() => {
     const data: Array<{ comp: number; total: number; corp: number; personal: number }> = [];
+    // 利益(役員報酬付加前)の月額容量。黒字時はこれを上限にして「報酬を増やすほど何が起きるか」を見る。
+    const monthlyProfitCapacity = Math.ceil(
+      (simInput.revenueManYen - simInput.expensesManYen) / 12,
+    );
+    // 赤字 (capacity ≤ 0) で 0 になるとグラフが潰れる。
+    // 現在の役員報酬月額を中心に ±50% 程度の範囲を確保し、最低でも 50 万円までは描画する。
+    const fallbackMax = Math.max(
+      50,
+      Math.ceil(simInput.monthlyCompManYen * 1.5),
+    );
     const max = Math.min(
       500,
-      Math.max(0, Math.ceil((simInput.revenueManYen - simInput.expensesManYen) / 12)),
+      monthlyProfitCapacity > 0 ? monthlyProfitCapacity : fallbackMax,
     );
     const step = Math.max(5, Math.ceil(max / 30));
     for (let m = 0; m <= max; m += step) {
