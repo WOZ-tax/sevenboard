@@ -160,7 +160,8 @@ export class AuthorizationService {
       permission === 'org:notifications:read' ||
       permission === 'org:mf:read' ||
       permission === 'org:simulation:read' ||
-      permission === 'org:onboarding:read'
+      permission === 'org:onboarding:read' ||
+      permission === 'org:risk_findings:read'
     ) {
       return true;
     }
@@ -190,7 +191,9 @@ export class AuthorizationService {
       permission === 'org:cashflow_certainty:manage' ||
       permission === 'org:ai:run' ||
       permission === 'org:briefing:manage' ||
-      permission === 'org:onboarding:manage'
+      permission === 'org:onboarding:manage' ||
+      permission === 'org:risk_findings:manage' ||
+      permission === 'org:risk_findings:scan'
     ) {
       return membership.role === 'owner' || membership.role === 'advisor';
     }
