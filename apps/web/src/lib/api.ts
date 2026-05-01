@@ -155,6 +155,35 @@ export interface OrgAdvisor {
   };
 }
 
+// === Risk Findings (会計レビュー ② 要確認アイテム) ===
+export type RiskLayer = 'L1_RULE' | 'L2_STATS' | 'L3_LLM';
+export type RiskFindingStatus = 'OPEN' | 'CONFIRMED' | 'DISMISSED' | 'RESOLVED';
+
+export interface RiskFindingItem {
+  id: string;
+  fiscalYear: number;
+  month: number;
+  layer: RiskLayer;
+  ruleKey: string;
+  scopeKey: string;
+  title: string;
+  body: string;
+  riskScore: number;
+  flags: string[];
+  evidence: Record<string, unknown>;
+  recommendedAction: string;
+  status: RiskFindingStatus;
+  detectedAt: string;
+  resolvedAt: string | null;
+}
+
+export interface RiskScanRunResult {
+  layer: 'L1' | 'L3';
+  ruleCount: number;
+  findingCount: number;
+  errors: { ruleKey: string; message: string }[];
+}
+
 export const api = {
   // Auth
   login: (email: string, password: string) =>
@@ -911,6 +940,45 @@ export const api = {
       apiFetch<SyncRunResult>(`/organizations/${orgId}/sync/run`, { method: 'POST' }),
     status: (orgId: string) =>
       apiFetch<SyncStatusResult>(`/organizations/${orgId}/sync/status`),
+  },
+
+  // === Risk Findings (会計レビュー ② 要確認アイテム) ===
+  riskFindings: {
+    list: (orgId: string, fiscalYear: number, month: number, status?: string) => {
+      const params = new URLSearchParams({
+        fiscalYear: String(fiscalYear),
+        month: String(month),
+      });
+      if (status) params.set('status', status);
+      return apiFetch<RiskFindingItem[]>(
+        `/organizations/${orgId}/risk-findings?${params.toString()}`,
+      );
+    },
+    updateStatus: (
+      orgId: string,
+      findingId: string,
+      status: RiskFindingStatus,
+    ) =>
+      apiFetch<RiskFindingItem>(
+        `/organizations/${orgId}/risk-findings/${findingId}`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify({ status }),
+        },
+      ),
+    runScan: (
+      orgId: string,
+      fiscalYear: number,
+      month: number,
+      layer: 'L1' | 'L3',
+    ) =>
+      apiFetch<RiskScanRunResult>(
+        `/organizations/${orgId}/risk-findings/scan`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ fiscalYear, month, layer }),
+        },
+      ),
   },
 
   // === Onboarding ===

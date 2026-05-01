@@ -45,6 +45,9 @@ export const PERMISSIONS = [
   'org:simulation:read',
   'org:onboarding:read',
   'org:onboarding:manage',
+  'org:risk_findings:read',
+  'org:risk_findings:manage',
+  'org:risk_findings:scan',
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -97,6 +100,9 @@ export const TENANT_ROLE_PERMISSIONS: Record<string, Permission[]> = {
     'org:simulation:read',
     'org:onboarding:read',
     'org:onboarding:manage',
+    'org:risk_findings:read',
+    'org:risk_findings:manage',
+    'org:risk_findings:scan',
   ],
   firm_admin: [
     'tenant:organizations:create',
@@ -142,6 +148,9 @@ export const TENANT_ROLE_PERMISSIONS: Record<string, Permission[]> = {
     'org:simulation:read',
     'org:onboarding:read',
     'org:onboarding:manage',
+    'org:risk_findings:read',
+    'org:risk_findings:manage',
+    'org:risk_findings:scan',
   ],
   // Current SevenBoard behavior lets advisors create a new client and assigns
   // them to it. Keep that during the migration to scoped memberships.
@@ -172,6 +181,7 @@ export const TENANT_ROLE_PERMISSIONS: Record<string, Permission[]> = {
     'org:mf:read',
     'org:simulation:read',
     'org:onboarding:read',
+    'org:risk_findings:read',
   ],
 };
 

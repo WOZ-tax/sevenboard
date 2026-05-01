@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { MfApiService } from '../mf/mf-api.service';
 import { MfTransformService } from '../mf/mf-transform.service';
+import { RiskScanOrchestrator } from '../sentinel/risk-rules/orchestrator.service';
 
 @Injectable()
 export class SyncService {
@@ -11,6 +12,7 @@ export class SyncService {
     private prisma: PrismaService,
     private mfApi: MfApiService,
     private mfTransform: MfTransformService,
+    private riskScanOrchestrator: RiskScanOrchestrator,
   ) {}
 
   async runSync(orgId: string) {
@@ -115,6 +117,11 @@ export class SyncService {
         `Sync completed for org ${orgId}: ${accountsSynced} accounts, ${entriesUpserted} entries, ${monthlyEntries} monthly entries`,
       );
 
+      // 会計レビュー画面 ② 要確認アイテム用に L1 リスクスキャンをキックオフ。
+      // 失敗しても sync 自体の結果は変えない。重い API 呼び出しは含むが await する
+      // (sync 完了直後の整合性が高い状態で実行したい)。
+      void this.kickoffRiskScanAfterSync(orgId);
+
       return {
         status: 'SUCCESS',
         accountsSynced,
@@ -131,6 +138,42 @@ export class SyncService {
         error: err?.message || 'Unknown error',
         syncedAt: new Date().toISOString(),
       };
+    }
+  }
+
+  /**
+   * MF 同期完了直後に会計レビュー ② 用の L1 リスクスキャンをキックオフ。
+   *
+   * fiscal_year は PL 推移表のメタから取得 (会社設定の決算月との整合が取れる)。
+   * 月は当月をデフォルトにするが、月初付近で前月確定値を見たいケースは UI 側の
+   * 「再検証」ボタンで明示指定する想定。
+   *
+   * 重い API 呼び出しが含まれるが失敗しても sync API の戻り値は変えない。
+   */
+  private async kickoffRiskScanAfterSync(orgId: string): Promise<void> {
+    try {
+      const plTransition = await this.mfApi
+        .getTransitionPL(orgId)
+        .catch(() => null);
+      const fiscalYear = plTransition?.fiscal_year ?? new Date().getUTCFullYear();
+      const today = new Date();
+      const month = today.getUTCMonth() + 1;
+      this.logger.log(
+        `Kicking off L1 risk scan for org ${orgId}: fy=${fiscalYear}, month=${month}`,
+      );
+      const result = await this.riskScanOrchestrator.runL1(
+        orgId,
+        fiscalYear,
+        month,
+      );
+      this.logger.log(
+        `L1 risk scan finished for org ${orgId}: ${result.findingCount} findings, ${result.errors.length} rule errors`,
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(
+        `Risk scan after sync failed for org ${orgId}: ${message}`,
+      );
     }
   }
 

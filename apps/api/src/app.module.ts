@@ -38,6 +38,7 @@ import { CashflowCertaintyModule } from './cashflow-certainty/cashflow-certainty
 import { MonthlyReviewApprovalModule } from './monthly-review-approval/monthly-review-approval.module';
 import { MonthlyCloseModule } from './monthly-close/monthly-close.module';
 import { InternalUsersModule } from './internal-users/internal-users.module';
+import { RiskFindingsModule } from './risk-findings/risk-findings.module';
 
 @Module({
   imports: [
@@ -78,6 +79,7 @@ import { InternalUsersModule } from './internal-users/internal-users.module';
     MonthlyReviewApprovalModule,
     MonthlyCloseModule,
     InternalUsersModule,
+    RiskFindingsModule,
   ],
   providers: [
     {

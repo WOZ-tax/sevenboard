@@ -13,55 +13,56 @@ datasource db {
 // ============================================================
 
 model Organization {
-  id             String   @id @default(uuid()) @db.Uuid
-  tenantId       String   @map("tenant_id") @db.Uuid
-  name           String
-  code           String?  @unique // 事業者コード（MF連携用）
-  fiscalMonthEnd Int      @default(3) @map("fiscal_month_end") // 決算月（1-12）
-  industry       String?
-  employeeCount  Int?     @map("employee_count")
-  planType       PlanType @default(STARTER) @map("plan_type")
-  aiOptOut       Boolean  @default(false) @map("ai_opt_out") // AI機能オプトアウト
+  id                   String   @id @default(uuid()) @db.Uuid
+  tenantId             String   @map("tenant_id") @db.Uuid
+  name                 String
+  code                 String?  @unique // 事業者コード（MF連携用）
+  fiscalMonthEnd       Int      @default(3) @map("fiscal_month_end") // 決算月（1-12）
+  industry             String?
+  employeeCount        Int?     @map("employee_count")
+  planType             PlanType @default(STARTER) @map("plan_type")
+  aiOptOut             Boolean  @default(false) @map("ai_opt_out") // AI機能オプトアウト
   /// 原価計算を運用しているか。false（既定）= 売上原価が信頼できない前提。
   /// 中小企業では原価計算を行っていないケースが多く、その場合 grossProfitMargin（売上総利益率）は
   /// 実態と乖離するため、UI / AI レポートともに参照を控える。
   /// 顧問先ごとに owner / advisor がトグルできる。
-  usesCostAccounting Boolean @default(false) @map("uses_cost_accounting")
-  briefPushEnabled     Boolean @default(false) @map("brief_push_enabled")
-  briefPushHourJst     Int     @default(8) @map("brief_push_hour_jst") // 0-23
-  briefSlackWebhookUrl String? @map("brief_slack_webhook_url")
-  cashflowCertainty    Json?   @map("cashflow_certainty") // Record<category, "CONFIRMED"|"PLANNED"|"ESTIMATED">
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
+  usesCostAccounting   Boolean  @default(false) @map("uses_cost_accounting")
+  briefPushEnabled     Boolean  @default(false) @map("brief_push_enabled")
+  briefPushHourJst     Int      @default(8) @map("brief_push_hour_jst") // 0-23
+  briefSlackWebhookUrl String?  @map("brief_slack_webhook_url")
+  cashflowCertainty    Json?    @map("cashflow_certainty") // Record<category, "CONFIRMED"|"PLANNED"|"ESTIMATED">
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
 
-  tenant             Tenant @relation(fields: [tenantId], references: [id])
-  departments        Department[]
-  accounts           AccountMaster[]
-  fiscalYears        FiscalYear[]
-  actualEntries      ActualEntry[]
-  journalEntries     JournalEntry[]
-  kpiDefinitions     KpiDefinition[]
-  users              User[]
-  memberships        OrganizationMembership[]
-  notifications      Notification[]
-  reports            Report[]
-  auditLogs          AuditLog[]
-  integrations       Integration[]
-  cashFlowCategories CashFlowCategory[]
-  cashFlowEntries    CashFlowEntry[]
-  cashFlowForecasts  CashFlowForecast[]
-  collectionProfiles CollectionProfile[]
-  runwaySnapshots    RunwaySnapshot[]
-  loanSimulations    LoanSimulation[]
-  calendarEvents     CalendarEvent[]
-  actions            Action[]
-  dataSyncLogs       DataSyncLog[]
-  businessEvents     BusinessEvent[]
-  briefingSnapshots  BriefingSnapshot[]
-  agentRuns          AgentRun[]
+  tenant                 Tenant                     @relation(fields: [tenantId], references: [id])
+  departments            Department[]
+  accounts               AccountMaster[]
+  fiscalYears            FiscalYear[]
+  actualEntries          ActualEntry[]
+  journalEntries         JournalEntry[]
+  kpiDefinitions         KpiDefinition[]
+  users                  User[]
+  memberships            OrganizationMembership[]
+  notifications          Notification[]
+  reports                Report[]
+  auditLogs              AuditLog[]
+  integrations           Integration[]
+  cashFlowCategories     CashFlowCategory[]
+  cashFlowEntries        CashFlowEntry[]
+  cashFlowForecasts      CashFlowForecast[]
+  collectionProfiles     CollectionProfile[]
+  runwaySnapshots        RunwaySnapshot[]
+  loanSimulations        LoanSimulation[]
+  calendarEvents         CalendarEvent[]
+  actions                Action[]
+  dataSyncLogs           DataSyncLog[]
+  businessEvents         BusinessEvent[]
+  briefingSnapshots      BriefingSnapshot[]
+  agentRuns              AgentRun[]
   monthlyReviewApprovals MonthlyReviewApproval[]
-  monthlyCloses      MonthlyClose[]
-  masterSources      OrganizationMasterSource[]
+  monthlyCloses          MonthlyClose[]
+  masterSources          OrganizationMasterSource[]
+  riskFindings           RiskFinding[]
 
   @@unique([id, tenantId])
   @@unique([tenantId, code])
@@ -88,9 +89,9 @@ model Tenant {
   createdAt     DateTime            @default(now()) @map("created_at")
   updatedAt     DateTime            @updatedAt @map("updated_at")
 
-  organizations     Organization[]
-  memberships       TenantMembership[]
-  masterSources     OrganizationMasterSource[]
+  organizations Organization[]
+  memberships   TenantMembership[]
+  masterSources OrganizationMasterSource[]
 
   @@map("tenants")
 }
@@ -118,18 +119,19 @@ model User {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  organization       Organization?       @relation(fields: [orgId], references: [id])
-  platformMemberships PlatformMembership[]
-  tenantMemberships   TenantMembership[]
-  memberships        OrganizationMembership[]
-  budgetVersions     BudgetVersion[]
-  aiComments         AiComment[]         @relation("ReviewedBy")
-  notifications      Notification[]
-  auditLogs          AuditLog[]
-  ownedActions       Action[]            @relation("ActionOwner")
-  createdActions     Action[]            @relation("ActionCreator")
-  actionEvents       ActionEvent[]
-  businessEvents     BusinessEvent[]
+  organization         Organization?            @relation(fields: [orgId], references: [id])
+  platformMemberships  PlatformMembership[]
+  tenantMemberships    TenantMembership[]
+  memberships          OrganizationMembership[]
+  budgetVersions       BudgetVersion[]
+  aiComments           AiComment[]              @relation("ReviewedBy")
+  notifications        Notification[]
+  auditLogs            AuditLog[]
+  ownedActions         Action[]                 @relation("ActionOwner")
+  createdActions       Action[]                 @relation("ActionCreator")
+  actionEvents         ActionEvent[]
+  businessEvents       BusinessEvent[]
+  resolvedRiskFindings RiskFinding[]
 
   @@map("users")
 }
@@ -221,15 +223,15 @@ enum UserRole {
 /// - CL 側ユーザー（viewer 等）は user.orgId と一致する 1 行のみ
 /// 既存テーブル名 advisor_assignments は legacy。2026-04-25 に rename して概念統合。
 model OrganizationMembership {
-  id        String   @id @default(uuid()) @db.Uuid
-  userId    String   @map("user_id") @db.Uuid
-  tenantId  String   @map("tenant_id") @db.Uuid
-  orgId     String   @map("org_id") @db.Uuid
+  id        String         @id @default(uuid()) @db.Uuid
+  userId    String         @map("user_id") @db.Uuid
+  tenantId  String         @map("tenant_id") @db.Uuid
+  orgId     String         @map("org_id") @db.Uuid
   /// この user が当該 org に対して持つロール。
   /// SEVENRICH スタッフは 'owner' / 'advisor'、CL 側は 'admin' / 'member' / 'viewer'
-  role      UserRole @default(advisor)
+  role      UserRole       @default(advisor)
   side      MembershipSide @default(advisor)
-  createdAt DateTime @default(now()) @map("created_at")
+  createdAt DateTime       @default(now()) @map("created_at")
 
   user         User         @relation(fields: [userId], references: [id])
   organization Organization @relation(fields: [orgId, tenantId], references: [id, tenantId])
@@ -246,14 +248,14 @@ enum MembershipSide {
 }
 
 model SystemMasterCatalog {
-  id               String           @id @default(uuid()) @db.Uuid
-  key              String           @unique
+  id               String             @id @default(uuid()) @db.Uuid
+  key              String             @unique
   type             SystemMasterType
   name             String
   status           SystemMasterStatus @default(draft)
-  currentVersionId String?          @map("current_version_id") @db.Uuid
-  createdAt        DateTime         @default(now()) @map("created_at")
-  updatedAt        DateTime         @updatedAt @map("updated_at")
+  currentVersionId String?            @map("current_version_id") @db.Uuid
+  createdAt        DateTime           @default(now()) @map("created_at")
+  updatedAt        DateTime           @updatedAt @map("updated_at")
 
   versions SystemMasterVersion[]
 
@@ -262,17 +264,17 @@ model SystemMasterCatalog {
 }
 
 model SystemMasterVersion {
-  id          String              @id @default(uuid()) @db.Uuid
-  catalogId   String              @map("catalog_id") @db.Uuid
+  id          String             @id @default(uuid()) @db.Uuid
+  catalogId   String             @map("catalog_id") @db.Uuid
   version     Int
   payload     Json
   checksum    String
-  status      SystemMasterStatus  @default(draft)
-  publishedAt DateTime?           @map("published_at")
-  createdById String?             @map("created_by_id") @db.Uuid
-  createdAt   DateTime            @default(now()) @map("created_at")
+  status      SystemMasterStatus @default(draft)
+  publishedAt DateTime?          @map("published_at")
+  createdById String?            @map("created_by_id") @db.Uuid
+  createdAt   DateTime           @default(now()) @map("created_at")
 
-  catalog SystemMasterCatalog @relation(fields: [catalogId], references: [id])
+  catalog       SystemMasterCatalog        @relation(fields: [catalogId], references: [id])
   masterSources OrganizationMasterSource[]
 
   @@unique([catalogId, version])
@@ -326,7 +328,7 @@ model Department {
   orgId        String   @map("org_id") @db.Uuid
   name         String
   parentId     String?  @map("parent_id") @db.Uuid
-  type         String?  // "division", "section", "team" 等
+  type         String? // "division", "section", "team" 等
   displayOrder Int      @default(0) @map("display_order")
   createdAt    DateTime @default(now()) @map("created_at")
 
@@ -344,7 +346,7 @@ model AccountMaster {
   id             String          @id @default(uuid()) @db.Uuid
   tenantId       String          @map("tenant_id") @db.Uuid
   orgId          String          @map("org_id") @db.Uuid
-  code           String          // 勘定科目コード
+  code           String // 勘定科目コード
   name           String
   category       AccountCategory
   isVariableCost Boolean         @default(false) @map("is_variable_cost")
@@ -364,17 +366,17 @@ model AccountMaster {
 }
 
 enum AccountCategory {
-  REVENUE           // 売上高
-  COST_OF_SALES     // 売上原価
-  SELLING_EXPENSE   // 販売費
-  ADMIN_EXPENSE     // 一般管理費
-  NON_OPERATING_INCOME   // 営業外収益
-  NON_OPERATING_EXPENSE  // 営業外費用
-  EXTRAORDINARY_INCOME   // 特別利益
-  EXTRAORDINARY_EXPENSE  // 特別損失
-  ASSET             // 資産
-  LIABILITY         // 負債
-  EQUITY            // 純資産
+  REVENUE // 売上高
+  COST_OF_SALES // 売上原価
+  SELLING_EXPENSE // 販売費
+  ADMIN_EXPENSE // 一般管理費
+  NON_OPERATING_INCOME // 営業外収益
+  NON_OPERATING_EXPENSE // 営業外費用
+  EXTRAORDINARY_INCOME // 特別利益
+  EXTRAORDINARY_EXPENSE // 特別損失
+  ASSET // 資産
+  LIABILITY // 負債
+  EQUITY // 純資産
 }
 
 // ============================================================
@@ -382,14 +384,14 @@ enum AccountCategory {
 // ============================================================
 
 model FiscalYear {
-  id        String          @id @default(uuid()) @db.Uuid
-  tenantId  String          @map("tenant_id") @db.Uuid
-  orgId     String          @map("org_id") @db.Uuid
-  year      Int             // 2025, 2026, ...
-  startDate DateTime        @map("start_date") @db.Date
-  endDate   DateTime        @map("end_date") @db.Date
+  id        String           @id @default(uuid()) @db.Uuid
+  tenantId  String           @map("tenant_id") @db.Uuid
+  orgId     String           @map("org_id") @db.Uuid
+  year      Int // 2025, 2026, ...
+  startDate DateTime         @map("start_date") @db.Date
+  endDate   DateTime         @map("end_date") @db.Date
   status    FiscalYearStatus @default(OPEN)
-  createdAt DateTime        @default(now()) @map("created_at")
+  createdAt DateTime         @default(now()) @map("created_at")
 
   organization   Organization    @relation(fields: [orgId, tenantId], references: [id, tenantId])
   budgetVersions BudgetVersion[]
@@ -408,7 +410,7 @@ enum FiscalYearStatus {
 model BudgetVersion {
   id           String       @id @default(uuid()) @db.Uuid
   fiscalYearId String       @map("fiscal_year_id") @db.Uuid
-  name         String       // "Base", "Upside", "Downside"
+  name         String // "Base", "Upside", "Downside"
   scenarioType ScenarioType @default(BASE)
   createdBy    String       @map("created_by") @db.Uuid
   createdAt    DateTime     @default(now()) @map("created_at")
@@ -451,13 +453,13 @@ model BudgetEntry {
 // ============================================================
 
 model ActualEntry {
-  id           String   @id @default(uuid()) @db.Uuid
-  tenantId     String   @map("tenant_id") @db.Uuid
-  orgId        String   @map("org_id") @db.Uuid
-  accountId    String   @map("account_id") @db.Uuid
-  departmentId String?  @map("department_id") @db.Uuid
-  month        DateTime @db.Date
-  amount       Decimal  @db.Decimal(15, 2)
+  id           String     @id @default(uuid()) @db.Uuid
+  tenantId     String     @map("tenant_id") @db.Uuid
+  orgId        String     @map("org_id") @db.Uuid
+  accountId    String     @map("account_id") @db.Uuid
+  departmentId String?    @map("department_id") @db.Uuid
+  month        DateTime   @db.Date
+  amount       Decimal    @db.Decimal(15, 2)
   source       DataSource @default(MANUAL)
   syncedAt     DateTime?  @map("synced_at")
   createdAt    DateTime   @default(now()) @map("created_at")
@@ -482,15 +484,15 @@ enum DataSource {
 }
 
 model JournalEntry {
-  id              String   @id @default(uuid()) @db.Uuid
-  tenantId        String   @map("tenant_id") @db.Uuid
-  orgId           String   @map("org_id") @db.Uuid
-  journalDate     DateTime @map("journal_date") @db.Date
-  debitAccountId  String   @map("debit_account_id") @db.Uuid
-  creditAccountId String   @map("credit_account_id") @db.Uuid
-  amount          Decimal  @db.Decimal(15, 2)
+  id              String     @id @default(uuid()) @db.Uuid
+  tenantId        String     @map("tenant_id") @db.Uuid
+  orgId           String     @map("org_id") @db.Uuid
+  journalDate     DateTime   @map("journal_date") @db.Date
+  debitAccountId  String     @map("debit_account_id") @db.Uuid
+  creditAccountId String     @map("credit_account_id") @db.Uuid
+  amount          Decimal    @db.Decimal(15, 2)
   description     String?
-  externalId      String?  @map("external_id") // MF/freeeの仕訳ID
+  externalId      String?    @map("external_id") // MF/freeeの仕訳ID
   source          DataSource @default(MANUAL)
   createdAt       DateTime   @default(now()) @map("created_at")
 
@@ -511,8 +513,8 @@ model KpiDefinition {
   id       String      @id @default(uuid()) @db.Uuid
   tenantId String      @map("tenant_id") @db.Uuid
   orgId    String      @map("org_id") @db.Uuid
-  name     String      // "MRR", "ARR", "Churn Rate" 等
-  formula  String?     // 計算式（参照用）
+  name     String // "MRR", "ARR", "Churn Rate" 等
+  formula  String? // 計算式（参照用）
   unit     String      @default("JPY") // "JPY", "%", "件", "人" 等
   category KpiCategory @default(CUSTOM)
 
@@ -525,21 +527,21 @@ model KpiDefinition {
 }
 
 enum KpiCategory {
-  SAAS       // MRR, ARR, Churn, LTV, CAC
-  SALES      // 受注件数, 成約率, 客単価
-  HR         // 従業員数, 離職率
-  FINANCIAL  // 粗利率, 営業利益率
+  SAAS // MRR, ARR, Churn, LTV, CAC
+  SALES // 受注件数, 成約率, 客単価
+  HR // 従業員数, 離職率
+  FINANCIAL // 粗利率, 営業利益率
   CUSTOM
 }
 
 model KpiValue {
-  id     String   @id @default(uuid()) @db.Uuid
-  kpiId  String   @map("kpi_id") @db.Uuid
-  tenantId String @map("tenant_id") @db.Uuid
-  orgId  String   @map("org_id") @db.Uuid // RLS用に直接保持
-  month  DateTime @db.Date
-  value  Decimal  @db.Decimal(15, 4)
-  source DataSource @default(MANUAL)
+  id       String     @id @default(uuid()) @db.Uuid
+  kpiId    String     @map("kpi_id") @db.Uuid
+  tenantId String     @map("tenant_id") @db.Uuid
+  orgId    String     @map("org_id") @db.Uuid // RLS用に直接保持
+  month    DateTime   @db.Date
+  value    Decimal    @db.Decimal(15, 4)
+  source   DataSource @default(MANUAL)
 
   kpiDefinition KpiDefinition @relation(fields: [kpiId], references: [id])
 
@@ -571,13 +573,13 @@ model Report {
 }
 
 enum ReportType {
-  VARIANCE       // 予実差異
-  PL             // 損益計算書
-  BS             // 貸借対照表
-  CF             // キャッシュフロー計算書
-  VARIABLE_COST  // 変動損益計算書
-  CUSTOM         // カスタムレポート
-  CASHFLOW       // 資金繰り表
+  VARIANCE // 予実差異
+  PL // 損益計算書
+  BS // 貸借対照表
+  CF // キャッシュフロー計算書
+  VARIABLE_COST // 変動損益計算書
+  CUSTOM // カスタムレポート
+  CASHFLOW // 資金繰り表
 }
 
 model AiComment {
@@ -610,16 +612,16 @@ enum AiCommentStatus {
 // ============================================================
 
 model CashFlowCategory {
-  id             String          @id @default(uuid()) @db.Uuid
-  tenantId       String          @map("tenant_id") @db.Uuid
-  orgId          String          @map("org_id") @db.Uuid
-  name           String          // "売上入金", "人件費", "家賃" 等
-  direction      CashDirection   // IN or OUT
-  cfType         CashFlowType    // OPERATING, INVESTING, FINANCING
-  isFixed        Boolean         @default(false) @map("is_fixed")
-  recurrenceRule String?         @map("recurrence_rule") // "MONTHLY_10", "MONTHLY_END" 等
-  displayOrder   Int             @default(0) @map("display_order")
-  createdAt      DateTime        @default(now()) @map("created_at")
+  id             String        @id @default(uuid()) @db.Uuid
+  tenantId       String        @map("tenant_id") @db.Uuid
+  orgId          String        @map("org_id") @db.Uuid
+  name           String // "売上入金", "人件費", "家賃" 等
+  direction      CashDirection // IN or OUT
+  cfType         CashFlowType // OPERATING, INVESTING, FINANCING
+  isFixed        Boolean       @default(false) @map("is_fixed")
+  recurrenceRule String?       @map("recurrence_rule") // "MONTHLY_10", "MONTHLY_END" 等
+  displayOrder   Int           @default(0) @map("display_order")
+  createdAt      DateTime      @default(now()) @map("created_at")
 
   organization Organization    @relation(fields: [orgId, tenantId], references: [id, tenantId])
   entries      CashFlowEntry[]
@@ -634,22 +636,22 @@ enum CashDirection {
 }
 
 enum CashFlowType {
-  OPERATING   // 営業活動
-  INVESTING   // 投資活動
-  FINANCING   // 財務活動
+  OPERATING // 営業活動
+  INVESTING // 投資活動
+  FINANCING // 財務活動
 }
 
 model CashFlowEntry {
-  id             String   @id @default(uuid()) @db.Uuid
-  tenantId       String   @map("tenant_id") @db.Uuid
-  orgId          String   @map("org_id") @db.Uuid
-  categoryId     String   @map("category_id") @db.Uuid
-  entryDate      DateTime @map("entry_date") @db.Date
-  amount         Decimal  @db.Decimal(15, 2)
-  isActual       Boolean  @default(false) @map("is_actual")
-  tradePartner   String?  @map("trade_partner") // 取引先名
-  description    String?
-  createdAt      DateTime @default(now()) @map("created_at")
+  id           String   @id @default(uuid()) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  orgId        String   @map("org_id") @db.Uuid
+  categoryId   String   @map("category_id") @db.Uuid
+  entryDate    DateTime @map("entry_date") @db.Date
+  amount       Decimal  @db.Decimal(15, 2)
+  isActual     Boolean  @default(false) @map("is_actual")
+  tradePartner String?  @map("trade_partner") // 取引先名
+  description  String?
+  createdAt    DateTime @default(now()) @map("created_at")
 
   organization Organization     @relation(fields: [orgId, tenantId], references: [id, tenantId])
   category     CashFlowCategory @relation(fields: [categoryId], references: [id])
@@ -660,17 +662,17 @@ model CashFlowEntry {
 }
 
 model CashFlowForecast {
-  id             String          @id @default(uuid()) @db.Uuid
-  tenantId       String          @map("tenant_id") @db.Uuid
-  orgId          String          @map("org_id") @db.Uuid
-  forecastDate   DateTime        @map("forecast_date") @db.Date
+  id             String              @id @default(uuid()) @db.Uuid
+  tenantId       String              @map("tenant_id") @db.Uuid
+  orgId          String              @map("org_id") @db.Uuid
+  forecastDate   DateTime            @map("forecast_date") @db.Date
   granularity    ForecastGranularity
-  openingBalance Decimal         @map("opening_balance") @db.Decimal(15, 2)
-  inflow         Decimal         @db.Decimal(15, 2)
-  outflow        Decimal         @db.Decimal(15, 2)
-  closingBalance Decimal         @map("closing_balance") @db.Decimal(15, 2)
-  scenarioType   ScenarioType    @default(BASE) @map("scenario_type")
-  createdAt      DateTime        @default(now()) @map("created_at")
+  openingBalance Decimal             @map("opening_balance") @db.Decimal(15, 2)
+  inflow         Decimal             @db.Decimal(15, 2)
+  outflow        Decimal             @db.Decimal(15, 2)
+  closingBalance Decimal             @map("closing_balance") @db.Decimal(15, 2)
+  scenarioType   ScenarioType        @default(BASE) @map("scenario_type")
+  createdAt      DateTime            @default(now()) @map("created_at")
 
   organization Organization @relation(fields: [orgId, tenantId], references: [id, tenantId])
 
@@ -720,17 +722,17 @@ model RunwaySnapshot {
 }
 
 enum AlertLevel {
-  SAFE       // 12ヶ月以上
-  CAUTION    // 6-12ヶ月
-  WARNING    // 3-6ヶ月
-  CRITICAL   // 3ヶ月未満
+  SAFE // 12ヶ月以上
+  CAUTION // 6-12ヶ月
+  WARNING // 3-6ヶ月
+  CRITICAL // 3ヶ月未満
 }
 
 model LoanSimulation {
   id               String        @id @default(uuid()) @db.Uuid
   tenantId         String        @map("tenant_id") @db.Uuid
   orgId            String        @map("org_id") @db.Uuid
-  name             String        // "日本政策金融公庫 2026年" 等
+  name             String // "日本政策金融公庫 2026年" 等
   principal        Decimal       @db.Decimal(15, 2)
   interestRate     Float         @map("interest_rate") // 年利（%）
   termMonths       Int           @map("term_months")
@@ -749,8 +751,8 @@ model LoanSimulation {
 
 enum RepaymentType {
   EQUAL_INSTALLMENT // 元利均等
-  EQUAL_PRINCIPAL   // 元金均等
-  BULLET            // 一括返済
+  EQUAL_PRINCIPAL // 元金均等
+  BULLET // 一括返済
 }
 
 // ============================================================
@@ -758,18 +760,18 @@ enum RepaymentType {
 // ============================================================
 
 model Integration {
-  id           String          @id @default(uuid()) @db.Uuid
-  tenantId     String          @map("tenant_id") @db.Uuid
-  orgId        String          @map("org_id") @db.Uuid
+  id           String              @id @default(uuid()) @db.Uuid
+  tenantId     String              @map("tenant_id") @db.Uuid
+  orgId        String              @map("org_id") @db.Uuid
   provider     IntegrationProvider
-  accessToken  String?         @map("access_token")
-  refreshToken String?         @map("refresh_token")
-  tokenExpiry  DateTime?       @map("token_expiry")
-  config       Json            @default("{}") // 科目マッピング等
-  lastSyncAt   DateTime?       @map("last_sync_at")
-  syncStatus   SyncStatus      @default(NEVER) @map("sync_status")
-  createdAt    DateTime        @default(now()) @map("created_at")
-  updatedAt    DateTime        @updatedAt @map("updated_at")
+  accessToken  String?             @map("access_token")
+  refreshToken String?             @map("refresh_token")
+  tokenExpiry  DateTime?           @map("token_expiry")
+  config       Json                @default("{}") // 科目マッピング等
+  lastSyncAt   DateTime?           @map("last_sync_at")
+  syncStatus   SyncStatus          @default(NEVER) @map("sync_status")
+  createdAt    DateTime            @default(now()) @map("created_at")
+  updatedAt    DateTime            @updatedAt @map("updated_at")
 
   organization Organization @relation(fields: [orgId, tenantId], references: [id, tenantId])
 
@@ -815,27 +817,27 @@ model Notification {
 }
 
 enum NotificationType {
-  ANOMALY_ALERT     // 異常値アラート
-  CASHFLOW_ALERT    // 資金ショートアラート
-  SYNC_ERROR        // 同期エラー
-  AI_COMMENT        // AIコメント生成完了
-  ADVISOR_COMMENT   // 顧問コメント
-  SYSTEM            // システム通知
+  ANOMALY_ALERT // 異常値アラート
+  CASHFLOW_ALERT // 資金ショートアラート
+  SYNC_ERROR // 同期エラー
+  AI_COMMENT // AIコメント生成完了
+  ADVISOR_COMMENT // 顧問コメント
+  SYSTEM // システム通知
 }
 
 model AuditLog {
-  id          String   @id @default(uuid()) @db.Uuid
-  tenantId    String   @map("tenant_id") @db.Uuid
-  orgId       String   @map("org_id") @db.Uuid
-  userId      String   @map("user_id") @db.Uuid
-  action      String   // "CREATE", "UPDATE", "DELETE", "IMPERSONATE"
-  resource    String   // "budget_entry", "actual_entry" 等
-  resourceId  String?  @map("resource_id")
-  beforeValue Json?    @map("before_value")
-  afterValue  Json?    @map("after_value")
-  ipAddress   String?  @map("ip_address")
-  isImpersonation Boolean @default(false) @map("is_impersonation") // 顧問スタッフのなりすましアクセス
-  createdAt   DateTime @default(now()) @map("created_at")
+  id              String   @id @default(uuid()) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  orgId           String   @map("org_id") @db.Uuid
+  userId          String   @map("user_id") @db.Uuid
+  action          String // "CREATE", "UPDATE", "DELETE", "IMPERSONATE"
+  resource        String // "budget_entry", "actual_entry" 等
+  resourceId      String?  @map("resource_id")
+  beforeValue     Json?    @map("before_value")
+  afterValue      Json?    @map("after_value")
+  ipAddress       String?  @map("ip_address")
+  isImpersonation Boolean  @default(false) @map("is_impersonation") // 顧問スタッフのなりすましアクセス
+  createdAt       DateTime @default(now()) @map("created_at")
 
   organization Organization @relation(fields: [orgId, tenantId], references: [id, tenantId])
   user         User         @relation(fields: [userId], references: [id])
@@ -909,10 +911,10 @@ model Action {
 }
 
 enum ActionStatus {
-  NOT_STARTED   // 未着手
-  IN_PROGRESS   // 進行中
-  COMPLETED     // 完了
-  ON_HOLD       // 保留
+  NOT_STARTED // 未着手
+  IN_PROGRESS // 進行中
+  COMPLETED // 完了
+  ON_HOLD // 保留
 }
 
 enum ActionSeverity {
@@ -923,9 +925,9 @@ enum ActionSeverity {
 }
 
 enum ActionOwnerRole {
-  ADVISOR     // 顧問
-  EXECUTIVE   // 経営者
-  ACCOUNTING  // 経理担当
+  ADVISOR // 顧問
+  EXECUTIVE // 経営者
+  ACCOUNTING // 経理担当
 }
 
 enum ActionSourceScreen {
@@ -1026,22 +1028,22 @@ model BusinessEvent {
 /// 「いつ・何を根拠に・どう出力したか」を後から再現するための監査ログ
 /// input/output/toolCalls は任意の JSON を格納
 model AgentRun {
-  id          String         @id @default(uuid()) @db.Uuid
-  tenantId    String         @map("tenant_id") @db.Uuid
-  orgId       String         @map("org_id") @db.Uuid
-  agentKey    AgentRunKey    @map("agent_key")
-  mode        AgentRunMode?
-  generatedAt DateTime       @default(now()) @map("generated_at")
-  fiscalYear  Int?           @map("fiscal_year")
-  endMonth    Int?           @map("end_month")
-  userId      String?        @map("user_id") @db.Uuid
-  input       Json           @default("{}")
-  output      Json           @default("{}")
-  toolCalls   Json           @default("[]") @map("tool_calls")
-  status      AgentRunStatus @default(SUCCESS)
-  errorMessage String?       @map("error_message")
-  durationMs  Int?           @map("duration_ms")
-  createdAt   DateTime       @default(now()) @map("created_at")
+  id           String         @id @default(uuid()) @db.Uuid
+  tenantId     String         @map("tenant_id") @db.Uuid
+  orgId        String         @map("org_id") @db.Uuid
+  agentKey     AgentRunKey    @map("agent_key")
+  mode         AgentRunMode?
+  generatedAt  DateTime       @default(now()) @map("generated_at")
+  fiscalYear   Int?           @map("fiscal_year")
+  endMonth     Int?           @map("end_month")
+  userId       String?        @map("user_id") @db.Uuid
+  input        Json           @default("{}")
+  output       Json           @default("{}")
+  toolCalls    Json           @default("[]") @map("tool_calls")
+  status       AgentRunStatus @default(SUCCESS)
+  errorMessage String?        @map("error_message")
+  durationMs   Int?           @map("duration_ms")
+  createdAt    DateTime       @default(now()) @map("created_at")
 
   organization Organization @relation(fields: [orgId, tenantId], references: [id, tenantId])
 
@@ -1097,17 +1099,17 @@ model BriefingSnapshot {
 /// 月次レビューの最終承認状態。org × fiscalYear × month で1件。
 /// 顧問が「レビュー済み・顧客に納品OK」を明示する承認ステップ。
 model MonthlyReviewApproval {
-  id         String   @id @default(uuid()) @db.Uuid
-  tenantId   String   @map("tenant_id") @db.Uuid
-  orgId      String   @map("org_id") @db.Uuid
-  fiscalYear Int      @map("fiscal_year")
-  month      Int      // 1-12 会計年度内の対象月
+  id         String                      @id @default(uuid()) @db.Uuid
+  tenantId   String                      @map("tenant_id") @db.Uuid
+  orgId      String                      @map("org_id") @db.Uuid
+  fiscalYear Int                         @map("fiscal_year")
+  month      Int // 1-12 会計年度内の対象月
   status     MonthlyReviewApprovalStatus @default(DRAFT)
-  approvedBy String?  @map("approved_by") @db.Uuid
-  approvedAt DateTime? @map("approved_at")
+  approvedBy String?                     @map("approved_by") @db.Uuid
+  approvedAt DateTime?                   @map("approved_at")
   comment    String?
-  createdAt  DateTime @default(now()) @map("created_at")
-  updatedAt  DateTime @updatedAt @map("updated_at")
+  createdAt  DateTime                    @default(now()) @map("created_at")
+  updatedAt  DateTime                    @updatedAt @map("updated_at")
 
   organization Organization @relation(fields: [orgId, tenantId], references: [id, tenantId])
 
@@ -1135,7 +1137,7 @@ model MonthlyClose {
   tenantId   String             @map("tenant_id") @db.Uuid
   orgId      String             @map("org_id") @db.Uuid
   fiscalYear Int                @map("fiscal_year")
-  month      Int                // 1-12 (カレンダー月)
+  month      Int // 1-12 (カレンダー月)
   status     MonthlyCloseStatus @default(OPEN)
   changedAt  DateTime           @default(now()) @map("changed_at")
   changedBy  String?            @map("changed_by") @db.Uuid
@@ -1157,4 +1159,55 @@ enum MonthlyCloseStatus {
   OPEN
   IN_REVIEW
   CLOSED
+}
+
+/// AI CFO の異常検知 (会計レビュー ② 要確認アイテム) で永続化される検知結果。
+/// 3 層構造: L1_RULE (決定的ルール、例: マイナス残高), L2_STATS (会社固有の正常レンジからの逸脱),
+/// L3_LLM (摘要文の意味的異常)。L1+L2 は MF 同期完了時に自動実行、L3 は手動ボタンのみ。
+model RiskFinding {
+  id                String        @id @default(uuid()) @db.Uuid
+  tenantId          String        @map("tenant_id") @db.Uuid
+  orgId             String        @map("org_id") @db.Uuid
+  fiscalYear        Int           @map("fiscal_year")
+  month             Int // 1-12 (カレンダー月)
+  layer             RiskLayer // L1_RULE / L2_STATS / L3_LLM
+  ruleKey           String        @map("rule_key") // 'NEGATIVE_BALANCE' / 'AR_LONG_OVERDUE' 等。layer + ruleKey + scopeKey で識別
+  /// 科目コード・取引先 ID など、同一ルール内の対象識別子。
+  /// Prisma の compound unique は NULL を distinct 扱いして upsert が壊れるため、
+  /// 対象なしの場合は空文字をデフォルト値として使う。
+  scopeKey          String        @default("") @map("scope_key")
+  title             String // "接待交際費が通常の3倍 (¥45万)"
+  body              String // 顧問・社長向けの本文
+  riskScore         Int           @map("risk_score") // 0-100
+  flags             Json          @default("[]") // ["amount_x3", "first_occurrence"] 等
+  evidence          Json          @default("{}") // { accountCode, journalIds, period, baseline, current }
+  recommendedAction String        @map("recommended_action") // 推奨アクション (CFO 原則: 提示しっぱなし禁止)
+  status            FindingStatus @default(OPEN)
+  resolvedById      String?       @map("resolved_by_id") @db.Uuid
+  resolvedAt        DateTime?     @map("resolved_at")
+  detectedAt        DateTime      @default(now()) @map("detected_at")
+  updatedAt         DateTime      @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [orgId, tenantId], references: [id, tenantId])
+  resolver     User?        @relation(fields: [resolvedById], references: [id])
+
+  /// 同一の検知 (org × period × layer × ruleKey × scopeKey) は 1 行に upsert する
+  @@unique([tenantId, orgId, fiscalYear, month, layer, ruleKey, scopeKey])
+  @@index([tenantId, orgId, fiscalYear, month, status])
+  @@index([orgId, status, riskScore(sort: Desc)])
+  @@index([orgId, layer])
+  @@map("risk_findings")
+}
+
+enum RiskLayer {
+  L1_RULE // 決定的ルール (TS 関数で計算)
+  L2_STATS // 統計的逸脱 (過去 24 ヶ月の正常レンジから外れる)
+  L3_LLM // LLM による摘要・パターンの意味的異常
+}
+
+enum FindingStatus {
+  OPEN // 未対応 (デフォルト)
+  CONFIRMED // 確認済 (内容を見た、放置でよい or 後で対応)
+  DISMISSED // 対応不要 (誤検知 or 該当しない)
+  RESOLVED // 対応完了 (修正仕訳・対策実施済)
 }
