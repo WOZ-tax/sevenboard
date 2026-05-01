@@ -159,15 +159,16 @@ export class SyncService {
       const today = new Date();
       const month = today.getUTCMonth() + 1;
       this.logger.log(
-        `Kicking off L1 risk scan for org ${orgId}: fy=${fiscalYear}, month=${month}`,
+        `Kicking off L1+L2 risk scan for org ${orgId}: fy=${fiscalYear}, month=${month}`,
       );
-      const result = await this.riskScanOrchestrator.runL1(
-        orgId,
-        fiscalYear,
-        month,
-      );
+      const [l1Result, l2Result] = await Promise.all([
+        this.riskScanOrchestrator.runL1(orgId, fiscalYear, month),
+        this.riskScanOrchestrator.runL2(orgId, fiscalYear, month),
+      ]);
       this.logger.log(
-        `L1 risk scan finished for org ${orgId}: ${result.findingCount} findings, ${result.errors.length} rule errors`,
+        `Risk scan finished for org ${orgId}: ` +
+          `L1 ${l1Result.findingCount} findings (${l1Result.errors.length} errs), ` +
+          `L2 ${l2Result.findingCount} findings (${l2Result.errors.length} errs)`,
       );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

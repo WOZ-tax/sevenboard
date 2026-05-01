@@ -1,4 +1,5 @@
 import { Module, forwardRef } from '@nestjs/common';
+import { HttpModule } from '@nestjs/axios';
 import { AuthModule } from '../auth/auth.module';
 import { MfModule } from '../mf/mf.module';
 import { AgentRunsModule } from '../agent-runs/agent-runs.module';
@@ -32,6 +33,14 @@ import {
   TAX_RULE_PROVIDERS,
   TAX_RULE_TOKENS,
 } from './risk-rules/rules/tax';
+import {
+  STATS_RULE_PROVIDERS,
+  STATS_RULE_TOKENS,
+} from './risk-rules/rules/stats';
+import {
+  LLM_RULE_PROVIDERS,
+  LLM_RULE_TOKENS,
+} from './risk-rules/rules/llm';
 import type { RiskRule } from './risk-rules/types';
 
 /**
@@ -48,6 +57,7 @@ import type { RiskRule } from './risk-rules/types';
   // AuthModule → MfModule 経由の循環ループに含まれる可能性があるため forwardRef
   imports: [
     forwardRef(() => AuthModule),
+    HttpModule,
     MfModule,
     AgentRunsModule,
     MonthlyCloseModule,
@@ -62,6 +72,8 @@ import type { RiskRule } from './risk-rules/types';
     ...PERIOD_COMPARISON_RULE_PROVIDERS,
     ...LOAN_RULE_PROVIDERS,
     ...TAX_RULE_PROVIDERS,
+    ...STATS_RULE_PROVIDERS,
+    ...LLM_RULE_PROVIDERS,
     {
       provide: RISK_RULES_L1,
       useFactory: (...rules: RiskRule[]) => rules,
@@ -73,8 +85,16 @@ import type { RiskRule } from './risk-rules/types';
         ...TAX_RULE_TOKENS,
       ],
     },
-    { provide: RISK_RULES_L2, useValue: [] },
-    { provide: RISK_RULES_L3, useValue: [] },
+    {
+      provide: RISK_RULES_L2,
+      useFactory: (...rules: RiskRule[]) => rules,
+      inject: STATS_RULE_TOKENS,
+    },
+    {
+      provide: RISK_RULES_L3,
+      useFactory: (...rules: RiskRule[]) => rules,
+      inject: LLM_RULE_TOKENS,
+    },
   ],
   exports: [SentinelService, RiskScanOrchestrator],
 })
