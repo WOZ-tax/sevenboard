@@ -130,7 +130,7 @@ export default function AccountingReviewPage() {
 
   return (
     <DashboardShell>
-      <div className="space-y-4">
+      <div className="mx-auto w-full max-w-[1200px] space-y-4">
         {/* 印刷専用ヘッダー */}
         <div className="print-only" data-print-block>
           <h1 className="text-xl font-bold">会計レビュー報告書</h1>
@@ -458,7 +458,7 @@ function HealthSummaryCard({
     refreshMutation.isPending && refreshMutation.variables === true;
 
   return (
-    <Card className="screen-only mx-auto w-full max-w-[1200px]">
+    <Card className="screen-only">
       <CardHeader className="flex flex-row items-center justify-between pb-2">
         <CardTitle className="text-base font-semibold text-[var(--color-text-primary)]">
           健康サマリー
@@ -508,76 +508,73 @@ function HealthSummaryCard({
           </div>
         ) : (
           <div className="space-y-4">
-            {/* スコア & 内訳バー (md 以上で左右分割。モバイルは縦積み) */}
-            <div className="grid gap-6 md:grid-cols-[300px_1fr]">
-              {/* 左: 巨大スコアカード */}
-              <div className="flex flex-col items-center justify-center rounded-md border bg-muted/10 px-6 py-5">
-                <div className="text-xs font-medium text-muted-foreground">
-                  健康スコア
+            {/* 上段: 左 (スコア + 3バー縦積み) | 右 (レーダー) */}
+            <div className="grid gap-6 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+              {/* 左カラム: スコアカード + 3 バー縦積み */}
+              <div className="space-y-4">
+                <div className="flex flex-col items-center justify-center rounded-md border bg-muted/10 px-6 py-5">
+                  <div className="text-xs font-medium text-muted-foreground">
+                    健康スコア
+                  </div>
+                  <div className="mt-1 flex items-baseline gap-2">
+                    <span
+                      className={cn(
+                        "text-7xl font-bold tabular-nums leading-none",
+                        data.score >= 75
+                          ? "text-[var(--color-success)]"
+                          : data.score >= 50
+                            ? "text-amber-600"
+                            : "text-red-600",
+                      )}
+                    >
+                      {data.score}
+                    </span>
+                    <span className="text-lg text-muted-foreground">/100</span>
+                  </div>
+                  {delta !== null && (
+                    <span
+                      className={cn(
+                        "mt-2 text-sm font-medium",
+                        delta > 0
+                          ? "text-[var(--color-success)]"
+                          : delta < 0
+                            ? "text-red-600"
+                            : "text-muted-foreground",
+                      )}
+                    >
+                      {delta > 0 ? "↑" : delta < 0 ? "↓" : "→"}
+                      前月比 {delta > 0 ? "+" : ""}
+                      {delta} pt
+                    </span>
+                  )}
                 </div>
-                <div className="mt-1 flex items-baseline gap-2">
-                  <span
-                    className={cn(
-                      "text-7xl font-bold tabular-nums leading-none",
-                      data.score >= 75
-                        ? "text-[var(--color-success)]"
-                        : data.score >= 50
-                          ? "text-amber-600"
-                          : "text-red-600",
-                    )}
-                  >
-                    {data.score}
-                  </span>
-                  <span className="text-lg text-muted-foreground">/100</span>
+                <div className="space-y-3">
+                  <BreakdownBar
+                    label="活動性"
+                    sublabel="収益性"
+                    value={data.breakdown.activity}
+                    max={40}
+                    color="bg-emerald-500"
+                  />
+                  <BreakdownBar
+                    label="安全性"
+                    sublabel="財務体質"
+                    value={data.breakdown.safety}
+                    max={40}
+                    color="bg-blue-500"
+                  />
+                  <BreakdownBar
+                    label="効率性"
+                    sublabel="資産活用"
+                    value={data.breakdown.efficiency}
+                    max={20}
+                    color="bg-purple-500"
+                  />
                 </div>
-                {delta !== null && (
-                  <span
-                    className={cn(
-                      "mt-2 text-sm font-medium",
-                      delta > 0
-                        ? "text-[var(--color-success)]"
-                        : delta < 0
-                          ? "text-red-600"
-                          : "text-muted-foreground",
-                    )}
-                  >
-                    {delta > 0 ? "↑" : delta < 0 ? "↓" : "→"}
-                    前月比 {delta > 0 ? "+" : ""}
-                    {delta} pt
-                  </span>
-                )}
               </div>
 
-              {/* 右: 3 バー縦積み (各バー max-w-[400px]) */}
-              <div className="flex flex-col justify-center space-y-3 md:max-w-[400px]">
-                <BreakdownBar
-                  label="活動性"
-                  sublabel="収益性"
-                  value={data.breakdown.activity}
-                  max={40}
-                  color="bg-emerald-500"
-                />
-                <BreakdownBar
-                  label="安全性"
-                  sublabel="財務体質"
-                  value={data.breakdown.safety}
-                  max={40}
-                  color="bg-blue-500"
-                />
-                <BreakdownBar
-                  label="効率性"
-                  sublabel="資産活用"
-                  value={data.breakdown.efficiency}
-                  max={20}
-                  color="bg-purple-500"
-                />
-              </div>
-            </div>
-
-            {/* スコア内訳 (8 指標): レーダーチャート + 右側リスト */}
-            <div className="grid gap-8 rounded-md border bg-muted/10 p-4 lg:grid-cols-[400px_1fr]">
-              {/* 左: 8 軸レーダーチャート */}
-              <div>
+              {/* 右カラム: 8 軸レーダーチャート */}
+              <div className="rounded-md border bg-muted/10 p-3">
                 <div className="mb-1 text-[11px] font-medium text-muted-foreground">
                   バランス図 (各指標の達成度 %)
                 </div>
@@ -616,9 +613,14 @@ function HealthSummaryCard({
                   </ResponsiveContainer>
                 </div>
               </div>
+            </div>
 
-              {/* 右: 8 指標の値・スコア・ヒント */}
-              <div className="space-y-3">
+            {/* 下段: 8 指標の値・スコア・ヒント (フル幅、3 列で並べる) */}
+            <div className="rounded-md border bg-muted/10 p-4">
+              <div className="mb-2 text-[11px] font-medium text-muted-foreground">
+                スコアの根拠 (8 指標の内訳)
+              </div>
+              <div className="grid gap-4 md:grid-cols-3">
                 {(["activity", "safety", "efficiency"] as const).map(
                   (group) => {
                     const items = HEALTH_SCORE_DETAIL_META.filter(
