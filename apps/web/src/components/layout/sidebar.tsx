@@ -33,9 +33,9 @@ import {
 
 const menuItems = [
   { label: "ダッシュボード", href: "/", icon: Home },
-  { label: "月次レビュー", href: "/monthly-review", icon: ClipboardCheck },
+  { label: "AI CFO", href: "/cfo", icon: Bot },
+  { label: "会計レビュー", href: "/accounting-review", icon: ClipboardCheck },
   { label: "財務指標", href: "/indicators", icon: Gauge },
-  { label: "AI CFOレポート", href: "/ai-report", icon: Bot },
   { label: "財務諸表", href: "/financial-statements", icon: FileText },
   { label: "資金繰り", href: "/cashflow", icon: Wallet },
   { label: "資金調達レポート", href: "/funding-report", icon: FileBarChart },
