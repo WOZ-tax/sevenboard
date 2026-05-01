@@ -458,7 +458,7 @@ function HealthSummaryCard({
     refreshMutation.isPending && refreshMutation.variables === true;
 
   return (
-    <Card className="screen-only">
+    <Card className="screen-only mx-auto w-full max-w-[1200px]">
       <CardHeader className="flex flex-row items-center justify-between pb-2">
         <CardTitle className="text-base font-semibold text-[var(--color-text-primary)]">
           健康サマリー
@@ -508,14 +508,17 @@ function HealthSummaryCard({
           </div>
         ) : (
           <div className="space-y-4">
-            {/* スコア & 前月比 */}
-            <div className="flex items-center gap-6">
-              <div>
-                <div className="text-xs text-muted-foreground">健康スコア</div>
-                <div className="mt-0.5 flex items-baseline gap-2">
+            {/* スコア & 内訳バー (md 以上で左右分割。モバイルは縦積み) */}
+            <div className="grid gap-6 md:grid-cols-[300px_1fr]">
+              {/* 左: 巨大スコアカード */}
+              <div className="flex flex-col items-center justify-center rounded-md border bg-muted/10 px-6 py-5">
+                <div className="text-xs font-medium text-muted-foreground">
+                  健康スコア
+                </div>
+                <div className="mt-1 flex items-baseline gap-2">
                   <span
                     className={cn(
-                      "text-4xl font-bold tabular-nums",
+                      "text-7xl font-bold tabular-nums leading-none",
                       data.score >= 75
                         ? "text-[var(--color-success)]"
                         : data.score >= 50
@@ -525,27 +528,28 @@ function HealthSummaryCard({
                   >
                     {data.score}
                   </span>
-                  <span className="text-sm text-muted-foreground">/100</span>
-                  {delta !== null && (
-                    <span
-                      className={cn(
-                        "text-xs font-medium",
-                        delta > 0
-                          ? "text-[var(--color-success)]"
-                          : delta < 0
-                            ? "text-red-600"
-                            : "text-muted-foreground",
-                      )}
-                    >
-                      {delta > 0 ? "↑" : delta < 0 ? "↓" : "→"}
-                      {delta > 0 ? "+" : ""}
-                      {delta} pt
-                    </span>
-                  )}
+                  <span className="text-lg text-muted-foreground">/100</span>
                 </div>
+                {delta !== null && (
+                  <span
+                    className={cn(
+                      "mt-2 text-sm font-medium",
+                      delta > 0
+                        ? "text-[var(--color-success)]"
+                        : delta < 0
+                          ? "text-red-600"
+                          : "text-muted-foreground",
+                    )}
+                  >
+                    {delta > 0 ? "↑" : delta < 0 ? "↓" : "→"}
+                    前月比 {delta > 0 ? "+" : ""}
+                    {delta} pt
+                  </span>
+                )}
               </div>
 
-              <div className="flex flex-1 gap-4">
+              {/* 右: 3 バー縦積み (各バー max-w-[400px]) */}
+              <div className="flex flex-col justify-center space-y-3 md:max-w-[400px]">
                 <BreakdownBar
                   label="活動性"
                   sublabel="収益性"
@@ -571,13 +575,13 @@ function HealthSummaryCard({
             </div>
 
             {/* スコア内訳 (8 指標): レーダーチャート + 右側リスト */}
-            <div className="grid gap-4 rounded-md border bg-muted/10 p-3 lg:grid-cols-[280px_1fr]">
+            <div className="grid gap-8 rounded-md border bg-muted/10 p-4 lg:grid-cols-[400px_1fr]">
               {/* 左: 8 軸レーダーチャート */}
               <div>
                 <div className="mb-1 text-[11px] font-medium text-muted-foreground">
                   バランス図 (各指標の達成度 %)
                 </div>
-                <div className="h-[260px] w-full">
+                <div className="h-[320px] w-full">
                   <ResponsiveContainer width="100%" height="100%">
                     <RadarChart
                       data={HEALTH_SCORE_DETAIL_META.map((meta) => {
@@ -752,15 +756,22 @@ function ScoreDetailRow({
         : "text-red-600";
   return (
     <div className="text-xs">
-      <div className="flex items-baseline gap-2">
-        <span className="flex-1 truncate text-[var(--color-text-primary)]">
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="truncate text-[var(--color-text-primary)]">
           {label}
         </span>
-        <span className="font-medium tabular-nums">{indicatorValue}</span>
-        <span className={cn("w-14 text-right font-medium tabular-nums", scoreColor)}>
-          {score.toFixed(1)}
-          <span className="text-muted-foreground/70">/{max}</span>
-        </span>
+        <div className="flex shrink-0 items-baseline gap-3">
+          <span className="font-medium tabular-nums">{indicatorValue}</span>
+          <span
+            className={cn(
+              "min-w-[52px] text-right font-medium tabular-nums",
+              scoreColor,
+            )}
+          >
+            {score.toFixed(1)}
+            <span className="text-muted-foreground/70">/{max}</span>
+          </span>
+        </div>
       </div>
       <div className="text-[10px] text-muted-foreground/80">{hint}</div>
     </div>
