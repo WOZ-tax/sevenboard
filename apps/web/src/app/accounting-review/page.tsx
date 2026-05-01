@@ -582,7 +582,7 @@ function HealthSummaryCard({
               {/* 右カラム: 8 軸レーダーチャート (左カードと高さ揃え) */}
               <div className="flex h-full flex-col rounded-md border bg-muted/10 p-3">
                 <div className="mb-1 text-[11px] font-medium text-muted-foreground">
-                  バランス図 (各指標の達成度 %)
+                  レーダーチャート (各指標の達成度 %)
                 </div>
                 <div className="min-h-[320px] w-full flex-1">
                   <ResponsiveContainer width="100%" height="100%">
