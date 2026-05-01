@@ -28,9 +28,13 @@ import { CopilotOpenButton } from "@/components/copilot/copilot-open-button";
 import { ActionizeButton } from "@/components/ui/actionize-button";
 import { ThinkingIndicator } from "@/components/ai/thinking-indicator";
 import {
-  ChevronDown,
-  ChevronUp,
-} from "lucide-react";
+  Radar,
+  RadarChart,
+  PolarGrid,
+  PolarAngleAxis,
+  PolarRadiusAxis,
+  ResponsiveContainer,
+} from "recharts";
 import type {
   KintoneMonthlyProgress,
   ReviewAlert,
@@ -427,7 +431,6 @@ function HealthSummaryCard({
 }) {
   const queryClient = useQueryClient();
   const enabled = !!orgId && !!fiscalYear && !!month;
-  const [showDetail, setShowDetail] = useState(false);
 
   const snapshotQuery = useQuery({
     queryKey: ["health-snapshot", orgId, fiscalYear, month],
@@ -567,55 +570,81 @@ function HealthSummaryCard({
               </div>
             </div>
 
-            {/* スコア内訳 (8 指標) — 折りたたみ式 */}
-            <div>
-              <button
-                type="button"
-                onClick={() => setShowDetail((s) => !s)}
-                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-[var(--color-text-primary)]"
-              >
-                {showDetail ? (
-                  <ChevronUp className="h-3 w-3" />
-                ) : (
-                  <ChevronDown className="h-3 w-3" />
-                )}
-                スコアの根拠を見る (8 指標の内訳)
-              </button>
-              {showDetail && (
-                <div className="mt-2 space-y-3 rounded-md border bg-muted/20 p-3">
-                  {(["activity", "safety", "efficiency"] as const).map(
-                    (group) => {
-                      const items = HEALTH_SCORE_DETAIL_META.filter(
-                        (m) => m.group === group,
-                      );
-                      const groupLabel = items[0]?.groupLabel ?? "";
-                      return (
-                        <div key={group}>
-                          <div className="mb-1 text-[11px] font-medium text-muted-foreground">
-                            {groupLabel}
-                          </div>
-                          <div className="space-y-1.5">
-                            {items.map((meta) => (
-                              <ScoreDetailRow
-                                key={meta.detailKey}
-                                label={meta.label}
-                                hint={meta.hint}
-                                indicatorValue={meta.format(
-                                  data.indicators[meta.indicatorKey] ?? 0,
-                                )}
-                                score={
-                                  data.breakdown.detail[meta.detailKey] ?? 0
-                                }
-                                max={meta.max}
-                              />
-                            ))}
-                          </div>
-                        </div>
-                      );
-                    },
-                  )}
+            {/* スコア内訳 (8 指標): レーダーチャート + 右側リスト */}
+            <div className="grid gap-4 rounded-md border bg-muted/10 p-3 lg:grid-cols-[280px_1fr]">
+              {/* 左: 8 軸レーダーチャート */}
+              <div>
+                <div className="mb-1 text-[11px] font-medium text-muted-foreground">
+                  バランス図 (各指標の達成度 %)
                 </div>
-              )}
+                <div className="h-[260px] w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <RadarChart
+                      data={HEALTH_SCORE_DETAIL_META.map((meta) => {
+                        const score =
+                          data.breakdown.detail[meta.detailKey] ?? 0;
+                        return {
+                          axis: meta.label.replace(/\s.*$/, ""),
+                          value: Math.max(0, Math.min(100, (score / meta.max) * 100)),
+                        };
+                      })}
+                      outerRadius="78%"
+                    >
+                      <PolarGrid stroke="var(--color-border)" />
+                      <PolarAngleAxis
+                        dataKey="axis"
+                        tick={{ fontSize: 10, fill: "var(--color-text-secondary)" }}
+                      />
+                      <PolarRadiusAxis
+                        angle={90}
+                        domain={[0, 100]}
+                        tick={false}
+                        axisLine={false}
+                      />
+                      <Radar
+                        name="達成度"
+                        dataKey="value"
+                        stroke="var(--color-primary)"
+                        fill="var(--color-primary)"
+                        fillOpacity={0.3}
+                      />
+                    </RadarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              {/* 右: 8 指標の値・スコア・ヒント */}
+              <div className="space-y-3">
+                {(["activity", "safety", "efficiency"] as const).map(
+                  (group) => {
+                    const items = HEALTH_SCORE_DETAIL_META.filter(
+                      (m) => m.group === group,
+                    );
+                    const groupLabel = items[0]?.groupLabel ?? "";
+                    return (
+                      <div key={group}>
+                        <div className="mb-1 text-[11px] font-medium text-muted-foreground">
+                          {groupLabel}
+                        </div>
+                        <div className="space-y-1.5">
+                          {items.map((meta) => (
+                            <ScoreDetailRow
+                              key={meta.detailKey}
+                              label={meta.label}
+                              hint={meta.hint}
+                              indicatorValue={meta.format(
+                                data.indicators[meta.indicatorKey] ?? 0,
+                              )}
+                              score={data.breakdown.detail[meta.detailKey] ?? 0}
+                              max={meta.max}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  },
+                )}
+              </div>
             </div>
 
             {/* AI 質問 5 問 */}
@@ -698,10 +727,8 @@ function BreakdownBar({
 }
 
 /**
- * 健康スコアの 1 指標を 1 行で表示する内訳行。
- *
- * "営業利益率   8.5%   12.8/15  [bar]   10% 以上で満点"
- * の形式でユーザーが「なぜこのスコアなのか」を理解できるようにする。
+ * 健康スコアの 1 指標を 1 行で表示する内訳行 (レーダー右側のリスト用)。
+ * label・実値・スコア・bar・ヒントをコンパクトに 2 行で。
  */
 function ScoreDetailRow({
   label,
@@ -721,28 +748,23 @@ function ScoreDetailRow({
   const barColor =
     ratio >= 0.75 ? "bg-emerald-500" : ratio >= 0.5 ? "bg-amber-500" : "bg-red-500";
   return (
-    <div className="grid grid-cols-12 items-center gap-2 text-xs">
-      <div className="col-span-4 truncate text-[var(--color-text-primary)]">
-        {label}
+    <div className="text-xs">
+      <div className="flex items-center gap-2">
+        <span className="flex-1 truncate text-[var(--color-text-primary)]">
+          {label}
+        </span>
+        <span className="font-medium tabular-nums">{indicatorValue}</span>
+        <span className="w-14 text-right text-muted-foreground tabular-nums">
+          {score.toFixed(1)}
+          <span className="text-muted-foreground/70">/{max}</span>
+        </span>
       </div>
-      <div className="col-span-2 text-right font-medium tabular-nums">
-        {indicatorValue}
-      </div>
-      <div className="col-span-2 text-right text-muted-foreground tabular-nums">
-        {score.toFixed(1)}
-        <span className="text-muted-foreground/70">/{max}</span>
-      </div>
-      <div className="col-span-4 flex items-center gap-2">
-        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
-          <div
-            className={cn("h-full", barColor)}
-            style={{ width: `${pct}%` }}
-          />
+      <div className="mt-0.5 flex items-center gap-2">
+        <div className="h-1 flex-1 overflow-hidden rounded-full bg-muted">
+          <div className={cn("h-full", barColor)} style={{ width: `${pct}%` }} />
         </div>
       </div>
-      <div className="col-span-12 -mt-1 text-[10px] text-muted-foreground/80">
-        {hint}
-      </div>
+      <div className="mt-0.5 text-[10px] text-muted-foreground/80">{hint}</div>
     </div>
   );
 }
