@@ -1,18 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  CartesianGrid,
-  Legend,
-  Line,
-  LineChart,
-  ReferenceLine,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
-import { useIsClient } from "@/hooks/use-is-client";
 import { useMfPL, useMfOffice } from "@/hooks/use-mf-data";
 import { useScopedOrgId } from "@/hooks/use-scoped-org-id";
 import { usePeriodStore } from "@/lib/period-store";
@@ -69,7 +57,6 @@ const fmtComma = (n: number): string =>
   Number.isFinite(n) ? Math.round(n).toLocaleString() : "0";
 
 export function ExecCompSimulatorSection() {
-  const isClient = useIsClient();
   const office = useMfOffice();
   const pl = useMfPL();
   const orgId = useScopedOrgId();
@@ -176,29 +163,31 @@ export function ExecCompSimulatorSection() {
   const result = useMemo(() => simulate(simInput), [simInput]);
   const optimal = useMemo(() => findOptimalMonthlyComp(simInput), [simInput]);
 
-  const chartData = useMemo(() => {
-    const data: Array<{ comp: number; total: number; corp: number; personal: number }> = [];
-    // 利益(役員報酬付加前)の月額容量。黒字時はこれを上限にして「報酬を増やすほど何が起きるか」を見る。
-    const monthlyProfitCapacity = Math.ceil(
-      (simInput.revenueManYen - simInput.expensesManYen) / 12,
-    );
-    // 赤字 (capacity ≤ 0) で 0 になるとグラフが潰れる。
-    // 現在の役員報酬月額を中心に ±50% 程度の範囲を確保し、最低でも 50 万円までは描画する。
-    const fallbackMax = Math.max(
-      50,
-      Math.ceil(simInput.monthlyCompManYen * 1.5),
-    );
-    const max = Math.min(
-      500,
-      monthlyProfitCapacity > 0 ? monthlyProfitCapacity : fallbackMax,
-    );
-    const step = Math.max(5, Math.ceil(max / 30));
-    for (let m = 0; m <= max; m += step) {
-      const r = simulate({ ...simInput, monthlyCompManYen: m });
-      data.push({ comp: m, total: r.totalNet, corp: r.corpNetProfit, personal: r.personalNet });
-    }
-    return data;
-  }, [simInput]);
+  // 増減シナリオの幅 (%)。10 / 20 / 30 から選択可。デフォルト 20。
+  const [scenarioPct, setScenarioPct] = useState<10 | 20 | 30>(20);
+
+  const scenarios = useMemo(() => {
+    const current = simInput.monthlyCompManYen;
+    const decrease = Math.max(0, Math.round(current * (1 - scenarioPct / 100)));
+    const increase = Math.round(current * (1 + scenarioPct / 100));
+    return {
+      decrease: {
+        label: `−${scenarioPct}%`,
+        monthlyComp: decrease,
+        result: simulate({ ...simInput, monthlyCompManYen: decrease }),
+      },
+      current: {
+        label: "現状維持",
+        monthlyComp: current,
+        result,
+      },
+      increase: {
+        label: `+${scenarioPct}%`,
+        monthlyComp: increase,
+        result: simulate({ ...simInput, monthlyCompManYen: increase }),
+      },
+    };
+  }, [simInput, scenarioPct, result]);
 
   void office;
 
@@ -268,45 +257,40 @@ export function ExecCompSimulatorSection() {
         <div className="space-y-3">
           <ResultCards r={result} />
 
-          <SimCard title="報酬月額別シミュレーション" pad={false}>
-            <div className="h-72 w-full p-3">
-              {isClient && (
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={chartData} margin={{ top: 8, right: 16, bottom: 4, left: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                    <XAxis
-                      dataKey="comp"
-                      tickFormatter={(v) =>
-                        v >= 100 ? `${(v / 100).toFixed(1)}百万` : `${v}万`
-                      }
-                      stroke="#64748b"
-                      fontSize={11}
-                    />
-                    <YAxis
-                      tickFormatter={(v) =>
-                        v >= 1000 ? `${(v / 1000).toFixed(1)}千万` : `${v}万`
-                      }
-                      stroke="#64748b"
-                      fontSize={11}
-                    />
-                    <Tooltip
-                      formatter={(v) => formatYenFromManYen(typeof v === "number" ? v : 0)}
-                      labelFormatter={(v) => `月額${v}万円`}
-                      contentStyle={{ fontSize: "12px" }}
-                    />
-                    <Legend wrapperStyle={{ fontSize: "11px" }} />
-                    <ReferenceLine
-                      x={optimal.monthlyComp}
-                      stroke="#059669"
-                      strokeDasharray="3 3"
-                      label={{ value: "最適", fontSize: 10, fill: "#059669" }}
-                    />
-                    <Line dataKey="total" name="トータル手残り" stroke="#059669" strokeWidth={2} dot={false} />
-                    <Line dataKey="corp" name="法人税引後" stroke="#2563eb" strokeWidth={1.5} dot={false} />
-                    <Line dataKey="personal" name="個人手取り" stroke="#7c3aed" strokeWidth={1.5} dot={false} />
-                  </LineChart>
-                </ResponsiveContainer>
-              )}
+          <SimCard title="増減シナリオ比較" pad>
+            <div className="space-y-3">
+              {/* 増減幅の選択 */}
+              <div className="flex items-center gap-2 text-xs">
+                <span className="text-muted-foreground">増減幅:</span>
+                {([10, 20, 30] as const).map((pct) => {
+                  const selected = scenarioPct === pct;
+                  return (
+                    <button
+                      key={pct}
+                      type="button"
+                      onClick={() => setScenarioPct(pct)}
+                      className={cn(
+                        "rounded-full border px-3 py-1 font-medium transition-colors",
+                        selected
+                          ? "border-[var(--color-primary)] bg-[var(--color-primary)]/10 text-[var(--color-primary)]"
+                          : "border-input text-muted-foreground hover:bg-muted/50",
+                      )}
+                    >
+                      ±{pct}%
+                    </button>
+                  );
+                })}
+                <span className="ml-auto text-muted-foreground">
+                  最適水準: 月 {optimal.monthlyComp} 万 (参考)
+                </span>
+              </div>
+
+              {/* 3 シナリオカード横並び */}
+              <div className="grid gap-3 md:grid-cols-3">
+                <ScenarioCard scenario={scenarios.decrease} tone="decrease" />
+                <ScenarioCard scenario={scenarios.current} tone="current" />
+                <ScenarioCard scenario={scenarios.increase} tone="increase" />
+              </div>
             </div>
           </SimCard>
 
@@ -323,6 +307,70 @@ export function ExecCompSimulatorSection() {
 }
 
 // ---------- Sub Components ----------
+
+/**
+ * 役員報酬の増減シナリオを 1 カードで表示。
+ * 月額・年額 / 合計手残り (大) / 法人手取り + 個人手取り の構成。
+ * tone="current" は現状維持カードで、青枠でハイライト。
+ */
+function ScenarioCard({
+  scenario,
+  tone,
+}: {
+  scenario: {
+    label: string;
+    monthlyComp: number;
+    result: SimulationResult;
+  };
+  tone: "decrease" | "current" | "increase";
+}) {
+  const { label, monthlyComp, result: r } = scenario;
+  const annualComp = monthlyComp * 12;
+
+  const toneClass =
+    tone === "current"
+      ? "border-[var(--color-primary)] bg-[var(--color-primary)]/5 ring-1 ring-[var(--color-primary)]/30"
+      : "border-input bg-muted/10";
+  const labelClass =
+    tone === "current"
+      ? "text-[var(--color-primary)]"
+      : tone === "decrease"
+        ? "text-amber-600"
+        : "text-emerald-600";
+
+  return (
+    <div className={cn("rounded-md border p-3", toneClass)}>
+      <div className="flex items-baseline justify-between">
+        <span className={cn("text-xs font-bold", labelClass)}>{label}</span>
+        <span className="text-[10px] text-muted-foreground">
+          月額 {monthlyComp} 万 / 年 {annualComp} 万
+        </span>
+      </div>
+
+      <div className="mt-3 border-t pt-2">
+        <div className="text-[10px] text-muted-foreground">合計手残り</div>
+        <div className="mt-0.5 text-2xl font-bold tabular-nums text-[var(--color-text-primary)]">
+          {formatYenFromManYen(r.totalNet)}
+        </div>
+      </div>
+
+      <div className="mt-2 space-y-1 text-[11px]">
+        <div className="flex items-baseline justify-between">
+          <span className="text-muted-foreground">法人手取り</span>
+          <span className="font-medium tabular-nums">
+            {formatYenFromManYen(r.corpNetProfit)}
+          </span>
+        </div>
+        <div className="flex items-baseline justify-between">
+          <span className="text-muted-foreground">個人手取り</span>
+          <span className="font-medium tabular-nums">
+            {formatYenFromManYen(r.personalNet)}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function SimCard({ title, children, pad = true }: { title: string; children: React.ReactNode; pad?: boolean }) {
   return (
