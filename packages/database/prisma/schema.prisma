@@ -13,26 +13,36 @@ datasource db {
 // ============================================================
 
 model Organization {
-  id                   String   @id @default(uuid()) @db.Uuid
-  tenantId             String   @map("tenant_id") @db.Uuid
+  id                   String    @id @default(uuid()) @db.Uuid
+  tenantId             String    @map("tenant_id") @db.Uuid
   name                 String
-  code                 String?  @unique // 事業者コード（MF連携用）
-  fiscalMonthEnd       Int      @default(3) @map("fiscal_month_end") // 決算月（1-12）
+  code                 String?   @unique // 事業者コード（MF連携用）
+  fiscalMonthEnd       Int       @default(3) @map("fiscal_month_end") // 決算月（1-12）
   industry             String?
-  employeeCount        Int?     @map("employee_count")
-  planType             PlanType @default(STARTER) @map("plan_type")
-  aiOptOut             Boolean  @default(false) @map("ai_opt_out") // AI機能オプトアウト
+  employeeCount        Int?      @map("employee_count")
+  planType             PlanType  @default(STARTER) @map("plan_type")
+  aiOptOut             Boolean   @default(false) @map("ai_opt_out") // AI機能オプトアウト
   /// 原価計算を運用しているか。false（既定）= 売上原価が信頼できない前提。
   /// 中小企業では原価計算を行っていないケースが多く、その場合 grossProfitMargin（売上総利益率）は
   /// 実態と乖離するため、UI / AI レポートともに参照を控える。
   /// 顧問先ごとに owner / advisor がトグルできる。
-  usesCostAccounting   Boolean  @default(false) @map("uses_cost_accounting")
-  briefPushEnabled     Boolean  @default(false) @map("brief_push_enabled")
-  briefPushHourJst     Int      @default(8) @map("brief_push_hour_jst") // 0-23
-  briefSlackWebhookUrl String?  @map("brief_slack_webhook_url")
-  cashflowCertainty    Json?    @map("cashflow_certainty") // Record<category, "CONFIRMED"|"PLANNED"|"ESTIMATED">
-  createdAt            DateTime @default(now()) @map("created_at")
-  updatedAt            DateTime @updatedAt @map("updated_at")
+  usesCostAccounting   Boolean   @default(false) @map("uses_cost_accounting")
+  briefPushEnabled     Boolean   @default(false) @map("brief_push_enabled")
+  briefPushHourJst     Int       @default(8) @map("brief_push_hour_jst") // 0-23
+  briefSlackWebhookUrl String?   @map("brief_slack_webhook_url")
+  /// 公開 HP の URL。AI CFO が事業理解のために参照する。
+  websiteUrl           String?   @map("website_url")
+  /// 業種だけでは表現できない経営コンテキスト (自由記述)。
+  /// AI 質問生成・L3 LLM 検知・将来 Copilot の system prompt に注入する。
+  businessContext      String?   @map("business_context")
+  contextUpdatedAt     DateTime? @map("context_updated_at")
+  contextUpdatedById   String?   @map("context_updated_by_id") @db.Uuid
+  /// kintone 顧客基本情報から取り込みボタンで prefill した最終時刻。
+  /// null = 一度も取り込んでいない (or kintone 連携なし)。
+  kintoneSyncedAt      DateTime? @map("kintone_synced_at")
+  cashflowCertainty    Json?     @map("cashflow_certainty") // Record<category, "CONFIRMED"|"PLANNED"|"ESTIMATED">
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
 
   tenant                 Tenant                     @relation(fields: [tenantId], references: [id])
   departments            Department[]

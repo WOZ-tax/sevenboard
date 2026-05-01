@@ -15,6 +15,7 @@ import { RequirePermission } from '../auth/require-permission.decorator';
 import { HealthSnapshotsService } from './health-snapshots.service';
 import { HealthQuestionsService } from './health-questions.service';
 import { RefreshHealthSnapshotDto } from './dto/refresh.dto';
+import { PrismaService } from '../prisma/prisma.service';
 
 /**
  * 会計レビュー画面 ① 健康サマリーの API。
@@ -30,6 +31,7 @@ export class HealthSnapshotsController {
   constructor(
     private snapshots: HealthSnapshotsService,
     private questions: HealthQuestionsService,
+    private prisma: PrismaService,
   ) {}
 
   @Get('latest')
@@ -74,6 +76,12 @@ export class HealthSnapshotsController {
       return saved;
     }
 
+    // 会社情報を取得して AI prompt に注入
+    const org = await this.prisma.organization.findUnique({
+      where: { id: orgId },
+      select: { industry: true, websiteUrl: true, businessContext: true },
+    });
+
     // AI 質問生成 (LLM コール)
     const questions = await this.questions.generate({
       fiscalYear: dto.fiscalYear,
@@ -82,6 +90,9 @@ export class HealthSnapshotsController {
       prevScore: saved.prevScore,
       breakdown: saved.breakdown,
       indicators: saved.indicators,
+      industry: org?.industry ?? null,
+      websiteUrl: org?.websiteUrl ?? null,
+      businessContext: org?.businessContext ?? null,
     });
     return this.snapshots.updateAiQuestions(
       orgId,

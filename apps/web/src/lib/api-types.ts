@@ -51,6 +51,14 @@ export interface Organization {
    * 中小企業で原価計算をしていないケースに合わせて UI / AI コメントを切替える。
    */
   usesCostAccounting: boolean;
+  /** 公開 HP URL (AI CFO の事業理解に使う) */
+  websiteUrl: string | null;
+  /** 経営コンテキスト (自由記述、AI prompt に注入される) */
+  businessContext: string | null;
+  contextUpdatedAt: string | null;
+  contextUpdatedById: string | null;
+  /** kintone から最後に prefill した時刻 */
+  kintoneSyncedAt: string | null;
   createdAt: string;
   updatedAt: string;
   departments: DepartmentMaster[];

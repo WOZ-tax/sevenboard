@@ -26,6 +26,11 @@ import { AgentBanner } from "@/components/agent/agent-banner";
 import { AGENTS } from "@/lib/agent-voice";
 import { CopilotOpenButton } from "@/components/copilot/copilot-open-button";
 import { ActionizeButton } from "@/components/ui/actionize-button";
+import { ThinkingIndicator } from "@/components/ai/thinking-indicator";
+import {
+  ChevronDown,
+  ChevronUp,
+} from "lucide-react";
 import type {
   KintoneMonthlyProgress,
   ReviewAlert,
@@ -307,11 +312,108 @@ export default function AccountingReviewPage() {
 }
 
 /**
+ * 健康スコア 8 指標の表示用メタデータ。
+ * health-score-calculator.ts のロジックに合わせて、満点条件をユーザー向けに翻訳する。
+ */
+const HEALTH_SCORE_DETAIL_META: Array<{
+  group: "activity" | "safety" | "efficiency";
+  groupLabel: string;
+  detailKey: keyof import("@/lib/api").HealthScoreBreakdownDetail;
+  indicatorKey: keyof import("@/lib/api").HealthFinancialIndicators;
+  label: string;
+  max: number;
+  hint: string;
+  format: (v: number) => string;
+}> = [
+  {
+    group: "activity",
+    groupLabel: "活動性 (収益性)",
+    detailKey: "operatingProfitMargin",
+    indicatorKey: "operatingProfitMargin",
+    label: "営業利益率",
+    max: 15,
+    hint: "10% 以上で満点。中小企業は 5% で標準",
+    format: (v) => `${v.toFixed(1)}%`,
+  },
+  {
+    group: "activity",
+    groupLabel: "活動性 (収益性)",
+    detailKey: "roe",
+    indicatorKey: "roe",
+    label: "ROE (自己資本利益率)",
+    max: 15,
+    hint: "15% 以上で満点。投資家評価の目安",
+    format: (v) => `${v.toFixed(1)}%`,
+  },
+  {
+    group: "activity",
+    groupLabel: "活動性 (収益性)",
+    detailKey: "roa",
+    indicatorKey: "roa",
+    label: "ROA (総資産利益率)",
+    max: 10,
+    hint: "5% 以上で満点。資産効率の目安",
+    format: (v) => `${v.toFixed(1)}%`,
+  },
+  {
+    group: "safety",
+    groupLabel: "安全性 (財務体質)",
+    detailKey: "currentRatio",
+    indicatorKey: "currentRatio",
+    label: "流動比率",
+    max: 15,
+    hint: "200% 以上で満点。100% を割ると短期支払不安",
+    format: (v) => `${v.toFixed(0)}%`,
+  },
+  {
+    group: "safety",
+    groupLabel: "安全性 (財務体質)",
+    detailKey: "equityRatio",
+    indicatorKey: "equityRatio",
+    label: "自己資本比率",
+    max: 15,
+    hint: "50% 以上で満点。20% で銀行評価の標準",
+    format: (v) => `${v.toFixed(1)}%`,
+  },
+  {
+    group: "safety",
+    groupLabel: "安全性 (財務体質)",
+    detailKey: "debtCoverage",
+    indicatorKey: "debtEquityRatio",
+    label: "負債比率 (低いほど良い)",
+    max: 10,
+    hint: "100% (負債=純資産) 以下で満点。300% 超で要警戒",
+    format: (v) => `${v.toFixed(0)}%`,
+  },
+  {
+    group: "efficiency",
+    groupLabel: "効率性 (資産活用)",
+    detailKey: "totalAssetTurnover",
+    indicatorKey: "totalAssetTurnover",
+    label: "総資産回転率",
+    max: 10,
+    hint: "1.5 回 以上で満点。資産が売上を生む効率",
+    format: (v) => `${v.toFixed(2)} 回`,
+  },
+  {
+    group: "efficiency",
+    groupLabel: "効率性 (資産活用)",
+    detailKey: "receivablesTurnover",
+    indicatorKey: "receivablesTurnover",
+    label: "売上債権回転率",
+    max: 10,
+    hint: "12 回 以上で満点 (回収サイト 1 ヶ月相当)",
+    format: (v) => `${v.toFixed(1)} 回`,
+  },
+];
+
+/**
  * ① 健康サマリー (AI CFO の経営健康モニター) カード。
  *
  * - スコア (0-100) と前月比
  * - breakdown (活動性 40 / 安全性 40 / 効率性 20)
- * - AI 質問 5 問
+ * - 「内訳を見る」で 8 指標 × 値・スコア・満点条件 を展開
+ * - AI 質問 5 問 (生成中は ThinkingIndicator)
  * - 「健康再計算」ボタン (任意で AI 質問を再生成)
  */
 function HealthSummaryCard({
@@ -325,6 +427,7 @@ function HealthSummaryCard({
 }) {
   const queryClient = useQueryClient();
   const enabled = !!orgId && !!fiscalYear && !!month;
+  const [showDetail, setShowDetail] = useState(false);
 
   const snapshotQuery = useQuery({
     queryKey: ["health-snapshot", orgId, fiscalYear, month],
@@ -348,6 +451,8 @@ function HealthSummaryCard({
   const data = snapshotQuery.data;
   const delta =
     data && data.prevScore !== null ? data.score - data.prevScore : null;
+  const isGeneratingAi =
+    refreshMutation.isPending && refreshMutation.variables === true;
 
   return (
     <Card className="screen-only">
@@ -440,18 +545,21 @@ function HealthSummaryCard({
               <div className="flex flex-1 gap-4">
                 <BreakdownBar
                   label="活動性"
+                  sublabel="収益性"
                   value={data.breakdown.activity}
                   max={40}
                   color="bg-emerald-500"
                 />
                 <BreakdownBar
                   label="安全性"
+                  sublabel="財務体質"
                   value={data.breakdown.safety}
                   max={40}
                   color="bg-blue-500"
                 />
                 <BreakdownBar
                   label="効率性"
+                  sublabel="資産活用"
                   value={data.breakdown.efficiency}
                   max={20}
                   color="bg-purple-500"
@@ -459,8 +567,68 @@ function HealthSummaryCard({
               </div>
             </div>
 
+            {/* スコア内訳 (8 指標) — 折りたたみ式 */}
+            <div>
+              <button
+                type="button"
+                onClick={() => setShowDetail((s) => !s)}
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-[var(--color-text-primary)]"
+              >
+                {showDetail ? (
+                  <ChevronUp className="h-3 w-3" />
+                ) : (
+                  <ChevronDown className="h-3 w-3" />
+                )}
+                スコアの根拠を見る (8 指標の内訳)
+              </button>
+              {showDetail && (
+                <div className="mt-2 space-y-3 rounded-md border bg-muted/20 p-3">
+                  {(["activity", "safety", "efficiency"] as const).map(
+                    (group) => {
+                      const items = HEALTH_SCORE_DETAIL_META.filter(
+                        (m) => m.group === group,
+                      );
+                      const groupLabel = items[0]?.groupLabel ?? "";
+                      return (
+                        <div key={group}>
+                          <div className="mb-1 text-[11px] font-medium text-muted-foreground">
+                            {groupLabel}
+                          </div>
+                          <div className="space-y-1.5">
+                            {items.map((meta) => (
+                              <ScoreDetailRow
+                                key={meta.detailKey}
+                                label={meta.label}
+                                hint={meta.hint}
+                                indicatorValue={meta.format(
+                                  data.indicators[meta.indicatorKey] ?? 0,
+                                )}
+                                score={
+                                  data.breakdown.detail[meta.detailKey] ?? 0
+                                }
+                                max={meta.max}
+                              />
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    },
+                  )}
+                </div>
+              )}
+            </div>
+
             {/* AI 質問 5 問 */}
-            {data.aiQuestions.length > 0 ? (
+            {isGeneratingAi ? (
+              <ThinkingIndicator
+                stages={[
+                  "指標を取得中",
+                  "業種特性を参照中",
+                  "AI CFO が考察中",
+                  "問いを整理中",
+                ]}
+              />
+            ) : data.aiQuestions.length > 0 ? (
               <div className="rounded-md bg-[var(--color-primary)]/5 p-3">
                 <div className="mb-1.5 text-xs font-medium text-[var(--color-text-primary)]">
                   AI CFO からの今月の論点
@@ -476,7 +644,7 @@ function HealthSummaryCard({
               </div>
             ) : (
               <div className="rounded-md border border-dashed bg-muted/30 p-3 text-xs text-muted-foreground">
-                AI 質問は未生成です。「AI 質問生成」ボタンで作成できます (LLM トークン消費あり)。
+                AI 質問は未生成です。「AI 質問生成」ボタンで作成できます (LLM トークン消費あり、20-40 秒程度)。
               </div>
             )}
           </div>
@@ -494,11 +662,13 @@ function HealthSummaryCard({
 
 function BreakdownBar({
   label,
+  sublabel,
   value,
   max,
   color,
 }: {
   label: string;
+  sublabel?: string;
   value: number;
   max: number;
   color: string;
@@ -507,7 +677,14 @@ function BreakdownBar({
   return (
     <div className="flex-1">
       <div className="mb-0.5 flex items-baseline justify-between">
-        <span className="text-xs text-muted-foreground">{label}</span>
+        <span className="text-xs text-muted-foreground">
+          {label}
+          {sublabel && (
+            <span className="ml-1 text-[10px] text-muted-foreground/70">
+              ({sublabel})
+            </span>
+          )}
+        </span>
         <span className="text-xs font-medium tabular-nums">
           {value.toFixed(1)}
           <span className="text-muted-foreground">/{max}</span>
@@ -515,6 +692,56 @@ function BreakdownBar({
       </div>
       <div className="h-2 overflow-hidden rounded-full bg-muted">
         <div className={cn("h-full", color)} style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 健康スコアの 1 指標を 1 行で表示する内訳行。
+ *
+ * "営業利益率   8.5%   12.8/15  [bar]   10% 以上で満点"
+ * の形式でユーザーが「なぜこのスコアなのか」を理解できるようにする。
+ */
+function ScoreDetailRow({
+  label,
+  hint,
+  indicatorValue,
+  score,
+  max,
+}: {
+  label: string;
+  hint: string;
+  indicatorValue: string;
+  score: number;
+  max: number;
+}) {
+  const pct = Math.max(0, Math.min(100, (score / max) * 100));
+  const ratio = max > 0 ? score / max : 0;
+  const barColor =
+    ratio >= 0.75 ? "bg-emerald-500" : ratio >= 0.5 ? "bg-amber-500" : "bg-red-500";
+  return (
+    <div className="grid grid-cols-12 items-center gap-2 text-xs">
+      <div className="col-span-4 truncate text-[var(--color-text-primary)]">
+        {label}
+      </div>
+      <div className="col-span-2 text-right font-medium tabular-nums">
+        {indicatorValue}
+      </div>
+      <div className="col-span-2 text-right text-muted-foreground tabular-nums">
+        {score.toFixed(1)}
+        <span className="text-muted-foreground/70">/{max}</span>
+      </div>
+      <div className="col-span-4 flex items-center gap-2">
+        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
+          <div
+            className={cn("h-full", barColor)}
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+      </div>
+      <div className="col-span-12 -mt-1 text-[10px] text-muted-foreground/80">
+        {hint}
       </div>
     </div>
   );

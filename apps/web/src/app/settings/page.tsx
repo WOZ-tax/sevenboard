@@ -38,6 +38,7 @@ import {
   DEFAULT_CERTAINTY_RULES,
   type CertaintyLevel,
 } from "@/lib/cashflow-certainty";
+import { INDUSTRIES } from "@/lib/industries";
 
 interface NotificationSetting {
   id: string;
@@ -426,27 +427,7 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2 text-base font-semibold text-[var(--color-text-primary)]">
-              <Building2 className="h-4 w-4" />
-              会社情報
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {mfOffice.isLoading ? (
-              <div className="h-12 animate-pulse rounded bg-muted" />
-            ) : mfOffice.data ? (
-              <div className="grid gap-4 sm:grid-cols-3">
-                <div><div className="text-xs text-muted-foreground">会社名</div><div className="mt-1 text-sm font-medium text-[var(--color-text-primary)]">{mfOffice.data.name || "—"}</div></div>
-                <div><div className="text-xs text-muted-foreground">事業年度開始</div><div className="mt-1 text-sm font-medium text-[var(--color-text-primary)]">{mfOffice.data.accounting_periods?.[0]?.start_date ? mfOffice.data.accounting_periods[0].start_date : "—"}</div></div>
-                <div><div className="text-xs text-muted-foreground">区分</div><div className="mt-1 text-sm font-medium text-[var(--color-text-primary)]">{mfOffice.data.type || "—"}</div></div>
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground">MFクラウド会計を接続すると会社情報が表示されます</p>
-            )}
-          </CardContent>
-        </Card>
+        <BusinessProfileCard orgId={orgId} />
 
         <CostAccountingCard orgId={orgId} />
 
@@ -553,6 +534,245 @@ export default function SettingsPage() {
         <MenuVisibilitySettings />
       </div>
     </DashboardShell>
+  );
+}
+
+/**
+ * 経営プロファイル: 業種・HP URL・経営コンテキスト + kintone 取り込みボタン。
+ *
+ * AI CFO が事業理解のために使うコンテキスト群。健康スコアの業種別ベンチマーク参照と
+ * AI 質問生成 / L3 LLM 検知 の system prompt 注入で活用される。
+ */
+function BusinessProfileCard({ orgId }: { orgId: string }) {
+  const queryClient = useQueryClient();
+  const orgQuery = useQuery({
+    queryKey: ["organization", orgId],
+    queryFn: () => api.getOrganization(orgId),
+    enabled: !!orgId,
+    staleTime: 60_000,
+  });
+
+  const [industry, setIndustry] = useState("");
+  const [websiteUrl, setWebsiteUrl] = useState("");
+  const [businessContext, setBusinessContext] = useState("");
+  const [hydrated, setHydrated] = useState(false);
+
+  // orgQuery が来たら state 初期化
+  useEffect(() => {
+    if (!orgQuery.data || hydrated) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 初回データ到着時の初期化
+    setIndustry(orgQuery.data.industry ?? "");
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setWebsiteUrl(orgQuery.data.websiteUrl ?? "");
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setBusinessContext(orgQuery.data.businessContext ?? "");
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setHydrated(true);
+  }, [orgQuery.data, hydrated]);
+
+  const updateMutation = useMutation({
+    mutationFn: () =>
+      api.updateOrganization(orgId, {
+        industry: industry || undefined,
+        websiteUrl: websiteUrl || null,
+        businessContext: businessContext || null,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["organization", orgId] });
+    },
+  });
+
+  const kintoneImportMutation = useMutation({
+    mutationFn: () => api.kintoneImport(orgId),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["organization", orgId] });
+      // 取り込み後、UI の state も上書き
+      if (result.applied?.industry) setIndustry(result.applied.industry);
+      if (result.applied?.websiteUrl) setWebsiteUrl(result.applied.websiteUrl);
+    },
+  });
+
+  if (!orgId) return null;
+
+  const data = orgQuery.data;
+  const importResult = kintoneImportMutation.data;
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center gap-2 text-base font-semibold text-[var(--color-text-primary)]">
+          <Building2 className="h-4 w-4" />
+          経営プロファイル
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {orgQuery.isLoading ? (
+          <div className="h-32 animate-pulse rounded bg-muted" />
+        ) : (
+          <div className="space-y-3">
+            <p className="text-xs text-muted-foreground">
+              AI CFO が事業を理解するための情報。健康スコアの業種別ベンチマーク参照と AI 質問生成に使われます。
+            </p>
+
+            {/* 業種 */}
+            <div>
+              <label className="text-xs font-medium text-[var(--color-text-primary)]">
+                業種
+              </label>
+              <select
+                value={industry}
+                onChange={(e) => setIndustry(e.target.value)}
+                className="mt-1 h-9 w-full rounded-md border border-[var(--color-border)] bg-white px-2 text-sm"
+              >
+                <option value="">— 未選択 (全業種平均で計算) —</option>
+                {INDUSTRIES.map((ind) => (
+                  <option key={ind} value={ind}>
+                    {ind}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-[10px] text-muted-foreground">
+                中小企業庁「中小企業実態基本調査」の業種分類。健康スコアのベンチマーク基準になる。
+              </p>
+            </div>
+
+            {/* HP URL */}
+            <div>
+              <label className="text-xs font-medium text-[var(--color-text-primary)]">
+                HP URL
+              </label>
+              <Input
+                type="url"
+                value={websiteUrl}
+                onChange={(e) => setWebsiteUrl(e.target.value)}
+                placeholder="https://example.co.jp"
+                className="mt-1"
+              />
+              <p className="mt-1 text-[10px] text-muted-foreground">
+                AI CFO が事業内容の理解に使う。空欄でも動作には影響しない。
+              </p>
+            </div>
+
+            {/* 経営コンテキスト */}
+            <div>
+              <label className="text-xs font-medium text-[var(--color-text-primary)]">
+                経営コンテキスト
+              </label>
+              <textarea
+                value={businessContext}
+                onChange={(e) => setBusinessContext(e.target.value)}
+                placeholder="例: 都心駅前 3 店舗、ランチ単価 1500 円・夜 4500 円。主要顧客はビジネス利用 70%。3 月に 4 店舗目をオープン予定。冬は鍋メニューで 12-2 月が繁忙期。"
+                rows={5}
+                maxLength={4000}
+                className="mt-1 w-full rounded-md border border-[var(--color-border)] bg-white p-2 text-sm leading-relaxed focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)]"
+              />
+              <p className="mt-1 text-[10px] text-muted-foreground">
+                業種だけでは伝わらない情報を自由記述。取引先構成・季節性・組織変更・投資中の事業など。
+                AI 質問生成・L3 異常検知の system prompt に注入される。
+                {data?.contextUpdatedAt && (
+                  <span className="ml-2">
+                    最終更新:{" "}
+                    {new Date(data.contextUpdatedAt).toLocaleDateString("ja-JP")}
+                  </span>
+                )}
+              </p>
+            </div>
+
+            <div className="flex justify-end">
+              <Button
+                size="sm"
+                onClick={() => updateMutation.mutate()}
+                disabled={updateMutation.isPending}
+                className="bg-[var(--color-primary)] text-white hover:bg-[var(--color-primary-hover)]"
+              >
+                {updateMutation.isPending ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : null}
+                <span className="ml-1">保存</span>
+              </Button>
+            </div>
+
+            {updateMutation.isError && (
+              <p className="text-xs text-red-600">
+                保存に失敗しました: {String(updateMutation.error)}
+              </p>
+            )}
+            {updateMutation.isSuccess && !updateMutation.isPending && (
+              <p className="text-xs text-[var(--color-success)]">保存しました</p>
+            )}
+
+            {/* kintone 取り込み */}
+            <div className="border-t pt-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs font-medium text-[var(--color-text-primary)]">
+                    kintone 顧客基本情報から取り込む
+                  </div>
+                  <div className="mt-0.5 text-[10px] text-muted-foreground">
+                    業種・HP URL を kintone 顧客基本情報から prefill (上書きされます)。
+                    {data?.kintoneSyncedAt && (
+                      <span className="ml-2">
+                        最終取込:{" "}
+                        {new Date(data.kintoneSyncedAt).toLocaleString("ja-JP", {
+                          dateStyle: "short",
+                          timeStyle: "short",
+                        })}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    if (
+                      data?.industry ||
+                      data?.websiteUrl
+                    ) {
+                      const ok = window.confirm(
+                        "業種または HP URL に既に値が入っています。kintone の値で上書きしますか?",
+                      );
+                      if (!ok) return;
+                    }
+                    kintoneImportMutation.mutate();
+                  }}
+                  disabled={kintoneImportMutation.isPending}
+                >
+                  {kintoneImportMutation.isPending ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : null}
+                  <span className="ml-1">kintone から取り込み</span>
+                </Button>
+              </div>
+              {importResult && (
+                <p
+                  className={cn(
+                    "mt-2 text-[10px]",
+                    importResult.ok
+                      ? "text-[var(--color-success)]"
+                      : "text-amber-600",
+                  )}
+                >
+                  {importResult.ok
+                    ? `取り込み完了 (${importResult.clientName ?? "顧客"}): ${
+                        Object.keys(importResult.applied ?? {}).length > 0
+                          ? Object.entries(importResult.applied ?? {})
+                              .map(([k, v]) => `${k}=${v}`)
+                              .join(", ")
+                          : "更新なし"
+                      }${
+                        importResult.skipped?.length
+                          ? ` / skip: ${importResult.skipped.join(", ")}`
+                          : ""
+                      }`
+                    : `取り込み失敗: ${importResult.message ?? "不明"}`}
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

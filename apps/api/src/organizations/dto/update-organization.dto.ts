@@ -4,6 +4,7 @@ import {
   IsInt,
   IsEnum,
   IsBoolean,
+  IsUrl,
   Min,
   Max,
   MaxLength,
@@ -45,4 +46,19 @@ export class UpdateOrganizationDto {
   @IsBoolean()
   @IsOptional()
   usesCostAccounting?: boolean;
+
+  /** 公開 HP URL (AI CFO の事業理解に使う) */
+  @IsOptional()
+  @IsUrl({ require_protocol: true, require_tld: false })
+  @MaxLength(500)
+  websiteUrl?: string | null;
+
+  /**
+   * 経営コンテキスト (自由記述)。業種だけでは表現できない事情を書く。
+   * AI 質問生成・L3 LLM 検知の system prompt に注入される。
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(4000)
+  businessContext?: string | null;
 }

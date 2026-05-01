@@ -45,13 +45,20 @@ export class HealthSnapshotsService {
     aiQuestions?: string[],
   ): Promise<HealthSnapshotItem> {
     const { tenantId } = await this.prisma.orgScope(orgId);
+    const org = await this.prisma.organization.findUnique({
+      where: { id: orgId },
+      select: { industry: true },
+    });
 
     const [pl, bs] = await Promise.all([
       this.mfApi.getTrialBalancePL(orgId, fiscalYear, month),
       this.mfApi.getTrialBalanceBS(orgId, fiscalYear, month),
     ]);
     const indicators = this.mfTransform.calculateFinancialIndicators(pl, bs);
-    const { score, breakdown } = computeHealthScore(indicators);
+    const { score, breakdown } = computeHealthScore(
+      indicators,
+      org?.industry ?? null,
+    );
 
     const snapshotDate = new Date(Date.UTC(fiscalYear, month - 1, 1));
 

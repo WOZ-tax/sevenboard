@@ -172,8 +172,50 @@ export class OrganizationsService {
         ...(dto.usesCostAccounting !== undefined
           ? { usesCostAccounting: dto.usesCostAccounting }
           : {}),
+        ...(dto.websiteUrl !== undefined ? { websiteUrl: dto.websiteUrl } : {}),
+        ...(dto.businessContext !== undefined
+          ? {
+              businessContext: dto.businessContext,
+              contextUpdatedAt: new Date(),
+              contextUpdatedById: user.id,
+            }
+          : {}),
       },
     });
+  }
+
+  /**
+   * kintone 顧客基本情報 (appId 16) から industry / websiteUrl を prefill。
+   * 既存値がある場合も上書きする。kintoneSyncedAt を更新。
+   *
+   * @returns prefill 後の Organization と、kintone から取れた / 取れなかったフィールドのレポート
+   */
+  async kintoneImport(
+    user: UserLike,
+    orgId: string,
+    customer: {
+      industry?: string | null;
+      websiteUrl?: string | null;
+    },
+  ) {
+    await this.authorization.assertOrgPermission(
+      user,
+      orgId,
+      'org:organizations:update',
+    );
+    const updated = await this.prisma.organization.update({
+      where: { id: orgId },
+      data: {
+        ...(customer.industry !== undefined && customer.industry !== null
+          ? { industry: customer.industry }
+          : {}),
+        ...(customer.websiteUrl !== undefined && customer.websiteUrl !== null
+          ? { websiteUrl: customer.websiteUrl }
+          : {}),
+        kintoneSyncedAt: new Date(),
+      },
+    });
+    return updated;
   }
 
   /**

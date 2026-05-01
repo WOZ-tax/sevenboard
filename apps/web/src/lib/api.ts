@@ -172,6 +172,14 @@ export interface HealthScoreBreakdown {
   safety: number;
   efficiency: number;
   detail: HealthScoreBreakdownDetail;
+  /** 銀行格付けランク (S/A/B/C/D) */
+  rank?: 'S' | 'A' | 'B' | 'C' | 'D';
+  /** 倒産リスク即時減点が発動したフラグ */
+  insolvencyFlags?: string[];
+  /** 業種ベンチマーク使用の信頼度 */
+  confidence?: 'HIGH' | 'MEDIUM' | 'LOW';
+  /** 業種コード (実際に使われた、未設定なら null) */
+  appliedIndustry?: string | null;
 }
 
 export interface HealthFinancialIndicators {
@@ -298,6 +306,8 @@ export const api = {
       industry?: string;
       planType?: 'STARTER' | 'GROWTH' | 'PRO';
       usesCostAccounting?: boolean;
+      websiteUrl?: string | null;
+      businessContext?: string | null;
     },
   ) =>
     apiFetch<Organization>(`/organizations/${orgId}`, {
@@ -983,6 +993,17 @@ export const api = {
     status: (orgId: string) =>
       apiFetch<SyncStatusResult>(`/organizations/${orgId}/sync/status`),
   },
+
+  // === Kintone import (会社情報の prefill) ===
+  kintoneImport: (orgId: string) =>
+    apiFetch<{
+      ok: boolean;
+      message?: string;
+      applied?: Record<string, string>;
+      skipped?: string[];
+      kintoneSyncedAt?: string;
+      clientName?: string;
+    }>(`/organizations/${orgId}/kintone-import`, { method: 'POST' }),
 
   // === Health Snapshot (会計レビュー ① 健康サマリー) ===
   healthSnapshot: {

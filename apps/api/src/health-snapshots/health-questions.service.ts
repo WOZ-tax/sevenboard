@@ -23,6 +23,9 @@ export class HealthQuestionsService {
 
   /**
    * AI 5 問を生成。LLM 失敗時はフォールバックの定型問いを返す (空配列にしない)。
+   *
+   * 経営コンテキスト・業種・HP URL を prompt に注入することで、業種だけでは
+   * 表現できない会社固有の事情を踏まえた問いになる。
    */
   async generate(input: {
     fiscalYear: number;
@@ -31,6 +34,9 @@ export class HealthQuestionsService {
     prevScore: number | null;
     breakdown: HealthScoreBreakdown;
     indicators: FinancialIndicators;
+    industry?: string | null;
+    websiteUrl?: string | null;
+    businessContext?: string | null;
     industryHint?: string;
   }): Promise<string[]> {
     const provider = createLlmProvider(this.httpService);
@@ -63,6 +69,9 @@ export class HealthQuestionsService {
     prevScore: number | null;
     breakdown: HealthScoreBreakdown;
     indicators: FinancialIndicators;
+    industry?: string | null;
+    websiteUrl?: string | null;
+    businessContext?: string | null;
     industryHint?: string;
   }): string {
     const period = `${input.fiscalYear}年${input.month}月`;
@@ -71,9 +80,19 @@ export class HealthQuestionsService {
         ? `${input.score - input.prevScore >= 0 ? '+' : ''}${input.score - input.prevScore}`
         : 'N/A';
 
+    const companyInfoLines: string[] = [];
+    if (input.industry) companyInfoLines.push(`業種: ${input.industry}`);
+    if (input.websiteUrl) companyInfoLines.push(`HP: ${input.websiteUrl}`);
+    if (input.businessContext) {
+      companyInfoLines.push(`経営コンテキスト:\n${input.businessContext}`);
+    }
+    const companyInfoBlock = companyInfoLines.length
+      ? `\n【会社情報】\n${companyInfoLines.join('\n')}\n`
+      : '';
+
     return `あなたは中小企業に常駐する AI CFO です。
 ${period} の経営健康スナップショットを元に、社長と顧問が来月までに確認・議論すべき具体的な問いを 5 つ生成してください。
-
+${companyInfoBlock}
 【健康スコア】
 総合: ${input.score}/100 (前月比: ${delta})
 活動性 (収益性): ${input.breakdown.activity}/40

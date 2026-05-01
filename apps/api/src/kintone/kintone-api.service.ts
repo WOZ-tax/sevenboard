@@ -40,6 +40,8 @@ export interface CustomerBasic {
   representativeName?: string;
   headOffice?: string;
   contractStatusTax?: string;
+  /** 公開 HP URL (kintone のフィールド名は揺れるので候補名から抽出) */
+  websiteUrl?: string;
   /** そのままLLMに渡すための生フィールド（フィールド名が違っても拾えるように） */
   rawFields: Record<string, string>;
 }
@@ -279,6 +281,13 @@ export class KintoneApiService {
       representativeName: pick('代表者') || pick('代表者名') || undefined,
       headOffice: pick('本社所在地') || pick('住所') || undefined,
       contractStatusTax: pick('契約状況(税務)') || pick('契約状況税務') || undefined,
+      websiteUrl:
+        pick('HP') ||
+        pick('URL') ||
+        pick('ホームページ') ||
+        pick('Webサイト') ||
+        pick('website') ||
+        undefined,
       rawFields,
     };
   }

@@ -52,6 +52,7 @@ import { useAuthStore } from "@/lib/auth";
 import { useCurrentOrg } from "@/contexts/current-org";
 import { useIsClient } from "@/hooks/use-is-client";
 import { cn } from "@/lib/utils";
+import { INDUSTRIES } from "@/lib/industries";
 
 // ─── Types ───────────────────────────────────────────────
 
@@ -80,14 +81,6 @@ interface SummaryData {
   alertCount: number;
   pendingComments: number;
 }
-
-const INDUSTRIES = [
-  "SaaS",
-  "製造業",
-  "情報通信業",
-  "小売業",
-  "コンサルティング",
-];
 
 const emptyOrgs: PaginatedOrgs = {
   data: [],

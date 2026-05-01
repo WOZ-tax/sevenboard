@@ -106,7 +106,7 @@ export class JournalAnomalyLlmRule implements RiskRule {
       .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount))
       .slice(0, this.MAX_CANDIDATES);
 
-    const prompt = this.buildPrompt(trimmed, ctx);
+    const prompt = await this.buildPrompt(trimmed, ctx);
     const response = await provider
       .generate(prompt, { maxTokens: 4000, json: true })
       .catch((err) => {
@@ -149,19 +149,34 @@ export class JournalAnomalyLlmRule implements RiskRule {
       });
   }
 
-  private buildPrompt(
+  private async buildPrompt(
     candidates: Candidate[],
     ctx: RiskRuleContext,
-  ): string {
+  ): Promise<string> {
     const period = formatPeriod(ctx.fiscalYear, ctx.month);
     const lines = candidates.map(
       (c, i) =>
         `${i + 1}. id=${c.id} 日付=${c.date} 科目=${c.account} 借貸=${c.side} 金額=${formatYen(c.amount)} 課税=${c.taxCategory || '不明'} 摘要=${c.description || '(なし)'}`,
     );
 
+    // 会社情報を取得 (業種・HP URL・経営コンテキスト)
+    const org = await ctx.prisma.organization.findUnique({
+      where: { id: ctx.orgId },
+      select: { industry: true, websiteUrl: true, businessContext: true },
+    });
+    const companyInfoLines: string[] = [];
+    if (org?.industry) companyInfoLines.push(`業種: ${org.industry}`);
+    if (org?.websiteUrl) companyInfoLines.push(`HP: ${org.websiteUrl}`);
+    if (org?.businessContext) {
+      companyInfoLines.push(`経営コンテキスト:\n${org.businessContext}`);
+    }
+    const companyInfoBlock = companyInfoLines.length
+      ? `\n【会社情報】\n${companyInfoLines.join('\n')}\n`
+      : '';
+
     return `あなたは中小企業の会計事務所に常駐する AI CFO です。
 ${period} の仕訳明細から「気になる仕訳」を抽出してください。
-
+${companyInfoBlock}
 【候補仕訳 (摘要キーワード or 50 万円以上の金額でフィルタ済)】
 ${lines.join('\n')}
 
