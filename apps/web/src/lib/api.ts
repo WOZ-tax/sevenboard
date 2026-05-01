@@ -155,6 +155,48 @@ export interface OrgAdvisor {
   };
 }
 
+// === Health Snapshot (会計レビュー ① 健康サマリー) ===
+export interface HealthScoreBreakdownDetail {
+  operatingProfitMargin: number;
+  roe: number;
+  roa: number;
+  currentRatio: number;
+  equityRatio: number;
+  debtCoverage: number;
+  totalAssetTurnover: number;
+  receivablesTurnover: number;
+}
+
+export interface HealthScoreBreakdown {
+  activity: number;
+  safety: number;
+  efficiency: number;
+  detail: HealthScoreBreakdownDetail;
+}
+
+export interface HealthFinancialIndicators {
+  currentRatio: number;
+  equityRatio: number;
+  debtEquityRatio: number;
+  grossProfitMargin: number;
+  operatingProfitMargin: number;
+  roe: number;
+  roa: number;
+  totalAssetTurnover: number;
+  receivablesTurnover: number;
+}
+
+export interface HealthSnapshotItem {
+  id: string;
+  snapshotDate: string;
+  score: number;
+  prevScore: number | null;
+  breakdown: HealthScoreBreakdown;
+  indicators: HealthFinancialIndicators;
+  aiQuestions: string[];
+  createdAt: string;
+}
+
 // === Risk Findings (会計レビュー ② 要確認アイテム) ===
 export type RiskLayer = 'L1_RULE' | 'L2_STATS' | 'L3_LLM';
 export type RiskFindingStatus = 'OPEN' | 'CONFIRMED' | 'DISMISSED' | 'RESOLVED';
@@ -940,6 +982,35 @@ export const api = {
       apiFetch<SyncRunResult>(`/organizations/${orgId}/sync/run`, { method: 'POST' }),
     status: (orgId: string) =>
       apiFetch<SyncStatusResult>(`/organizations/${orgId}/sync/status`),
+  },
+
+  // === Health Snapshot (会計レビュー ① 健康サマリー) ===
+  healthSnapshot: {
+    latest: (orgId: string) =>
+      apiFetch<HealthSnapshotItem | null>(
+        `/organizations/${orgId}/health-snapshot/latest`,
+      ),
+    byMonth: (orgId: string, fiscalYear: number, month: number) =>
+      apiFetch<HealthSnapshotItem | null>(
+        `/organizations/${orgId}/health-snapshot/by-month?fiscalYear=${fiscalYear}&month=${month}`,
+      ),
+    history: (orgId: string, months: number) =>
+      apiFetch<HealthSnapshotItem[]>(
+        `/organizations/${orgId}/health-snapshot/history?months=${months}`,
+      ),
+    refresh: (
+      orgId: string,
+      fiscalYear: number,
+      month: number,
+      generateAiQuestions = false,
+    ) =>
+      apiFetch<HealthSnapshotItem>(
+        `/organizations/${orgId}/health-snapshot/refresh`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ fiscalYear, month, generateAiQuestions }),
+        },
+      ),
   },
 
   // === Risk Findings (会計レビュー ② 要確認アイテム) ===

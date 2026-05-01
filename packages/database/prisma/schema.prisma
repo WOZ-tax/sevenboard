@@ -63,6 +63,7 @@ model Organization {
   monthlyCloses          MonthlyClose[]
   masterSources          OrganizationMasterSource[]
   riskFindings           RiskFinding[]
+  healthSnapshots        HealthSnapshot[]
 
   @@unique([id, tenantId])
   @@unique([tenantId, code])
@@ -1210,4 +1211,32 @@ enum FindingStatus {
   CONFIRMED // 確認済 (内容を見た、放置でよい or 後で対応)
   DISMISSED // 対応不要 (誤検知 or 該当しない)
   RESOLVED // 対応完了 (修正仕訳・対策実施済)
+}
+
+/// AI CFO 経営健康モニター (会計レビュー ① 健康サマリー) のスナップショット。
+/// MF 同期完了時に自動計算され、各 org の健康状態を時系列で追える。
+/// 100 点満点 = 活動性 40 + 安全性 40 + 効率性 20 の構成。
+model HealthSnapshot {
+  id           String   @id @default(uuid()) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  orgId        String   @map("org_id") @db.Uuid
+  /// スナップショット対象月の月初日 (例: 2026-04-01)
+  snapshotDate DateTime @map("snapshot_date") @db.Date
+  /// 0-100 の総合スコア
+  score        Int
+  /// 1 ヶ月前のスナップショットの score。前月比の表示に使用
+  prevScore    Int?     @map("prev_score")
+  /// {"activity": 30, "safety": 35, "efficiency": 8} のような点数内訳
+  breakdown    Json     @default("{}")
+  /// 計算時点の主要財務指標スナップショット (FinancialIndicators 互換)
+  indicators   Json     @default("{}")
+  /// AI が生成した「今月の経営者に聞くべき 5 問」(string[])
+  aiQuestions  Json     @default("[]") @map("ai_questions")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [orgId, tenantId], references: [id, tenantId])
+
+  @@unique([tenantId, orgId, snapshotDate])
+  @@index([tenantId, orgId, snapshotDate(sort: Desc)])
+  @@map("health_snapshots")
 }

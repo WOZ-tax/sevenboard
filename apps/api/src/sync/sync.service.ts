@@ -1,8 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { HttpService } from '@nestjs/axios';
 import { PrismaService } from '../prisma/prisma.service';
 import { MfApiService } from '../mf/mf-api.service';
 import { MfTransformService } from '../mf/mf-transform.service';
 import { RiskScanOrchestrator } from '../sentinel/risk-rules/orchestrator.service';
+import { HealthSnapshotsService } from '../health-snapshots/health-snapshots.service';
+import { postHealthSnapshotToSlack } from '../health-snapshots/health-slack-notifier';
 
 @Injectable()
 export class SyncService {
@@ -13,6 +16,8 @@ export class SyncService {
     private mfApi: MfApiService,
     private mfTransform: MfTransformService,
     private riskScanOrchestrator: RiskScanOrchestrator,
+    private healthSnapshots: HealthSnapshotsService,
+    private httpService: HttpService,
   ) {}
 
   async runSync(orgId: string) {
@@ -159,21 +164,48 @@ export class SyncService {
       const today = new Date();
       const month = today.getUTCMonth() + 1;
       this.logger.log(
-        `Kicking off L1+L2 risk scan for org ${orgId}: fy=${fiscalYear}, month=${month}`,
+        `Kicking off L1+L2 risk scan + health snapshot for org ${orgId}: fy=${fiscalYear}, month=${month}`,
       );
-      const [l1Result, l2Result] = await Promise.all([
+      const [l1Result, l2Result, healthSnapshot] = await Promise.all([
         this.riskScanOrchestrator.runL1(orgId, fiscalYear, month),
         this.riskScanOrchestrator.runL2(orgId, fiscalYear, month),
+        this.healthSnapshots.computeAndSave(orgId, fiscalYear, month),
       ]);
       this.logger.log(
         `Risk scan finished for org ${orgId}: ` +
           `L1 ${l1Result.findingCount} findings (${l1Result.errors.length} errs), ` +
-          `L2 ${l2Result.findingCount} findings (${l2Result.errors.length} errs)`,
+          `L2 ${l2Result.findingCount} findings (${l2Result.errors.length} errs), ` +
+          `health=${healthSnapshot.score}/100`,
       );
+
+      // 健康スコアが ±3pt 以上動いていたら Slack DM
+      const delta =
+        healthSnapshot.prevScore !== null
+          ? healthSnapshot.score - healthSnapshot.prevScore
+          : null;
+      if (delta !== null && Math.abs(delta) >= 3) {
+        const org = await this.prisma.organization.findUnique({
+          where: { id: orgId },
+          select: { name: true, briefSlackWebhookUrl: true },
+        });
+        if (org?.briefSlackWebhookUrl) {
+          await postHealthSnapshotToSlack(
+            this.httpService,
+            org.briefSlackWebhookUrl,
+            org.name,
+            healthSnapshot,
+          ).catch((err) =>
+            this.logger.warn(`health slack push failed: ${err}`),
+          );
+          this.logger.log(
+            `health slack push sent for org ${orgId}: delta=${delta} pt`,
+          );
+        }
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.logger.warn(
-        `Risk scan after sync failed for org ${orgId}: ${message}`,
+        `Risk scan / health snapshot after sync failed for org ${orgId}: ${message}`,
       );
     }
   }

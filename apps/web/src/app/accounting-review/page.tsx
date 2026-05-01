@@ -235,6 +235,9 @@ export default function AccountingReviewPage() {
           />
         </div>
 
+        {/* ① 健康サマリー (AI CFO の経営健康モニター) */}
+        <HealthSummaryCard orgId={orgId} fiscalYear={fiscalYear} month={month} />
+
         {/* ② 要確認アイテム (AI CFO の異常検知) */}
         <RiskFindingsCard orgId={orgId} fiscalYear={fiscalYear} month={month} />
 
@@ -300,6 +303,220 @@ export default function AccountingReviewPage() {
         )}
       </div>
     </DashboardShell>
+  );
+}
+
+/**
+ * ① 健康サマリー (AI CFO の経営健康モニター) カード。
+ *
+ * - スコア (0-100) と前月比
+ * - breakdown (活動性 40 / 安全性 40 / 効率性 20)
+ * - AI 質問 5 問
+ * - 「健康再計算」ボタン (任意で AI 質問を再生成)
+ */
+function HealthSummaryCard({
+  orgId,
+  fiscalYear,
+  month,
+}: {
+  orgId: string;
+  fiscalYear?: number;
+  month?: number;
+}) {
+  const queryClient = useQueryClient();
+  const enabled = !!orgId && !!fiscalYear && !!month;
+
+  const snapshotQuery = useQuery({
+    queryKey: ["health-snapshot", orgId, fiscalYear, month],
+    queryFn: () => api.healthSnapshot.byMonth(orgId, fiscalYear!, month!),
+    enabled,
+    staleTime: 60 * 1000,
+  });
+
+  const refreshMutation = useMutation({
+    mutationFn: (generateAiQuestions: boolean) =>
+      api.healthSnapshot.refresh(orgId, fiscalYear!, month!, generateAiQuestions),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["health-snapshot", orgId, fiscalYear, month],
+      });
+    },
+  });
+
+  if (!enabled) return null;
+
+  const data = snapshotQuery.data;
+  const delta =
+    data && data.prevScore !== null ? data.score - data.prevScore : null;
+
+  return (
+    <Card className="screen-only">
+      <CardHeader className="flex flex-row items-center justify-between pb-2">
+        <CardTitle className="text-base font-semibold text-[var(--color-text-primary)]">
+          健康サマリー
+          {data && (
+            <span className="ml-2 text-xs font-normal text-muted-foreground">
+              {data.snapshotDate}
+            </span>
+          )}
+        </CardTitle>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={refreshMutation.isPending}
+            onClick={() => refreshMutation.mutate(false)}
+            title="MF データから健康スコアを再計算 (コストゼロ)"
+          >
+            {refreshMutation.isPending && refreshMutation.variables === false ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : null}
+            <span className="ml-1">健康再計算</span>
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={refreshMutation.isPending}
+            onClick={() => refreshMutation.mutate(true)}
+            title="AI が今月の論点 5 問を生成 (LLM トークン消費)"
+          >
+            {refreshMutation.isPending && refreshMutation.variables === true ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : null}
+            <span className="ml-1">AI 質問生成</span>
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {snapshotQuery.isLoading ? (
+          <div className="h-32 animate-pulse rounded bg-muted" />
+        ) : !data ? (
+          <div className="rounded-md border border-dashed py-6 text-center text-sm text-muted-foreground">
+            この月の健康スナップショットはまだありません。
+            <br />
+            <span className="text-xs">
+              MF を再同期するか、「健康再計算」ボタンで生成してください。
+            </span>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {/* スコア & 前月比 */}
+            <div className="flex items-center gap-6">
+              <div>
+                <div className="text-xs text-muted-foreground">健康スコア</div>
+                <div className="mt-0.5 flex items-baseline gap-2">
+                  <span
+                    className={cn(
+                      "text-4xl font-bold tabular-nums",
+                      data.score >= 75
+                        ? "text-[var(--color-success)]"
+                        : data.score >= 50
+                          ? "text-amber-600"
+                          : "text-red-600",
+                    )}
+                  >
+                    {data.score}
+                  </span>
+                  <span className="text-sm text-muted-foreground">/100</span>
+                  {delta !== null && (
+                    <span
+                      className={cn(
+                        "text-xs font-medium",
+                        delta > 0
+                          ? "text-[var(--color-success)]"
+                          : delta < 0
+                            ? "text-red-600"
+                            : "text-muted-foreground",
+                      )}
+                    >
+                      {delta > 0 ? "↑" : delta < 0 ? "↓" : "→"}
+                      {delta > 0 ? "+" : ""}
+                      {delta} pt
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex flex-1 gap-4">
+                <BreakdownBar
+                  label="活動性"
+                  value={data.breakdown.activity}
+                  max={40}
+                  color="bg-emerald-500"
+                />
+                <BreakdownBar
+                  label="安全性"
+                  value={data.breakdown.safety}
+                  max={40}
+                  color="bg-blue-500"
+                />
+                <BreakdownBar
+                  label="効率性"
+                  value={data.breakdown.efficiency}
+                  max={20}
+                  color="bg-purple-500"
+                />
+              </div>
+            </div>
+
+            {/* AI 質問 5 問 */}
+            {data.aiQuestions.length > 0 ? (
+              <div className="rounded-md bg-[var(--color-primary)]/5 p-3">
+                <div className="mb-1.5 text-xs font-medium text-[var(--color-text-primary)]">
+                  AI CFO からの今月の論点
+                </div>
+                <ol className="space-y-1 text-xs text-[var(--color-text-primary)]">
+                  {data.aiQuestions.map((q, i) => (
+                    <li key={i} className="flex gap-1.5">
+                      <span className="text-muted-foreground">{i + 1}.</span>
+                      <span>{q}</span>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            ) : (
+              <div className="rounded-md border border-dashed bg-muted/30 p-3 text-xs text-muted-foreground">
+                AI 質問は未生成です。「AI 質問生成」ボタンで作成できます (LLM トークン消費あり)。
+              </div>
+            )}
+          </div>
+        )}
+
+        {refreshMutation.isError && (
+          <p className="mt-2 text-xs text-red-600">
+            再計算に失敗しました: {String(refreshMutation.error)}
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function BreakdownBar({
+  label,
+  value,
+  max,
+  color,
+}: {
+  label: string;
+  value: number;
+  max: number;
+  color: string;
+}) {
+  const pct = Math.max(0, Math.min(100, (value / max) * 100));
+  return (
+    <div className="flex-1">
+      <div className="mb-0.5 flex items-baseline justify-between">
+        <span className="text-xs text-muted-foreground">{label}</span>
+        <span className="text-xs font-medium tabular-nums">
+          {value.toFixed(1)}
+          <span className="text-muted-foreground">/{max}</span>
+        </span>
+      </div>
+      <div className="h-2 overflow-hidden rounded-full bg-muted">
+        <div className={cn("h-full", color)} style={{ width: `${pct}%` }} />
+      </div>
+    </div>
   );
 }
 

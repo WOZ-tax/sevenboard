@@ -39,6 +39,7 @@ import { MonthlyReviewApprovalModule } from './monthly-review-approval/monthly-r
 import { MonthlyCloseModule } from './monthly-close/monthly-close.module';
 import { InternalUsersModule } from './internal-users/internal-users.module';
 import { RiskFindingsModule } from './risk-findings/risk-findings.module';
+import { HealthSnapshotsModule } from './health-snapshots/health-snapshots.module';
 
 @Module({
   imports: [
@@ -80,6 +81,7 @@ import { RiskFindingsModule } from './risk-findings/risk-findings.module';
     MonthlyCloseModule,
     InternalUsersModule,
     RiskFindingsModule,
+    HealthSnapshotsModule,
   ],
   providers: [
     {
