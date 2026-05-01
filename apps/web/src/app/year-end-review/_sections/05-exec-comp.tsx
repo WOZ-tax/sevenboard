@@ -266,13 +266,15 @@ export function ExecCompSimulatorSection() {
                     <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                     <XAxis
                       dataKey="comp"
-                      tickFormatter={(v) => (v >= 100 ? `${Math.round(v / 100) / 10}百万` : `${v}万`)}
+                      tickFormatter={(v) =>
+                        v >= 100 ? `${(v / 100).toFixed(1)}百万` : `${v}万`
+                      }
                       stroke="#64748b"
                       fontSize={11}
                     />
                     <YAxis
                       tickFormatter={(v) =>
-                        v >= 1000 ? `${Math.round(v / 1000) / 10}千万` : `${v}万`
+                        v >= 1000 ? `${(v / 1000).toFixed(1)}千万` : `${v}万`
                       }
                       stroke="#64748b"
                       fontSize={11}

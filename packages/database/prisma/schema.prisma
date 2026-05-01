@@ -37,6 +37,7 @@ model Organization {
   businessContext      String?   @map("business_context")
   contextUpdatedAt     DateTime? @map("context_updated_at")
   contextUpdatedById   String?   @map("context_updated_by_id") @db.Uuid
+  contextUpdater       User?     @relation("OrgContextUpdater", fields: [contextUpdatedById], references: [id])
   /// kintone 顧客基本情報から取り込みボタンで prefill した最終時刻。
   /// null = 一度も取り込んでいない (or kintone 連携なし)。
   kintoneSyncedAt      DateTime? @map("kintone_synced_at")
@@ -143,6 +144,7 @@ model User {
   actionEvents         ActionEvent[]
   businessEvents       BusinessEvent[]
   resolvedRiskFindings RiskFinding[]
+  orgContextUpdates    Organization[]           @relation("OrgContextUpdater")
 
   @@map("users")
 }
