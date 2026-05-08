@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMfPL } from "@/hooks/use-mf-data";
 import { useScopedOrgId } from "@/hooks/use-scoped-org-id";
-import { usePeriodStore } from "@/lib/period-store";
+import { useFyElapsed } from "@/hooks/use-fy-elapsed";
+import { getFyElapsedFromMonth, usePeriodStore } from "@/lib/period-store";
 import { cn } from "@/lib/utils";
 import { AlertTriangle } from "lucide-react";
 
@@ -54,6 +55,7 @@ export function ConsumptionTaxFilingSection() {
   const orgId = useScopedOrgId();
   const lockedMonth = usePeriodStore((s) => s.month);
   const fiscalYear = usePeriodStore((s) => s.fiscalYear);
+  const { fyStartMonth } = useFyElapsed();
   const storageKey = storageKeyFor(orgId, fiscalYear);
   const [form, setForm] = useState<FormState>(DEFAULT_FORM);
   const [hydrated, setHydrated] = useState(false);
@@ -100,7 +102,7 @@ export function ConsumptionTaxFilingSection() {
       return row?.current ?? 0;
     };
 
-    const elapsed = lockedMonth ? Math.max(1, lockedMonth) : 12;
+    const elapsed = getFyElapsedFromMonth(lockedMonth, fyStartMonth);
     const annualize = (v: number) => Math.round((v / elapsed) * 12);
 
     // 課税売上 = 売上高(年換算)
@@ -131,7 +133,7 @@ export function ConsumptionTaxFilingSection() {
         taxablePurchase: String(taxablePurchase),
       }));
     }
-  }, [hydrated, pl.data, lockedMonth]);
+  }, [hydrated, pl.data, lockedMonth, fyStartMonth]);
 
   useEffect(() => {
     if (!hydrated) return;

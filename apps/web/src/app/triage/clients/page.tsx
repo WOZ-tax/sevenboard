@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth";
+import { useCurrentOrg } from "@/contexts/current-org";
 import type { KintoneMonthlyProgress } from "@/lib/mf-types";
 import { usePeriodStore } from "@/lib/period-store";
 import {
@@ -48,8 +49,8 @@ function getCompletedCount(monthlyStatus: Record<number, string>): number {
 export default function TriagePage() {
   const user = useAuthStore((s) => s.user);
   const switchOrgStore = useAuthStore((s) => s.switchOrg);
+  const { setCurrentOrgId } = useCurrentOrg();
   const router = useRouter();
-  const queryClient = useQueryClient();
   const periodMonth = usePeriodStore((s) => s.month);
   const [myOnly, setMyOnly] = useState(true);
   const [search, setSearch] = useState("");
@@ -102,8 +103,9 @@ export default function TriagePage() {
     try {
       const result = await api.switchOrg(targetOrg.id);
       switchOrgStore(result.accessToken, result.user);
-      // キャッシュクリア（新しいorgのデータに切替）
-      queryClient.clear();
+      // useCurrentOrg context にも切替を反映（localStorage 同期 + react-query キャッシュ全消し）。
+      // 呼ばないと遷移先で context が旧 orgId を read して古い顧問先のデータが出る。
+      setCurrentOrgId(targetOrg.id);
       router.push("/accounting-review");
     } catch (err) {
       console.error("Org switch failed", err);
@@ -112,7 +114,7 @@ export default function TriagePage() {
     } finally {
       setSwitchingClient(null);
     }
-  }, [switchingClient, orgsQuery.data, switchOrgStore, queryClient, router]);
+  }, [switchingClient, orgsQuery.data, switchOrgStore, setCurrentOrgId, router]);
 
   const records = progressQuery.data || [];
 

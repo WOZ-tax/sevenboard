@@ -69,6 +69,19 @@ export const usePeriodStore = create<PeriodState>()(
   ),
 );
 
+/**
+ * 選択月（usePeriodStore.month, 1-12 のカレンダー月）が会計年度の何ヶ月目かを返す（1-12）。
+ * 期首4月・選択9月 → 6（4,5,6,7,8,9 の 6 ヶ月目）。
+ * 月未選択時は決算月相当の 12 をフォールバック。年換算（YTD÷経過月×12）の分母に使う。
+ */
+export function getFyElapsedFromMonth(
+  selectedMonth: number | undefined,
+  fyStartMonth: number,
+): number {
+  if (!selectedMonth) return 12;
+  return ((selectedMonth - fyStartMonth + 12) % 12) + 1;
+}
+
 /** 表示用の期間ラベルを生成 */
 export function getPeriodLabel(
   fiscalYear: number | undefined,

@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useMfPL } from "@/hooks/use-mf-data";
-import { usePeriodStore } from "@/lib/period-store";
+import { useFyElapsed } from "@/hooks/use-fy-elapsed";
+import { getFyElapsedFromMonth, usePeriodStore } from "@/lib/period-store";
 import { cn } from "@/lib/utils";
 
 const STORAGE_KEY = "sevenboard:next-fy-kpi-input";
@@ -32,6 +33,7 @@ const DEFAULT_FORM: FormState = {
 export function NextFyKpiSection() {
   const pl = useMfPL();
   const lockedMonth = usePeriodStore((s) => s.month);
+  const { fyStartMonth } = useFyElapsed();
   const [form, setForm] = useState<FormState>(DEFAULT_FORM);
   const [hydrated, setHydrated] = useState(false);
 
@@ -58,9 +60,9 @@ export function NextFyKpiSection() {
         !r.category.includes("総利益"),
     );
     const rev = row?.current ?? 0;
-    const elapsed = lockedMonth ? Math.max(1, lockedMonth) : 12;
+    const elapsed = getFyElapsedFromMonth(lockedMonth, fyStartMonth);
     return Math.round((rev / elapsed) * 12);
-  }, [pl.data, lockedMonth]);
+  }, [pl.data, lockedMonth, fyStartMonth]);
 
   const ranges = useMemo(() => {
     const r = currentRevenue;

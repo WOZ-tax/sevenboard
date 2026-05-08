@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMfPL, useMfBS } from "@/hooks/use-mf-data";
 import { useScopedOrgId } from "@/hooks/use-scoped-org-id";
-import { usePeriodStore } from "@/lib/period-store";
+import { useFyElapsed } from "@/hooks/use-fy-elapsed";
+import { getFyElapsedFromMonth, usePeriodStore } from "@/lib/period-store";
 import { calcCorpTax, formatYenFromManYen } from "@/lib/payroll-tax-calc";
 import { cn } from "@/lib/utils";
 
@@ -59,6 +60,7 @@ export function TaxForecastSection() {
   const orgId = useScopedOrgId();
   const lockedMonth = usePeriodStore((s) => s.month);
   const fiscalYear = usePeriodStore((s) => s.fiscalYear);
+  const { fyStartMonth } = useFyElapsed();
   const storageKey = storageKeyFor(orgId, fiscalYear);
   const [form, setForm] = useState<FormState>(DEFAULT_FORM);
   const [hydrated, setHydrated] = useState(false);
@@ -100,7 +102,7 @@ export function TaxForecastSection() {
       return row?.current ?? null;
     };
 
-    const elapsed = lockedMonth ? Math.max(1, lockedMonth) : 12;
+    const elapsed = getFyElapsedFromMonth(lockedMonth, fyStartMonth);
     const annualize = (v: number) => Math.round((v / elapsed) * 12);
     const annualizeManYen = (v: number) => Math.round(((v / elapsed) * 12) / 10000);
 
@@ -117,7 +119,7 @@ export function TaxForecastSection() {
       vatReceived: vatRecv ? String(annualize(vatRecv)) : prev.vatReceived,
       vatPaid: vatPaid ? String(annualize(vatPaid)) : prev.vatPaid,
     }));
-  }, [hydrated, pl.data, bs.data, lockedMonth]);
+  }, [hydrated, pl.data, bs.data, lockedMonth, fyStartMonth]);
 
   useEffect(() => {
     if (!hydrated) return;

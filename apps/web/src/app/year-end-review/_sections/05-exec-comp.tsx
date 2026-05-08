@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMfPL, useMfOffice } from "@/hooks/use-mf-data";
 import { useScopedOrgId } from "@/hooks/use-scoped-org-id";
-import { usePeriodStore } from "@/lib/period-store";
+import { useFyElapsed } from "@/hooks/use-fy-elapsed";
+import { getFyElapsedFromMonth, usePeriodStore } from "@/lib/period-store";
 import {
   findOptimalMonthlyComp,
   formatYenFromManYen,
@@ -62,6 +63,7 @@ export function ExecCompSimulatorSection() {
   const orgId = useScopedOrgId();
   const lockedMonth = usePeriodStore((s) => s.month);
   const fiscalYear = usePeriodStore((s) => s.fiscalYear);
+  const { fyStartMonth } = useFyElapsed();
   const storageKey = storageKeyFor(orgId, fiscalYear);
 
   const [form, setForm] = useState<FormState>(DEFAULT_FORM);
@@ -111,7 +113,7 @@ export function ExecCompSimulatorSection() {
     const depreciation = findPl("減価償却費");
 
     if (revenue > 0) {
-      const elapsed = lockedMonth ? Math.max(1, lockedMonth) : 12;
+      const elapsed = getFyElapsedFromMonth(lockedMonth, fyStartMonth);
       const annualize = (v: number) => Math.round((v / elapsed) * 12);
       const annualRevenue = annualize(revenue);
       const annualOp = annualize(operatingProfit);
@@ -128,7 +130,7 @@ export function ExecCompSimulatorSection() {
         depreciation: String(annualize(depreciation)),
       }));
     }
-  }, [hydrated, pl.data, lockedMonth]);
+  }, [hydrated, pl.data, lockedMonth, fyStartMonth]);
 
   // ユーザーが編集した時だけ localStorage 保存
   useEffect(() => {

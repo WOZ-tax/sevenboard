@@ -265,6 +265,9 @@ function AdvisorPortalContent() {
     try {
       const result = await api.switchOrg(orgId);
       switchOrg(result.accessToken, result.user);
+      // useCurrentOrg context にも切替を反映（localStorage + react-query キャッシュ全消し）。
+      // これを呼ばないと「/」遷移後にcontextが旧orgIdをreadして元の法人に戻ってしまう。
+      setCurrentOrgId(orgId);
       router.push("/");
     } catch {
       setSwitching(null);

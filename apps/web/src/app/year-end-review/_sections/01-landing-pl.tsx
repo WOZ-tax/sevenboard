@@ -4,7 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useMfPL } from "@/hooks/use-mf-data";
 import { useIndustryCode } from "@/hooks/use-industry-code";
 import { getIndustryKnowledge } from "@/lib/industry-knowledge";
-import { usePeriodStore } from "@/lib/period-store";
+import { getFyElapsedFromMonth, usePeriodStore } from "@/lib/period-store";
+import { useFyElapsed } from "@/hooks/use-fy-elapsed";
 import { cn } from "@/lib/utils";
 
 const fmtComma = (n: number): string =>
@@ -13,7 +14,8 @@ const fmtComma = (n: number): string =>
 export function LandingPlSection() {
   const pl = useMfPL();
   const lockedMonth = usePeriodStore((s) => s.month);
-  const elapsedMonths = lockedMonth ? Math.max(1, lockedMonth) : 12;
+  const { fyStartMonth } = useFyElapsed();
+  const elapsedMonths = getFyElapsedFromMonth(lockedMonth, fyStartMonth);
 
   // pl.data は FinancialStatementRow[] の平坦配列。category/current/prior を持つ
   const rows = useMemo(() => {
