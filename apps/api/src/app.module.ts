@@ -40,6 +40,7 @@ import { MonthlyCloseModule } from './monthly-close/monthly-close.module';
 import { InternalUsersModule } from './internal-users/internal-users.module';
 import { RiskFindingsModule } from './risk-findings/risk-findings.module';
 import { HealthSnapshotsModule } from './health-snapshots/health-snapshots.module';
+import { ChoshoModule } from './chosho/chosho.module';
 
 @Module({
   imports: [
@@ -82,6 +83,7 @@ import { HealthSnapshotsModule } from './health-snapshots/health-snapshots.modul
     InternalUsersModule,
     RiskFindingsModule,
     HealthSnapshotsModule,
+    ChoshoModule,
   ],
   providers: [
     {

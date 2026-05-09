@@ -234,6 +234,37 @@ export interface RiskScanRunResult {
   errors: { ruleKey: string; message: string }[];
 }
 
+// === Chosho (残高調書) ===
+/**
+ * 残高調書プレビューの 1 行。3 階層 (大区分→勘定→補助→取引先) を level + parentRowKey で表現。
+ * Unit 2A 時点では DB に保存されない揮発データ。
+ */
+export interface ChoshoPreviewRow {
+  rowKey: string;
+  parentRowKey: string | null;
+  level: number;
+  displayOrder: number;
+  name: string;
+  /** MF row.type ('assets' | 'liabilities' | 'financial_statement_item' | 'account' 等) */
+  mfType: string;
+  /** 月別残高 {1-12: 残高}。MF が値を返さなかった月はキー欠落。 */
+  monthlyBalances: Record<number, number>;
+  settlementBalance: number | null;
+  total: number | null;
+  hasChildren: boolean;
+}
+
+export interface ChoshoPreviewResult {
+  fiscalYear: number;
+  /** クライアントが指定した「最新月」(1-12 のカレンダー月) */
+  selectedMonth: number;
+  /** 期首月 (1-12)。Organization.fiscalMonthEnd から API 側で導出。 */
+  fyStartMonth: number;
+  /** MF の column 順 (例: 期首4月なら [4,5,6,...,3])。 */
+  monthOrder: number[];
+  rows: ChoshoPreviewRow[];
+}
+
 export const api = {
   // Auth
   login: (email: string, password: string) =>
@@ -1070,6 +1101,18 @@ export const api = {
           method: 'POST',
           body: JSON.stringify({ fiscalYear, month, layer }),
         },
+      ),
+  },
+
+  // === Chosho (残高調書) ===
+  chosho: {
+    /**
+     * 残高調書プレビュー — MF推移表 (BS) を 3 階層 row 配列に flatten したものを返す。
+     * DB 書き込みなし。Phase 1 Unit 2A。
+     */
+    preview: (orgId: string, fiscalYear: number, month: number) =>
+      apiFetch<ChoshoPreviewResult>(
+        `/organizations/${orgId}/chosho/preview?fiscalYear=${fiscalYear}&month=${month}`,
       ),
   },
 
