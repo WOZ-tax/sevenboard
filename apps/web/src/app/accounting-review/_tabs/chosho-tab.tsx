@@ -1,15 +1,15 @@
 "use client";
 
 /**
- * 残高調書タブ — Phase 1 Unit 2A: MF推移表 (BS) を 3 階層 expandable テーブルで表示。
+ * 残高調書タブ — Phase 1 Unit 2A/2B-1: MF推移表 (BS) を 3 階層 expandable テーブルで表示。
  *
  * このファイルのスコープ:
  *   - useChoshoPreview で API 取得 (DB 書き込みなしの preview)
  *   - 3 階層 (大区分→勘定→補助→取引先) を expandable rows で展開/折りたたみ
  *   - 期首〜選択月: 通常表示 / 選択月以降: outOfRange (淡くグレー)
+ *   - Unit 2B-1: 選択月セルの異常検知結果 (anomalies[]) を赤表示 + tooltip
  *
- * 次の Unit 2B で追加:
- *   - 異常検知 (零残高違反 / 3ヶ月以上滞留) で赤セル
+ * 次の Unit 2B-2 以降で追加:
  *   - 行コメント / 赤セルコメント / 期待ルール編集 / 確認済✓
  *   - chosho_versions テーブルへの保存・承認フロー
  */
@@ -17,8 +17,13 @@
 import { useMemo, useState } from "react";
 import { ChevronRight, Loader2 } from "lucide-react";
 import { useChoshoPreview } from "@/hooks/use-chosho-preview";
-import type { ChoshoPreviewRow } from "@/lib/api";
+import type { ChoshoAnomaly, ChoshoPreviewRow } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface Props {
   orgId: string;
@@ -135,6 +140,10 @@ function ChoshoTable({
             <span className="inline-block h-2.5 w-2.5 rounded-sm bg-muted/40" />
             未確定 (選択月以降)
           </span>
+          <span className="flex items-center gap-1">
+            <span className="inline-block h-2.5 w-2.5 rounded-sm border-l-2 border-red-500 bg-red-50" />
+            異常 (0が正/3ヶ月滞留)
+          </span>
         </div>
       </div>
 
@@ -245,16 +254,37 @@ function ChoshoRow({
       {monthOrder.map((m, i) => {
         const outOfRange = selectedIdx >= 0 && i > selectedIdx;
         const v = row.monthlyBalances[m];
+        // 異常は selectedMonth セルにのみ付く (builder 側保証)。
+        // anomalies[0].month と m が一致するセルだけ赤表示。
+        const cellAnomalies = row.anomalies.filter((a) => a.month === m);
+        const hasAnomaly = cellAnomalies.length > 0 && !outOfRange;
+        const cellClass = cn(
+          "px-2 py-1.5 text-right tabular-nums",
+          v != null && v < 0 && "text-[var(--color-negative)]",
+          outOfRange && "bg-muted/20 text-muted-foreground/50",
+          hasAnomaly && "border-l-2 border-red-500 bg-red-50 font-semibold text-red-700",
+        );
+        const content = v != null ? formatYen(v) : "";
+        if (hasAnomaly) {
+          return (
+            <td key={m} className={cellClass}>
+              <Tooltip>
+                <TooltipTrigger
+                  type="button"
+                  className="cursor-help bg-transparent p-0 text-inherit underline decoration-red-300 decoration-dotted underline-offset-2"
+                >
+                  {content}
+                </TooltipTrigger>
+                <TooltipContent side="top" className="max-w-xs">
+                  <AnomalyTooltipBody anomalies={cellAnomalies} />
+                </TooltipContent>
+              </Tooltip>
+            </td>
+          );
+        }
         return (
-          <td
-            key={m}
-            className={cn(
-              "px-2 py-1.5 text-right tabular-nums",
-              v != null && v < 0 && "text-[var(--color-negative)]",
-              outOfRange && "bg-muted/20 text-muted-foreground/50",
-            )}
-          >
-            {v != null ? formatYen(v) : ""}
+          <td key={m} className={cellClass}>
+            {content}
           </td>
         );
       })}
@@ -262,6 +292,24 @@ function ChoshoRow({
         {row.settlementBalance != null ? formatYen(row.settlementBalance) : ""}
       </td>
     </tr>
+  );
+}
+
+function AnomalyTooltipBody({ anomalies }: { anomalies: ChoshoAnomaly[] }) {
+  const labelOf = (type: ChoshoAnomaly["type"]): string => {
+    if (type === "ZERO_VIOLATION") return "0が正のはずが残高あり";
+    if (type === "AGING_3M") return "3ヶ月以上滞留";
+    return type;
+  };
+  return (
+    <div className="space-y-1.5 text-xs">
+      {anomalies.map((a, i) => (
+        <div key={i}>
+          <div className="font-semibold text-red-700">{labelOf(a.type)}</div>
+          <div className="text-muted-foreground">{a.message}</div>
+        </div>
+      ))}
+    </div>
   );
 }
 

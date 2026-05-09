@@ -42,7 +42,12 @@ export class ChoshoService {
       .getTransitionBS(orgId, fiscalYear, selectedMonth)
       .catch(() => null);
 
-    const { rows, monthOrder } = buildChoshoPreviewRows({ bsTransition });
+    const { rows, monthOrder } = buildChoshoPreviewRows({
+      bsTransition,
+      selectedMonth,
+      // Unit 2B-1 時点では DB 永続ルールがないため override は渡さない。
+      // Unit 2B-2 で chosho_rows から読んで Map<rowKey, ChoshoRuleOverride> に詰める。
+    });
 
     return {
       fiscalYear,

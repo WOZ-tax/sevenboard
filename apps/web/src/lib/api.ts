@@ -235,9 +235,23 @@ export interface RiskScanRunResult {
 }
 
 // === Chosho (残高調書) ===
+export type ChoshoExpectedRuleValue = 'NONE' | 'ZERO' | 'AGING_3M';
+
+/**
+ * 1 行で発火した異常 1 件。Unit 2B-1 時点では選択月のみ判定。
+ */
+export interface ChoshoAnomaly {
+  type: 'ZERO_VIOLATION' | 'AGING_3M';
+  /** 異常を検出したカレンダー月 (1-12)。selectedMonth と同じ。 */
+  month: number;
+  /** UI tooltip 用の人間可読メッセージ。 */
+  message: string;
+  detail?: Record<string, unknown>;
+}
+
 /**
  * 残高調書プレビューの 1 行。3 階層 (大区分→勘定→補助→取引先) を level + parentRowKey で表現。
- * Unit 2A 時点では DB に保存されない揮発データ。
+ * Unit 2A/2B-1 時点では DB に保存されない揮発データ。
  */
 export interface ChoshoPreviewRow {
   rowKey: string;
@@ -252,6 +266,12 @@ export interface ChoshoPreviewRow {
   settlementBalance: number | null;
   total: number | null;
   hasChildren: boolean;
+  /** 期待残高ルール。Unit 2B-1: ヒューリスティック or override で決定。 */
+  expectedRule: ChoshoExpectedRuleValue;
+  /** 滞留チェック有効フラグ。回転性勘定の子孫はデフォルト true。 */
+  agingCheckEnabled: boolean;
+  /** 検知された異常。空配列 = 異常なし。 */
+  anomalies: ChoshoAnomaly[];
 }
 
 export interface ChoshoPreviewResult {

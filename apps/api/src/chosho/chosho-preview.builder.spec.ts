@@ -1,0 +1,327 @@
+import { buildChoshoPreviewRows } from './chosho-preview.builder';
+import type { MfTransition } from '../mf/types/mf-api.types';
+import type { ChoshoRuleOverride } from './chosho-preview.types';
+
+/**
+ * Unit 2B-1: builder の純関数テスト。
+ *
+ * カバー範囲:
+ * - flatten (ネスト → flat、displayOrder、parentRowKey)
+ * - 月別残高 (monthOrder, settlement_balance, total)
+ * - ヒューリスティック agingCheckEnabled (受取勘定の子孫だけ ON)
+ * - ruleOverrides による上書き
+ * - 零残高違反 (ZERO ルール)
+ * - 3ヶ月以上滞留 (AGING_3M ルール)
+ * - 異常検知が outOfRange と独立 (selectedMonth を変えても過去月セルに干渉しない)
+ */
+
+// ============================================================
+// fixtures
+// ============================================================
+
+/**
+ * MF 推移表 BS の最小 fixture。期首 4 月、選択月までの値だけ詰める。
+ * columns: 12ヶ月 + settlement_balance + total
+ * rows: 大区分 → 勘定 → 補助/取引先
+ */
+function makeBsFixture(args: {
+  /** 補助科目の月別残高 (4月→3月) */
+  subaccountValues: (number | null)[];
+  /** 補助科目の名前 */
+  subaccountName?: string;
+  /** 親勘定の名前 (デフォルト: 売掛金 = 受取勘定) */
+  accountName?: string;
+}): MfTransition {
+  const months = ['4', '5', '6', '7', '8', '9', '10', '11', '12', '1', '2', '3'];
+  const total = args.subaccountValues.reduce<number | null>(
+    (acc, v) => (acc == null ? v : v == null ? acc : acc + v),
+    null,
+  );
+
+  return {
+    report_type: 'monthly_transition_balance_sheet',
+    columns: [...months, 'settlement_balance', 'total'],
+    fiscal_year: 2025,
+    start_date: '2025-04-01',
+    end_date: '2026-03-31',
+    start_month: 4,
+    end_month: 3,
+    rows: [
+      {
+        name: '資産の部',
+        type: 'assets',
+        values: [...args.subaccountValues, args.subaccountValues.at(-1) ?? null, total],
+        rows: [
+          {
+            name: '流動資産',
+            type: 'financial_statement_item',
+            values: [...args.subaccountValues, args.subaccountValues.at(-1) ?? null, total],
+            rows: [
+              {
+                name: args.accountName ?? '売掛金',
+                type: 'account',
+                values: [...args.subaccountValues, args.subaccountValues.at(-1) ?? null, total],
+                rows: [
+                  {
+                    name: args.subaccountName ?? '株式会社サンプル',
+                    type: 'account',
+                    values: [...args.subaccountValues, args.subaccountValues.at(-1) ?? null, total],
+                    rows: null,
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+}
+
+// ============================================================
+// flatten
+// ============================================================
+
+describe('buildChoshoPreviewRows / flatten', () => {
+  it('returns empty arrays when bsTransition is null', () => {
+    const { rows, monthOrder } = buildChoshoPreviewRows({ bsTransition: null });
+    expect(rows).toEqual([]);
+    expect(monthOrder).toEqual([]);
+  });
+
+  it('flattens MF nested rows in DFS order with parentRowKey', () => {
+    const bs = makeBsFixture({ subaccountValues: [100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100] });
+    const { rows, monthOrder } = buildChoshoPreviewRows({ bsTransition: bs });
+
+    expect(monthOrder).toEqual([4, 5, 6, 7, 8, 9, 10, 11, 12, 1, 2, 3]);
+    expect(rows).toHaveLength(4); // 資産の部 → 流動資産 → 売掛金 → サンプル
+    expect(rows.map((r) => r.name)).toEqual([
+      '資産の部',
+      '流動資産',
+      '売掛金',
+      '株式会社サンプル',
+    ]);
+    expect(rows.map((r) => r.level)).toEqual([0, 1, 2, 3]);
+    expect(rows[0].parentRowKey).toBeNull();
+    expect(rows[1].parentRowKey).toBe(rows[0].rowKey);
+    expect(rows[2].parentRowKey).toBe(rows[1].rowKey);
+    expect(rows[3].parentRowKey).toBe(rows[2].rowKey);
+    expect(rows.map((r) => r.displayOrder)).toEqual([0, 1, 2, 3]);
+  });
+
+  it('extracts monthlyBalances / settlementBalance / total from values array', () => {
+    const bs = makeBsFixture({ subaccountValues: [10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120] });
+    const { rows } = buildChoshoPreviewRows({ bsTransition: bs });
+    const leaf = rows.at(-1)!;
+    expect(leaf.monthlyBalances).toEqual({
+      4: 10, 5: 20, 6: 30, 7: 40, 8: 50, 9: 60,
+      10: 70, 11: 80, 12: 90, 1: 100, 2: 110, 3: 120,
+    });
+    // fixture では settlement = 末月、total = 累計
+    expect(leaf.settlementBalance).toBe(120);
+    expect(leaf.total).toBe(780);
+  });
+
+  it('skips months with null values (MF 未取得月)', () => {
+    const bs = makeBsFixture({ subaccountValues: [100, 100, null, null, null, null, null, null, null, null, null, null] });
+    const { rows } = buildChoshoPreviewRows({ bsTransition: bs });
+    const leaf = rows.at(-1)!;
+    expect(Object.keys(leaf.monthlyBalances)).toEqual(['4', '5']);
+  });
+});
+
+// ============================================================
+// rule defaults / overrides
+// ============================================================
+
+describe('buildChoshoPreviewRows / rule defaults', () => {
+  it('enables agingCheckEnabled by default for descendants of receivable accounts', () => {
+    const bs = makeBsFixture({
+      accountName: '売掛金',
+      subaccountName: '株式会社XYZ',
+      subaccountValues: Array(12).fill(100),
+    });
+    const { rows } = buildChoshoPreviewRows({ bsTransition: bs });
+    // level 0 (資産の部) / level 1 (流動資産): false
+    expect(rows[0].agingCheckEnabled).toBe(false);
+    expect(rows[1].agingCheckEnabled).toBe(false);
+    // level 2 (売掛金 親勘定自身): false
+    expect(rows[2].agingCheckEnabled).toBe(false);
+    // level 3 (株式会社XYZ = 売掛金子孫): true
+    expect(rows[3].agingCheckEnabled).toBe(true);
+  });
+
+  it('does NOT enable agingCheckEnabled for non-receivable accounts (棚卸資産 等)', () => {
+    const bs = makeBsFixture({
+      accountName: '商品',
+      subaccountName: '在庫1',
+      subaccountValues: Array(12).fill(100),
+    });
+    const { rows } = buildChoshoPreviewRows({ bsTransition: bs });
+    expect(rows.every((r) => r.agingCheckEnabled === false)).toBe(true);
+  });
+
+  it('never auto-enables ZERO rule (must be explicitly set via override)', () => {
+    const bs = makeBsFixture({ subaccountValues: Array(12).fill(0) });
+    const { rows } = buildChoshoPreviewRows({ bsTransition: bs });
+    expect(rows.every((r) => r.expectedRule === 'NONE')).toBe(true);
+  });
+
+  it('applies ruleOverrides on top of heuristics', () => {
+    const bs = makeBsFixture({ subaccountValues: Array(12).fill(0) });
+    const { rows } = buildChoshoPreviewRows({ bsTransition: bs });
+    const targetKey = rows.at(-1)!.rowKey;
+    const overrides = new Map<string, ChoshoRuleOverride>([
+      [targetKey, { expectedRule: 'ZERO', agingCheckEnabled: false }],
+    ]);
+    const { rows: out } = buildChoshoPreviewRows({ bsTransition: bs, ruleOverrides: overrides });
+    expect(out.at(-1)!.expectedRule).toBe('ZERO');
+    expect(out.at(-1)!.agingCheckEnabled).toBe(false);
+  });
+});
+
+// ============================================================
+// anomaly detection: zero violation
+// ============================================================
+
+describe('buildChoshoPreviewRows / ZERO_VIOLATION', () => {
+  it('flags ZERO_VIOLATION when expectedRule=ZERO and selectedMonth balance is non-zero', () => {
+    // 商品 (非受取勘定) で aging を発火させず、ZERO_VIOLATION を単独で見る
+    const bs = makeBsFixture({
+      accountName: '商品',
+      subaccountValues: [100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100],
+    });
+    const initial = buildChoshoPreviewRows({ bsTransition: bs });
+    const leafKey = initial.rows.at(-1)!.rowKey;
+    const { rows } = buildChoshoPreviewRows({
+      bsTransition: bs,
+      selectedMonth: 6,
+      ruleOverrides: new Map([[leafKey, { expectedRule: 'ZERO' }]]),
+    });
+    const leaf = rows.at(-1)!;
+    expect(leaf.anomalies).toHaveLength(1);
+    expect(leaf.anomalies[0].type).toBe('ZERO_VIOLATION');
+    expect(leaf.anomalies[0].month).toBe(6);
+    expect(leaf.anomalies[0].detail).toEqual({ actualAmount: 100 });
+  });
+
+  it('flags BOTH ZERO_VIOLATION and AGING_3M when both conditions hold (受取勘定 ZERO 上書き)', () => {
+    // 売掛金子孫 (aging ON デフォルト) で 12 ヶ月同額 ¥100 → aging 検知。
+    // さらに ZERO 上書き → ZERO_VIOLATION も発火。両方乗ることを保証。
+    const bs = makeBsFixture({
+      subaccountValues: [100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100],
+    });
+    const initial = buildChoshoPreviewRows({ bsTransition: bs });
+    const leafKey = initial.rows.at(-1)!.rowKey;
+    const { rows } = buildChoshoPreviewRows({
+      bsTransition: bs,
+      selectedMonth: 6,
+      ruleOverrides: new Map([[leafKey, { expectedRule: 'ZERO' }]]),
+    });
+    const types = rows.at(-1)!.anomalies.map((a) => a.type).sort();
+    expect(types).toEqual(['AGING_3M', 'ZERO_VIOLATION']);
+  });
+
+  it('does not flag ZERO_VIOLATION when selectedMonth balance is exactly 0', () => {
+    const bs = makeBsFixture({ subaccountValues: [100, 100, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] });
+    const { rows } = buildChoshoPreviewRows({ bsTransition: bs, selectedMonth: 6 });
+    const leafKey = rows.at(-1)!.rowKey;
+    const re = buildChoshoPreviewRows({
+      bsTransition: bs,
+      selectedMonth: 6,
+      ruleOverrides: new Map([[leafKey, { expectedRule: 'ZERO' }]]),
+    });
+    expect(re.rows.at(-1)!.anomalies).toEqual([]);
+  });
+});
+
+// ============================================================
+// anomaly detection: 3-month aging stagnation
+// ============================================================
+
+describe('buildChoshoPreviewRows / AGING_3M', () => {
+  it('flags AGING_3M when last 3 months have identical non-zero balance', () => {
+    // 4-7月で165,000固定、8月選択 → 6,7,8月が同額 = 滞留
+    const bs = makeBsFixture({
+      subaccountValues: [200000, 200000, 165000, 165000, 165000, null, null, null, null, null, null, null],
+    });
+    const { rows } = buildChoshoPreviewRows({ bsTransition: bs, selectedMonth: 8 });
+    const leaf = rows.at(-1)!;
+    expect(leaf.agingCheckEnabled).toBe(true);
+    expect(leaf.anomalies).toHaveLength(1);
+    expect(leaf.anomalies[0].type).toBe('AGING_3M');
+    expect(leaf.anomalies[0].detail).toMatchObject({
+      sameAmount: 165000,
+      monthsChecked: [6, 7, 8],
+    });
+  });
+
+  it('does not flag AGING_3M when balance changed within last 3 months', () => {
+    const bs = makeBsFixture({
+      subaccountValues: [165000, 165000, 165000, 100000, null, null, null, null, null, null, null, null],
+    });
+    const { rows } = buildChoshoPreviewRows({ bsTransition: bs, selectedMonth: 7 });
+    expect(rows.at(-1)!.anomalies).toEqual([]);
+  });
+
+  it('does not flag AGING_3M when target month balance is 0', () => {
+    const bs = makeBsFixture({
+      subaccountValues: [0, 0, 0, null, null, null, null, null, null, null, null, null],
+    });
+    const { rows } = buildChoshoPreviewRows({ bsTransition: bs, selectedMonth: 6 });
+    expect(rows.at(-1)!.anomalies).toEqual([]);
+  });
+
+  it('does not flag AGING_3M when selectedMonth is too early to compare 3 months', () => {
+    const bs = makeBsFixture({
+      subaccountValues: [165000, 165000, null, null, null, null, null, null, null, null, null, null],
+    });
+    // 4月選択: monthOrder の先頭、比較材料なし
+    const r4 = buildChoshoPreviewRows({ bsTransition: bs, selectedMonth: 4 });
+    expect(r4.rows.at(-1)!.anomalies).toEqual([]);
+    // 5月選択: 前月までしかない、比較材料不足
+    const r5 = buildChoshoPreviewRows({ bsTransition: bs, selectedMonth: 5 });
+    expect(r5.rows.at(-1)!.anomalies).toEqual([]);
+  });
+
+  it('does not flag AGING_3M for non-receivable account descendants (棚卸資産 等)', () => {
+    const bs = makeBsFixture({
+      accountName: '商品',
+      subaccountValues: [165000, 165000, 165000, null, null, null, null, null, null, null, null, null],
+    });
+    const { rows } = buildChoshoPreviewRows({ bsTransition: bs, selectedMonth: 6 });
+    expect(rows.at(-1)!.anomalies).toEqual([]);
+  });
+});
+
+// ============================================================
+// outOfRange と anomaly が干渉しない
+// ============================================================
+
+describe('buildChoshoPreviewRows / outOfRange independence', () => {
+  it('detects anomalies only for selectedMonth, not for past months that would qualify', () => {
+    // 4-6月で同額 (滞留条件成立) だが、selectedMonth=10 にしてみると
+    // 10月は欠落しているので滞留検知も走らない (= 干渉なし)
+    const bs = makeBsFixture({
+      subaccountValues: [165000, 165000, 165000, null, null, null, null, null, null, null, null, null],
+    });
+    const r6 = buildChoshoPreviewRows({ bsTransition: bs, selectedMonth: 6 });
+    expect(r6.rows.at(-1)!.anomalies).toHaveLength(1); // 6月選択なら滞留検知
+    const r10 = buildChoshoPreviewRows({ bsTransition: bs, selectedMonth: 10 });
+    expect(r10.rows.at(-1)!.anomalies).toEqual([]); // 10月選択なら検知なし (10月残高欠落)
+  });
+
+  it('keeps monthlyBalances unchanged regardless of selectedMonth (anomaly does not mutate balances)', () => {
+    const bs = makeBsFixture({ subaccountValues: Array(12).fill(100) });
+    const r1 = buildChoshoPreviewRows({ bsTransition: bs, selectedMonth: 6 });
+    const r2 = buildChoshoPreviewRows({ bsTransition: bs, selectedMonth: 12 });
+    expect(r1.rows.at(-1)!.monthlyBalances).toEqual(r2.rows.at(-1)!.monthlyBalances);
+  });
+
+  it('skips anomaly detection entirely when selectedMonth is undefined', () => {
+    const bs = makeBsFixture({ subaccountValues: [165000, 165000, 165000, null, null, null, null, null, null, null, null, null] });
+    const { rows } = buildChoshoPreviewRows({ bsTransition: bs });
+    expect(rows.every((r) => r.anomalies.length === 0)).toBe(true);
+  });
+});
+
