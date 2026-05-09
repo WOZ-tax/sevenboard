@@ -112,6 +112,7 @@ export function RowCommentDialog({
   onDelete,
   isAdding,
   currentUserId,
+  editable = true,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
@@ -122,6 +123,8 @@ export function RowCommentDialog({
   onDelete: (commentId: string) => void;
   isAdding: boolean;
   currentUserId: string | null;
+  /** false = 閲覧のみ (APPROVED 時)。追加 form と削除ボタンを非表示 */
+  editable?: boolean;
 }) {
   const [body, setBody] = useState("");
   const [urls, setUrls] = useState<string[]>([]);
@@ -164,36 +167,45 @@ export function RowCommentDialog({
                 body={c.body}
                 urls={c.urls}
                 createdAt={c.createdAt}
-                isMine={!!currentUserId && c.authorId === currentUserId}
+                isMine={editable && !!currentUserId && c.authorId === currentUserId}
                 onDelete={() => onDelete(c.id)}
               />
             ))
           )}
         </div>
 
-        {/* 追加フォーム */}
-        <div className="space-y-2 border-t pt-3">
-          <textarea
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
-            placeholder="コメントを入力…"
-            rows={3}
-            className="w-full rounded border px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)]"
-          />
-          <UrlChipsEditor urls={urls} onChange={setUrls} />
-        </div>
+        {/* 追加フォーム (DRAFT のみ) */}
+        {editable && (
+          <div className="space-y-2 border-t pt-3">
+            <textarea
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+              placeholder="コメントを入力…"
+              rows={3}
+              className="w-full rounded border px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)]"
+            />
+            <UrlChipsEditor urls={urls} onChange={setUrls} />
+          </div>
+        )}
+        {!editable && (
+          <p className="border-t pt-2 text-[10px] italic text-muted-foreground">
+            この調書は承認済のため、コメントは追加・削除できません
+          </p>
+        )}
 
         <DialogFooter className="gap-1.5">
           <DialogClose render={<Button variant="ghost" size="sm" className="h-7 text-xs">閉じる</Button>} />
-          <Button
-            size="sm"
-            className="h-7 text-xs"
-            onClick={handleSubmit}
-            disabled={isAdding || !body.trim()}
-          >
-            {isAdding ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" /> : <Plus className="mr-1.5 h-3 w-3" />}
-            追加
-          </Button>
+          {editable && (
+            <Button
+              size="sm"
+              className="h-7 text-xs"
+              onClick={handleSubmit}
+              disabled={isAdding || !body.trim()}
+            >
+              {isAdding ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" /> : <Plus className="mr-1.5 h-3 w-3" />}
+              追加
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -217,6 +229,7 @@ export function CellCommentDialog({
   onDelete,
   isSaving,
   isDeleting,
+  editable = true,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
@@ -236,6 +249,8 @@ export function CellCommentDialog({
   onDelete: (input: { rowId: string; month: number }) => void;
   isSaving: boolean;
   isDeleting: boolean;
+  /** false = 閲覧のみ (APPROVED 時) */
+  editable?: boolean;
 }) {
   const [body, setBody] = useState("");
   const [urls, setUrls] = useState<string[]>([]);
@@ -273,19 +288,48 @@ export function CellCommentDialog({
           {anomalyMessage}
         </div>
 
-        <div className="space-y-2">
-          <textarea
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
-            placeholder="この異常への対応・根拠を記録…"
-            rows={4}
-            className="w-full rounded border px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)]"
-          />
-          <UrlChipsEditor urls={urls} onChange={setUrls} />
-        </div>
+        {editable ? (
+          <div className="space-y-2">
+            <textarea
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+              placeholder="この異常への対応・根拠を記録…"
+              rows={4}
+              className="w-full rounded border px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)]"
+            />
+            <UrlChipsEditor urls={urls} onChange={setUrls} />
+          </div>
+        ) : existing ? (
+          <div className="space-y-2">
+            <div className="whitespace-pre-wrap rounded border bg-card p-2 text-xs">{existing.body}</div>
+            {existing.urls.length > 0 && (
+              <div className="flex flex-wrap gap-1">
+                {existing.urls.map((u) => (
+                  <a
+                    key={u}
+                    href={u}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex max-w-full items-center gap-0.5 truncate rounded bg-muted/60 px-1.5 py-0.5 text-[10px] text-[var(--color-primary)] hover:underline"
+                  >
+                    <LinkIcon className="h-2.5 w-2.5 shrink-0" />
+                    <span className="truncate">{u}</span>
+                  </a>
+                ))}
+              </div>
+            )}
+            <p className="text-[10px] italic text-muted-foreground">
+              この調書は承認済のため、コメントは編集・削除できません
+            </p>
+          </div>
+        ) : (
+          <p className="text-[11px] italic text-muted-foreground">
+            この異常にコメントは付いていません (承認済のため新規追加不可)
+          </p>
+        )}
 
         <DialogFooter className="gap-1.5">
-          {existing && (
+          {editable && existing && (
             <Button
               variant="outline"
               size="sm"
@@ -298,15 +342,17 @@ export function CellCommentDialog({
             </Button>
           )}
           <DialogClose render={<Button variant="ghost" size="sm" className="h-7 text-xs">閉じる</Button>} />
-          <Button
-            size="sm"
-            className="h-7 text-xs"
-            onClick={handleSubmit}
-            disabled={isSaving || !body.trim()}
-          >
-            {isSaving ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" /> : null}
-            {existing ? "更新" : "保存"}
-          </Button>
+          {editable && (
+            <Button
+              size="sm"
+              className="h-7 text-xs"
+              onClick={handleSubmit}
+              disabled={isSaving || !body.trim()}
+            >
+              {isSaving ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" /> : null}
+              {existing ? "更新" : "保存"}
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

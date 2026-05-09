@@ -75,6 +75,26 @@ export class ChoshoController {
     return this.service.getVersion(orgId, versionId);
   }
 
+  /**
+   * DRAFT → APPROVED 遷移。
+   *
+   * 失敗:
+   *   - 404: version が指定 org に属していない
+   *   - 409: status !== DRAFT、または同期間に既存 APPROVED あり
+   *
+   * Phase 1 では 'org:chosho:manage' で十分。「作成できるが承認できない」
+   * ロールが将来必要になれば 'org:chosho:approve' を分離する余地を残す。
+   */
+  @Post('versions/:versionId/approve')
+  @RequirePermission('org:chosho:manage')
+  async approve(
+    @Request() req: { user: { id: string } },
+    @Param('orgId', ParseUUIDPipe) orgId: string,
+    @Param('versionId', ParseUUIDPipe) versionId: string,
+  ) {
+    return this.service.approve(orgId, versionId, req.user.id);
+  }
+
   // ============================================================
   // 行コメント (1:N)
   //

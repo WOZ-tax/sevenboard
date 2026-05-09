@@ -1196,6 +1196,16 @@ export const api = {
       apiFetch<ChoshoVersionDetail>(
         `/organizations/${orgId}/chosho/versions/${versionId}`,
       ),
+    /**
+     * DRAFT → APPROVED 遷移。失敗時:
+     *   - 404: version が org に属さない
+     *   - 409: 既に APPROVED / 同期間に既存 APPROVED あり
+     */
+    approveVersion: (orgId: string, versionId: string) =>
+      apiFetch<ChoshoVersionDetail>(
+        `/organizations/${orgId}/chosho/versions/${versionId}/approve`,
+        { method: 'POST' },
+      ),
 
     // === 行コメント (1:N) ===
     listRowComments: (orgId: string, versionId: string) =>

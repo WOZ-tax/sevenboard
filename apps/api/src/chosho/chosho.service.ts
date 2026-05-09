@@ -1,4 +1,5 @@
 import {
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -224,6 +225,95 @@ export class ChoshoService {
   }
 
   // ============================================================
+  // 承認 (DRAFT → APPROVED)
+  // ============================================================
+
+  /**
+   * 指定 version を APPROVED に遷移する。
+   *
+   * 成功条件:
+   *   1. version が指定 (orgId, tenantId) に属する
+   *   2. status === DRAFT
+   *   3. 同 (tenantId, orgId, fiscalYear, selectedMonth) に APPROVED 既存なし
+   *      (DB 側 partial unique index `chosho_versions_one_approved_per_period`
+   *       で保証されているが、ユーザー向け 409 メッセージのため事前 check)
+   *
+   * 競合経路:
+   *   - 同期的にチェック後、UPDATE で transaction 内に partial unique index 違反が
+   *     起きうる (ほぼ同時に別 request が approve した場合)。
+   *     P2002 を捕まえて 409 ConflictException に変換する。
+   */
+  async approve(
+    orgId: string,
+    versionId: string,
+    approverId: string,
+  ): Promise<ChoshoVersionDetail> {
+    const { tenantId } = await this.resolveOrg(orgId);
+
+    const version = await this.prisma.choshoVersion.findFirst({
+      where: { id: versionId, orgId, tenantId },
+      select: {
+        id: true,
+        status: true,
+        fiscalYear: true,
+        selectedMonth: true,
+      },
+    });
+    if (!version) {
+      throw new NotFoundException('Chosho version not found');
+    }
+    if (version.status !== ChoshoStatus.DRAFT) {
+      throw new ConflictException(
+        `Cannot approve: version status is ${version.status} (only DRAFT is approvable)`,
+      );
+    }
+
+    // 同 (org, fy, month) に既存 APPROVED が無いか事前 check。
+    const existingApproved = await this.prisma.choshoVersion.findFirst({
+      where: {
+        tenantId,
+        orgId,
+        fiscalYear: version.fiscalYear,
+        selectedMonth: version.selectedMonth,
+        status: ChoshoStatus.APPROVED,
+      },
+      select: { id: true },
+    });
+    if (existingApproved) {
+      throw new ConflictException(
+        `Another approved chosho already exists for FY${version.fiscalYear}/${version.selectedMonth}月 (versionId: ${existingApproved.id})`,
+      );
+    }
+
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        await tx.choshoVersion.update({
+          where: { id: versionId },
+          data: {
+            status: ChoshoStatus.APPROVED,
+            approvedById: approverId,
+            approvedAt: new Date(),
+          },
+        });
+      });
+    } catch (e) {
+      // partial unique index 違反 (chosho_versions_one_approved_per_period)
+      // race condition で事前 check 後に別 request が approve した場合に発生。
+      if (
+        e instanceof Prisma.PrismaClientKnownRequestError &&
+        e.code === 'P2002'
+      ) {
+        throw new ConflictException(
+          'Another approved chosho was created concurrently for the same period',
+        );
+      }
+      throw e;
+    }
+
+    return this.getVersion(orgId, versionId);
+  }
+
+  // ============================================================
   // 行コメント (1:N)
   // ============================================================
 
@@ -263,6 +353,8 @@ export class ChoshoService {
     authorId: string,
   ): Promise<RowCommentRow> {
     const { tenantId } = await this.resolveOrg(orgId);
+    // APPROVED / ARCHIVED の version へは書き込み不可
+    await this.assertVersionIsDraft(versionId, orgId, tenantId);
     await this.assertRowBelongsToVersion(rowId, versionId, orgId, tenantId);
     const created = await this.prisma.choshoRowComment.create({
       data: {
@@ -292,6 +384,7 @@ export class ChoshoService {
     requesterId: string,
   ): Promise<void> {
     const { tenantId } = await this.resolveOrg(orgId);
+    await this.assertVersionIsDraft(versionId, orgId, tenantId);
     // 削除前に「同テナント・同 org・同 version 配下のコメントか」を確認。
     // 別テナントの commentId を投げられても 404 で止める。
     const target = await this.prisma.choshoRowComment.findFirst({
@@ -348,6 +441,7 @@ export class ChoshoService {
     authorId: string,
   ): Promise<CellCommentRow> {
     const { tenantId } = await this.resolveOrg(orgId);
+    await this.assertVersionIsDraft(versionId, orgId, tenantId);
     await this.assertRowBelongsToVersion(rowId, versionId, orgId, tenantId);
     if (month < 1 || month > 12) {
       throw new ForbiddenException('month must be 1..12');
@@ -391,6 +485,7 @@ export class ChoshoService {
     month: number,
   ): Promise<void> {
     const { tenantId } = await this.resolveOrg(orgId);
+    await this.assertVersionIsDraft(versionId, orgId, tenantId);
     await this.assertRowBelongsToVersion(rowId, versionId, orgId, tenantId);
     // 存在しない (row, month) でも 404 で返す
     const target = await this.prisma.choshoCellComment.findFirst({
@@ -422,6 +517,32 @@ export class ChoshoService {
     });
     if (!found) {
       throw new NotFoundException('Chosho version not found');
+    }
+  }
+
+  /**
+   * mutation 系 API の前提チェック: version が DRAFT であること。
+   * APPROVED / ARCHIVED への書き込みは 409 で弾く。
+   *
+   * UI 側で readonly 表示しても client は HTTP を直叩きできるため、
+   * 編集禁止の判定は API 側を正本にする。
+   */
+  private async assertVersionIsDraft(
+    versionId: string,
+    orgId: string,
+    tenantId: string,
+  ): Promise<void> {
+    const found = await this.prisma.choshoVersion.findFirst({
+      where: { id: versionId, orgId, tenantId },
+      select: { status: true },
+    });
+    if (!found) {
+      throw new NotFoundException('Chosho version not found');
+    }
+    if (found.status !== ChoshoStatus.DRAFT) {
+      throw new ConflictException(
+        `Chosho version is not editable (status: ${found.status})`,
+      );
     }
   }
 

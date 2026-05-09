@@ -128,6 +128,7 @@ function PreviewView({ orgId, fiscalYear, month }: Props) {
 
 function SavedVersionView({ orgId, versionId }: { orgId: string; versionId: string }) {
   const router = useRouter();
+  const qc = useQueryClient();
   const query = useQuery<ChoshoVersionDetail>({
     queryKey: ["chosho", "version", orgId, versionId],
     queryFn: () => api.chosho.getVersion(orgId, versionId),
@@ -138,6 +139,22 @@ function SavedVersionView({ orgId, versionId }: { orgId: string; versionId: stri
   // saved version モードでのみコメント機能を有効化
   const comments = useChoshoComments({ orgId, versionId });
   const currentUserId = useAuthStore((s) => s.user?.id ?? null);
+
+  const approveMutation = useMutation({
+    mutationFn: () => api.chosho.approveVersion(orgId, versionId),
+    onSuccess: (saved) => {
+      qc.setQueryData(["chosho", "version", orgId, versionId], saved);
+      toast.success("残高調書を承認しました");
+    },
+    onError: (err) => {
+      // 409 (status != DRAFT / 既存 APPROVED) は ConflictException メッセージを表示
+      const msg =
+        err instanceof Error && err.message
+          ? err.message
+          : "承認に失敗しました";
+      toast.error(msg);
+    },
+  });
 
   if (query.isLoading) {
     return (
@@ -157,10 +174,13 @@ function SavedVersionView({ orgId, versionId }: { orgId: string; versionId: stri
   }
 
   const data = query.data;
+  // editable = DRAFT のみ。APPROVED/ARCHIVED は閲覧のみ (API 側でも mutation 拒否)
+  const editable = data.status === "DRAFT";
   return (
     <ChoshoTable
       data={data}
       commentsEnabled
+      commentsEditable={editable}
       rowComments={comments.rowComments.data ?? []}
       cellComments={comments.cellComments.data ?? []}
       currentUserId={currentUserId}
@@ -173,9 +193,33 @@ function SavedVersionView({ orgId, versionId }: { orgId: string; versionId: stri
       isDeletingCellComment={comments.deleteCellComment.isPending}
       headerSlot={
         <div className="flex items-center gap-2">
-          <Badge variant="outline" className="font-mono text-[10px]">
+          <Badge
+            variant="outline"
+            className={cn(
+              "font-mono text-[10px]",
+              data.status === "APPROVED" && "border-emerald-500 bg-emerald-50 text-emerald-700",
+            )}
+          >
             {data.status === "DRAFT" ? "下書き" : data.status === "APPROVED" ? "承認済" : "保管"}
           </Badge>
+          {editable && (
+            <Button
+              size="sm"
+              variant="default"
+              className="h-7 bg-emerald-600 text-xs hover:bg-emerald-700"
+              onClick={() => {
+                if (window.confirm("この残高調書を承認しますか? 承認後は編集できません。")) {
+                  approveMutation.mutate();
+                }
+              }}
+              disabled={approveMutation.isPending}
+            >
+              {approveMutation.isPending ? (
+                <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
+              ) : null}
+              承認する
+            </Button>
+          )}
           <Button
             variant="ghost"
             size="sm"
@@ -245,8 +289,13 @@ interface ChoshoTableProps {
   };
   /** 右上のアクション領域 (保存ボタン or バッジ等)。 */
   headerSlot?: React.ReactNode;
-  /** saved version モードのみ true。コメント機能の表示判定。 */
+  /** saved version モードのみ true。コメント機能 (閲覧+編集) の表示判定。 */
   commentsEnabled?: boolean;
+  /**
+   * コメントの編集可否。DRAFT のみ true。APPROVED/ARCHIVED では既存コメントは表示するが
+   * 追加・更新・削除のボタンを無効化する (API 側でも 409 で拒否される)。
+   */
+  commentsEditable?: boolean;
   rowComments?: ChoshoRowComment[];
   cellComments?: ChoshoCellComment[];
   currentUserId?: string | null;
@@ -269,6 +318,7 @@ function ChoshoTable({
   data,
   headerSlot,
   commentsEnabled = false,
+  commentsEditable = true,
   rowComments = [],
   cellComments = [],
   currentUserId = null,
@@ -415,6 +465,7 @@ function ChoshoTable({
                   isExpanded={expanded.has(r.rowKey)}
                   onToggle={() => toggle(r.rowKey)}
                   commentsEnabled={commentsEnabled}
+                  commentsEditable={commentsEditable}
                   rowCommentCount={rowCommentList.length}
                   onOpenRowComment={() => setOpenRowComment(r.rowKey)}
                   cellCommentLookup={cellCommentLookup}
@@ -440,6 +491,7 @@ function ChoshoTable({
           onDelete={(commentId) => onDeleteRowComment?.(commentId)}
           isAdding={isAddingRowComment}
           currentUserId={currentUserId}
+          editable={commentsEditable}
         />
       )}
 
@@ -468,6 +520,7 @@ function ChoshoTable({
           }}
           isSaving={isUpsertingCellComment}
           isDeleting={isDeletingCellComment}
+          editable={commentsEditable}
         />
       )}
     </div>
@@ -481,6 +534,7 @@ function ChoshoRow({
   isExpanded,
   onToggle,
   commentsEnabled,
+  commentsEditable,
   rowCommentCount,
   onOpenRowComment,
   cellCommentLookup,
@@ -492,6 +546,8 @@ function ChoshoRow({
   isExpanded: boolean;
   onToggle: () => void;
   commentsEnabled: boolean;
+  /** false = 閲覧のみ (APPROVED 時)。Dialog は開けるが追加/削除は無効 */
+  commentsEditable: boolean;
   rowCommentCount: number;
   onOpenRowComment: () => void;
   cellCommentLookup: (month: number) => ChoshoCellComment | null;
