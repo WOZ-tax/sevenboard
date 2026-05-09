@@ -9,3 +9,8 @@ coverage/
 .turbo/
 
 .vercel
+
+# 顧客名入りの調書サンプル/研修資料 (リポジトリにはコミットしない)
+ss/
+# 一回限りの手動 Supabase Dashboard 流し込み用 SQL (適用済の dead scratch)
+packages/database/migration-pending-*.sql

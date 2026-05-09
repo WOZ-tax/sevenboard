@@ -75,6 +75,10 @@ model Organization {
   masterSources          OrganizationMasterSource[]
   riskFindings           RiskFinding[]
   healthSnapshots        HealthSnapshot[]
+  choshoVersions         ChoshoVersion[]
+  choshoRows             ChoshoRow[]
+  choshoRowComments      ChoshoRowComment[]
+  choshoCellComments     ChoshoCellComment[]
 
   @@unique([id, tenantId])
   @@unique([tenantId, code])
@@ -145,6 +149,11 @@ model User {
   businessEvents       BusinessEvent[]
   resolvedRiskFindings RiskFinding[]
   orgContextUpdates    Organization[]           @relation("OrgContextUpdater")
+  createdChoshoVersions    ChoshoVersion[]    @relation("ChoshoVersionCreator")
+  approvedChoshoVersions   ChoshoVersion[]    @relation("ChoshoVersionApprover")
+  confirmedChoshoRows      ChoshoRow[]        @relation("ChoshoRowConfirmer")
+  authoredChoshoRowComments  ChoshoRowComment[]  @relation("ChoshoRowCommentAuthor")
+  authoredChoshoCellComments ChoshoCellComment[] @relation("ChoshoCellCommentAuthor")
 
   @@map("users")
 }
@@ -1251,4 +1260,146 @@ model HealthSnapshot {
   @@unique([tenantId, orgId, snapshotDate])
   @@index([tenantId, orgId, snapshotDate(sort: Desc)])
   @@map("health_snapshots")
+}
+
+/// 残高調書 (Chosho) — 月次/決算レビュー用の月末残高一覧スナップショット。
+/// MF 推移表 API から月別残高を引き、3階層 (勘定→補助→取引先) で並べる。
+/// 異常検知ルール (零残高違反 / 3ヶ月以上滞留) で赤セル表示し、行・セル単位でコメント可能。
+model ChoshoVersion {
+  id             String        @id @default(uuid()) @db.Uuid
+  tenantId       String        @map("tenant_id") @db.Uuid
+  orgId          String        @map("org_id") @db.Uuid
+  fiscalYear     Int           @map("fiscal_year")
+  /// この調書がカバーする「最新月」(1-12 のカレンダー月)。月次=その月、決算=期末月。
+  selectedMonth  Int           @map("selected_month")
+  status         ChoshoStatus  @default(DRAFT)
+  title          String?
+  createdById    String?       @map("created_by_id") @db.Uuid
+  approvedById   String?       @map("approved_by_id") @db.Uuid
+  approvedAt     DateTime?     @map("approved_at")
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [orgId, tenantId], references: [id, tenantId])
+  creator      User?        @relation("ChoshoVersionCreator", fields: [createdById], references: [id])
+  approver     User?        @relation("ChoshoVersionApprover", fields: [approvedById], references: [id])
+  rows         ChoshoRow[]
+
+  /// 子テーブル (ChoshoRow) からの複合 FK ターゲット。tenantId/orgId 整合をDBで保証する。
+  @@unique([id, tenantId, orgId])
+  @@index([tenantId, orgId, fiscalYear])
+  @@index([tenantId, orgId, status])
+  @@map("chosho_versions")
+}
+
+enum ChoshoStatus {
+  DRAFT
+  APPROVED
+  ARCHIVED
+}
+
+/// 調書の 1 行。3階層を level で表現:
+/// 0=大区分(資産の部 等) / 1=勘定(普通預金 等) / 2=補助(銀行口座 等) / 3=取引先
+model ChoshoRow {
+  id                 String              @id @default(uuid()) @db.Uuid
+  versionId          String              @map("version_id") @db.Uuid
+  tenantId           String              @map("tenant_id") @db.Uuid
+  orgId              String              @map("org_id") @db.Uuid
+  level              Int
+  displayOrder       Int                 @default(0) @map("display_order")
+  parentRowId        String?             @map("parent_row_id") @db.Uuid
+  accountCode        String?             @map("account_code")
+  accountName        String              @map("account_name")
+  subaccountName     String?             @map("subaccount_name")
+  partnerName        String?             @map("partner_name")
+  /// 月別残高: {"4": 12345.0, "5": 23456.0, ...}
+  monthlyBalances    Json                @default("{}") @map("monthly_balances")
+  expectedRule       ChoshoExpectedRule  @default(NONE) @map("expected_rule")
+  agingCheckEnabled  Boolean             @default(false) @map("aging_check_enabled")
+  evidenceText       String?             @map("evidence_text")
+  notes              String?
+  confirmed          Boolean             @default(false)
+  confirmedById      String?             @map("confirmed_by_id") @db.Uuid
+  confirmedAt        DateTime?           @map("confirmed_at")
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @updatedAt @map("updated_at")
+
+  /// 同一 (versionId, tenantId, orgId) でないと FK が成立しない複合参照。
+  /// これにより別テナント/別組織/別版の version を子から指すことが DB レベルで不可能。
+  version       ChoshoVersion       @relation(fields: [versionId, tenantId, orgId], references: [id, tenantId, orgId], onDelete: Cascade)
+  organization  Organization        @relation(fields: [orgId, tenantId], references: [id, tenantId])
+  /// 親行も同じ (versionId, tenantId, orgId) 内に制限。階層は同一スナップショット内でのみ成立。
+  parent        ChoshoRow?          @relation("ChoshoRowParent", fields: [parentRowId, versionId, tenantId, orgId], references: [id, versionId, tenantId, orgId])
+  children      ChoshoRow[]         @relation("ChoshoRowParent")
+  confirmer     User?               @relation("ChoshoRowConfirmer", fields: [confirmedById], references: [id])
+  rowComments   ChoshoRowComment[]
+  cellComments  ChoshoCellComment[]
+
+  /// 自己参照 (parent) からの 4 列複合 FK ターゲット。同一版内に制限。
+  @@unique([id, versionId, tenantId, orgId])
+  /// 子テーブル (ChoshoRowComment / ChoshoCellComment) からの 3 列複合 FK ターゲット。
+  @@unique([id, tenantId, orgId])
+  @@index([versionId, displayOrder])
+  @@index([tenantId, orgId])
+  @@index([parentRowId])
+  @@map("chosho_rows")
+}
+
+enum ChoshoExpectedRule {
+  NONE
+  ZERO
+  AGING_3M
+}
+
+/// 行右端コメントボタンから残すコメント。1行に複数 (1:N)。URL を JSON 配列で持てる。
+model ChoshoRowComment {
+  id        String   @id @default(uuid()) @db.Uuid
+  rowId     String   @map("row_id") @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  orgId     String   @map("org_id") @db.Uuid
+  body      String
+  /// 添付 URL の配列 (string[])
+  urls      Json     @default("[]")
+  authorId  String?  @map("author_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  /// 同一 (rowId, tenantId, orgId) でないと FK が成立しない複合参照。別テナント/別組織の row を指せない。
+  row          ChoshoRow    @relation(fields: [rowId, tenantId, orgId], references: [id, tenantId, orgId], onDelete: Cascade)
+  organization Organization @relation(fields: [orgId, tenantId], references: [id, tenantId])
+  author       User?        @relation("ChoshoRowCommentAuthor", fields: [authorId], references: [id])
+
+  @@index([rowId, createdAt])
+  @@index([tenantId, orgId])
+  @@map("chosho_row_comments")
+}
+
+/// 赤セル (異常検知された月セル) クリックでのコメント。1セル1コメント。
+model ChoshoCellComment {
+  id           String            @id @default(uuid()) @db.Uuid
+  rowId        String            @map("row_id") @db.Uuid
+  tenantId     String            @map("tenant_id") @db.Uuid
+  orgId        String            @map("org_id") @db.Uuid
+  /// 1-12 のカレンダー月。どのセルへのコメントか。
+  month        Int
+  body         String
+  urls         Json              @default("[]")
+  anomalyType  ChoshoAnomalyType @map("anomaly_type")
+  authorId     String?           @map("author_id") @db.Uuid
+  createdAt    DateTime          @default(now()) @map("created_at")
+  updatedAt    DateTime          @updatedAt @map("updated_at")
+
+  /// 同一 (rowId, tenantId, orgId) でないと FK が成立しない複合参照。別テナント/別組織の row を指せない。
+  row          ChoshoRow    @relation(fields: [rowId, tenantId, orgId], references: [id, tenantId, orgId], onDelete: Cascade)
+  organization Organization @relation(fields: [orgId, tenantId], references: [id, tenantId])
+  author       User?        @relation("ChoshoCellCommentAuthor", fields: [authorId], references: [id])
+
+  @@unique([rowId, month])
+  @@index([tenantId, orgId])
+  @@map("chosho_cell_comments")
+}
+
+enum ChoshoAnomalyType {
+  ZERO_VIOLATION
+  AGING_3M
 }

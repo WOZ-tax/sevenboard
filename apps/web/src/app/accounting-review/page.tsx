@@ -21,7 +21,11 @@ import {
   Play,
   Loader2,
   Printer,
+  ClipboardList,
+  BookText,
 } from "lucide-react";
+import { ChoshoTab } from "./_tabs/chosho-tab";
+import { JournalReviewTab } from "./_tabs/journal-tab";
 import { AgentBanner } from "@/components/agent/agent-banner";
 import { AGENTS } from "@/lib/agent-voice";
 import { CopilotOpenButton } from "@/components/copilot/copilot-open-button";
@@ -48,11 +52,13 @@ import type {
   ReviewTaxMismatch,
 } from "@/lib/mf-types";
 
-type TabKey = "checklist" | "review";
+type TabKey = "checklist" | "review" | "chosho" | "journal";
 
 const tabs: { key: TabKey; label: string; icon: typeof FileText }[] = [
   { key: "review", label: "経理レビュー", icon: AlertTriangle },
   { key: "checklist", label: "チェックリスト", icon: ClipboardCheck },
+  { key: "chosho", label: "残高調書", icon: ClipboardList },
+  { key: "journal", label: "仕訳レビュー", icon: BookText },
 ];
 
 const STATUS_STEPS = [
@@ -308,6 +314,18 @@ export default function AccountingReviewPage() {
               fiscalYear={fiscalYear}
               month={month}
             />
+          </div>
+        )}
+
+        {activeTab === "chosho" && (
+          <div role="tabpanel" id="monthly-panel-chosho" aria-labelledby="monthly-tab-chosho">
+            <ChoshoTab orgId={orgId} fiscalYear={fiscalYear} month={month} />
+          </div>
+        )}
+
+        {activeTab === "journal" && (
+          <div role="tabpanel" id="monthly-panel-journal" aria-labelledby="monthly-tab-journal">
+            <JournalReviewTab orgId={orgId} fiscalYear={fiscalYear} month={month} />
           </div>
         )}
       </div>
