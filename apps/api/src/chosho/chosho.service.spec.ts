@@ -1,8 +1,11 @@
 import {
+  buildNamePathByIdFromSavedRows,
   computeAnomaliesFromSaved,
   computeMonthOrderFromFyStart,
+  flattenTrialForActivity,
   parseMonthlyBalances,
 } from './chosho.service';
+import type { MfReportRow } from '../mf/types/mf-api.types';
 
 /**
  * Unit 2B-2: chosho.service の純粋 helper 群のテスト。
@@ -131,5 +134,96 @@ describe('computeAnomaliesFromSaved', () => {
     expect(out).toHaveLength(1);
     expect(out[0].type).toBe('AGING_3M');
     expect(out[0].detail).toMatchObject({ monthsChecked: [12, 1, 2] });
+  });
+
+  it('suppresses AGING_3M when recentActivity has debit or credit > 0', () => {
+    const base = {
+      monthlyBalances: { 6: 165000, 7: 165000, 8: 165000 },
+      expectedRule: 'NONE' as const,
+      expectedValue: null,
+      agingCheckEnabled: true,
+      selectedMonth: 8,
+    };
+    // debit > 0 → 抑制
+    expect(computeAnomaliesFromSaved({ ...base, recentActivity: { debit: 50000, credit: 0 } })).toEqual([]);
+    // credit > 0 → 抑制
+    expect(computeAnomaliesFromSaved({ ...base, recentActivity: { debit: 0, credit: 30000 } })).toEqual([]);
+    // 両方 0 → 検知あり
+    expect(computeAnomaliesFromSaved({ ...base, recentActivity: { debit: 0, credit: 0 } })).toHaveLength(1);
+    // null → 検知あり (既存挙動)
+    expect(computeAnomaliesFromSaved({ ...base, recentActivity: null })).toHaveLength(1);
+    // undefined (省略) → 検知あり
+    expect(computeAnomaliesFromSaved(base)).toHaveLength(1);
+  });
+});
+
+// ============================================================
+// flattenTrialForActivity (試算表 → name path map)
+// ============================================================
+
+describe('flattenTrialForActivity', () => {
+  function makeTrialRow(name: string, debit: number, credit: number, children: MfReportRow[] = []): MfReportRow {
+    // values columns: [opening, debit, credit, closing, ratio]
+    return { name, type: 'account', values: [0, debit, credit, 0, null], rows: children.length > 0 ? children : null };
+  }
+
+  it('builds name path -> {debit, credit} map from nested rows', () => {
+    const rows: MfReportRow[] = [
+      makeTrialRow('資産の部', 0, 0, [
+        makeTrialRow('流動資産', 0, 0, [
+          makeTrialRow('売掛金', 100, 80, [
+            makeTrialRow('株式会社A', 60, 50),
+            makeTrialRow('株式会社B', 40, 30),
+          ]),
+        ]),
+      ]),
+    ];
+    const map = new Map<string, { debit: number; credit: number }>();
+    flattenTrialForActivity(rows, [], map);
+    expect(map.get('資産の部/流動資産/売掛金')).toEqual({ debit: 100, credit: 80 });
+    expect(map.get('資産の部/流動資産/売掛金/株式会社A')).toEqual({ debit: 60, credit: 50 });
+    expect(map.get('資産の部/流動資産/売掛金/株式会社B')).toEqual({ debit: 40, credit: 30 });
+  });
+
+  it('skips rows where both debit and credit are 0', () => {
+    const rows: MfReportRow[] = [makeTrialRow('資産の部', 0, 0)];
+    const map = new Map<string, { debit: number; credit: number }>();
+    flattenTrialForActivity(rows, [], map);
+    expect(map.size).toBe(0);
+  });
+
+  it('handles null rows (leaf node)', () => {
+    const rows: MfReportRow[] = [makeTrialRow('現金', 100, 50)];
+    const map = new Map<string, { debit: number; credit: number }>();
+    flattenTrialForActivity(rows, [], map);
+    expect(map.get('現金')).toEqual({ debit: 100, credit: 50 });
+  });
+});
+
+// ============================================================
+// buildNamePathByIdFromSavedRows
+// ============================================================
+
+describe('buildNamePathByIdFromSavedRows', () => {
+  it('walks parentRowId chain to build /-joined name paths', () => {
+    const rows = [
+      { id: 'r1', accountName: '資産の部', parentRowId: null },
+      { id: 'r2', accountName: '流動資産', parentRowId: 'r1' },
+      { id: 'r3', accountName: '売掛金', parentRowId: 'r2' },
+      { id: 'r4', accountName: '株式会社A', parentRowId: 'r3' },
+    ];
+    const map = buildNamePathByIdFromSavedRows(rows);
+    expect(map.get('r1')).toBe('資産の部');
+    expect(map.get('r2')).toBe('資産の部/流動資産');
+    expect(map.get('r3')).toBe('資産の部/流動資産/売掛金');
+    expect(map.get('r4')).toBe('資産の部/流動資産/売掛金/株式会社A');
+  });
+
+  it('handles missing parent (orphan) gracefully', () => {
+    const rows = [
+      { id: 'r1', accountName: '売掛金', parentRowId: 'missing' },
+    ];
+    const map = buildNamePathByIdFromSavedRows(rows);
+    expect(map.get('r1')).toBe('売掛金');
   });
 });

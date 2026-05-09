@@ -39,6 +39,20 @@ interface BuildInput {
    * 空配列 [] を渡すと全補助科目を残す (BS 完全展開、テスト用)。
    */
   filterAccountKeywords?: string[];
+  /**
+   * 直近3ヶ月の各勘定の借方/貸方発生額。AGING_3M 誤検知抑制に使う。
+   * key = '/' 区切りの name path (例: "資産の部/流動資産/売掛金/株式会社サンプル")。
+   *
+   * 動作:
+   *   - 直近3ヶ月で debit > 0 OR credit > 0 の勘定 = 「動きあり」 → AGING_3M 抑制
+   *   - 「毎月55万売上 + 毎月55万入金 = 残高一定」のような相殺パターンでも、
+   *     debit/credit 両方発生しているので activity ありと判定される
+   *   - 売掛金のような回転勘定は両側発生で OK、前払/仮払は片側発生でも意味があるので
+   *     とりあえず「片側でも発生していれば抑制」の暫定ルール
+   *
+   * 未指定時は抑制なし (= 既存の純粋な月末残高同額判定のまま)。
+   */
+  recentActivityByPath?: Map<string, { debit: number; credit: number }>;
 }
 
 interface BuildOutput {
@@ -94,7 +108,13 @@ export function buildChoshoPreviewRows(input: BuildInput): BuildOutput {
   flattenMfRows(input.bsTransition.rows, null, 0, monthOrder, out, 'bs');
 
   // 階層情報 (祖先 name list) を解決してから rule defaults / anomalies を埋める。
-  applyRulesAndDetectAnomalies(out, monthOrder, input.selectedMonth, input.ruleOverrides);
+  applyRulesAndDetectAnomalies(
+    out,
+    monthOrder,
+    input.selectedMonth,
+    input.ruleOverrides,
+    input.recentActivityByPath,
+  );
 
   // BS 全体は残し、非対象勘定の補助科目以下だけ drop。
   const keywords =
@@ -243,6 +263,7 @@ function applyRulesAndDetectAnomalies(
   monthOrder: number[],
   selectedMonth: number | undefined,
   ruleOverrides: Map<string, ChoshoRuleOverride> | undefined,
+  recentActivityByPath: Map<string, { debit: number; credit: number }> | undefined,
 ): void {
   // rowKey -> row 引きの map
   const byKey = new Map(out.map((r) => [r.rowKey, r]));
@@ -261,9 +282,32 @@ function applyRulesAndDetectAnomalies(
 
     // (3) 異常検知 (selectedMonth 指定時のみ)
     if (selectedMonth != null) {
-      row.anomalies = detectAnomalies(row, monthOrder, selectedMonth);
+      // recentActivity の lookup 用に name path を解決
+      const path = recentActivityByPath ? buildNamePath(row, byKey) : null;
+      const activity =
+        path != null ? (recentActivityByPath?.get(path) ?? null) : null;
+      row.anomalies = detectAnomalies(row, monthOrder, selectedMonth, activity);
     }
   }
+}
+
+/**
+ * 行の祖先を辿って '/' 区切りの name path を組み立てる。
+ * recentActivityByPath / 試算表 row 側でも同じロジックで path を作って match させる。
+ */
+export function buildNamePath(
+  row: ChoshoPreviewRow,
+  byKey: Map<string, ChoshoPreviewRow>,
+): string {
+  const parts: string[] = [row.name];
+  let cur: ChoshoPreviewRow | undefined = row;
+  while (cur && cur.parentRowKey) {
+    const parent = byKey.get(cur.parentRowKey);
+    if (!parent) break;
+    parts.unshift(parent.name);
+    cur = parent;
+  }
+  return parts.join('/');
 }
 
 /**
@@ -291,11 +335,14 @@ function isReceivableDescendant(
 /**
  * 1 行に対する選択月の異常を全種類チェックして返す。
  * 異常が複数発火する設計だが Unit 2B-1 のルールセットでは実質 1 件。
+ *
+ * @param activity 直近3ヶ月の借方/貸方発生額。AGING_3M 抑制判定に使う。null なら抑制なし。
  */
 function detectAnomalies(
   row: ChoshoPreviewRow,
   monthOrder: number[],
   selectedMonth: number,
+  activity: { debit: number; credit: number } | null,
 ): ChoshoAnomaly[] {
   const anomalies: ChoshoAnomaly[] = [];
 
@@ -317,15 +364,22 @@ function detectAnomalies(
   if (row.agingCheckEnabled || row.expectedRule === 'AGING_3M') {
     const aging = checkAging3M(row.monthlyBalances, monthOrder, selectedMonth);
     if (aging.stagnant) {
-      anomalies.push({
-        type: 'AGING_3M',
-        month: selectedMonth,
-        message: `直近3ヶ月 (${aging.monthsChecked!.join('/')}月) の残高が ${formatYen(aging.sameAmount!)} で動いていません`,
-        detail: {
-          sameAmount: aging.sameAmount,
-          monthsChecked: aging.monthsChecked,
-        },
-      });
+      // activity 抑制: 直近3ヶ月で debit > 0 OR credit > 0 なら「動きあり」
+      // (毎月55万売上 + 毎月55万入金 = 残高一定 のような相殺パターンも debit/credit
+      //  両方発生しているので、ここで滞留判定を抑制できる)
+      const hasActivity =
+        activity != null && (activity.debit > 0 || activity.credit > 0);
+      if (!hasActivity) {
+        anomalies.push({
+          type: 'AGING_3M',
+          month: selectedMonth,
+          message: `直近3ヶ月 (${aging.monthsChecked!.join('/')}月) の残高が ${formatYen(aging.sameAmount!)} で動いていません`,
+          detail: {
+            sameAmount: aging.sameAmount,
+            monthsChecked: aging.monthsChecked,
+          },
+        });
+      }
     }
   }
 

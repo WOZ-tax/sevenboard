@@ -8,6 +8,8 @@ import { ChoshoAnomalyType, ChoshoStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { MfApiService } from '../mf/mf-api.service';
 import { buildChoshoPreviewRows } from './chosho-preview.builder';
+import type { MfReportRow, MfTrialBalance } from '../mf/types/mf-api.types';
+import { TB_COL } from '../mf/types/mf-api.types';
 import type {
   ChoshoAnomaly,
   ChoshoExpectedRuleValue,
@@ -46,9 +48,15 @@ export class ChoshoService {
     const bsTransition = await this.mfApi
       .getTransitionBS(orgId, fiscalYear, selectedMonth, { withSubAccounts: true })
       .catch(() => null);
+    const recentActivityByPath = await this.fetchRecentActivityByPath(
+      orgId,
+      fiscalYear,
+      selectedMonth,
+    );
     const { rows, monthOrder } = buildChoshoPreviewRows({
       bsTransition,
       selectedMonth,
+      recentActivityByPath,
     });
     return { fiscalYear, selectedMonth, fyStartMonth, monthOrder, rows };
   }
@@ -77,9 +85,15 @@ export class ChoshoService {
     const bsTransition = await this.mfApi
       .getTransitionBS(orgId, fiscalYear, selectedMonth, { withSubAccounts: true })
       .catch(() => null);
+    const recentActivityByPath = await this.fetchRecentActivityByPath(
+      orgId,
+      fiscalYear,
+      selectedMonth,
+    );
     const { rows: previewRows, monthOrder } = buildChoshoPreviewRows({
       bsTransition,
       selectedMonth,
+      recentActivityByPath,
     });
 
     const versionId = await this.prisma.$transaction(async (tx) => {
@@ -145,7 +159,24 @@ export class ChoshoService {
     orgId: string,
     versionId: string,
   ): Promise<ChoshoVersionDetail> {
-    const detail = await this.getVersionInternal(orgId, versionId);
+    // saved version の anomaly 再判定で AGING_3M 抑制を効かせるため、
+    // version の selectedMonth に対する直近3ヶ月の activity を取得しておく
+    const head = await this.prisma.choshoVersion.findFirst({
+      where: { id: versionId, orgId },
+      select: { fiscalYear: true, selectedMonth: true },
+    });
+    const recentActivityByPath = head
+      ? await this.fetchRecentActivityByPath(
+          orgId,
+          head.fiscalYear,
+          head.selectedMonth,
+        )
+      : undefined;
+    const detail = await this.getVersionInternal(
+      orgId,
+      versionId,
+      recentActivityByPath,
+    );
     // 期首月は読み取り時に Organization から再取得 (snapshot に持たない)
     const { fyStartMonth } = await this.resolveOrg(orgId);
     detail.fyStartMonth = fyStartMonth;
@@ -160,6 +191,7 @@ export class ChoshoService {
   private async getVersionInternal(
     orgId: string,
     versionId: string,
+    recentActivityByPath?: Map<string, { debit: number; credit: number }>,
   ): Promise<ChoshoVersionDetail> {
     const { tenantId } = await this.resolveOrg(orgId);
 
@@ -175,6 +207,9 @@ export class ChoshoService {
       throw new NotFoundException('Chosho version not found');
     }
 
+    // 各 row の name path を id の親子関係から事前計算 (computeAnomaliesFromSaved の activity lookup 用)
+    const namePathById = buildNamePathByIdFromSavedRows(version.rows);
+
     // saved row -> ChoshoPreviewRow 互換 shape へ整形。
     // rowKey = id、parentRowKey = parentRowId (UI が preview と同じレンダリング経路で再描画できる)
     const rows: ChoshoPreviewRow[] = version.rows.map((r) => {
@@ -182,12 +217,15 @@ export class ChoshoService {
       // Prisma の Decimal は string で来るので Number 変換。NULL は null 維持。
       const expectedValue =
         r.expectedValue == null ? null : Number(r.expectedValue.toString());
+      const path = namePathById.get(r.id) ?? r.accountName;
+      const recentActivity = recentActivityByPath?.get(path) ?? null;
       const anomalies = computeAnomaliesFromSaved({
         monthlyBalances,
         expectedRule: r.expectedRule as ChoshoExpectedRuleValue,
         expectedValue,
         agingCheckEnabled: r.agingCheckEnabled,
         selectedMonth: version.selectedMonth,
+        recentActivity,
       });
       return {
         rowKey: r.id,
@@ -616,6 +654,38 @@ export class ChoshoService {
     }
   }
 
+  /**
+   * 直近 3 ヶ月の試算表 BS を取得し、'/' 区切りの name path -> {debit, credit} の Map を返す。
+   * AGING_3M 抑制判定 (毎月相殺パターンの誤検知除外) で使う。
+   *
+   * 取得期間:
+   *   - end_month = selectedMonth
+   *   - start_month = max(fyStart, selectedMonth - 2)
+   *   (3 ヶ月未満しか取れない場合 = aging 判定が発火しないので影響なし)
+   *
+   * 失敗時は null を返し、抑制を skip (= 既存の純粋な月末残高同額判定のまま) する。
+   */
+  private async fetchRecentActivityByPath(
+    orgId: string,
+    fiscalYear: number,
+    selectedMonth: number,
+  ): Promise<Map<string, { debit: number; credit: number }> | undefined> {
+    // selectedMonth - 2 が前会計年度に跨ぐケースは Phase 1 ではスキップ (現実装の checkAging3M
+    // も「monthOrder で先頭2 ヶ月以内なら判定不可」で揃っている)。
+    const startMonth = Math.max(1, selectedMonth - 2);
+    const trial = await this.mfApi
+      .getTrialBalanceBS(orgId, fiscalYear, selectedMonth, {
+        startMonth,
+        withSubAccounts: true,
+      })
+      .catch(() => null);
+    if (!trial) return undefined;
+
+    const map = new Map<string, { debit: number; credit: number }>();
+    flattenTrialForActivity(trial.rows, [], map);
+    return map;
+  }
+
   private async resolveOrg(orgId: string): Promise<{ tenantId: string; fyStartMonth: number }> {
     const org = await this.prisma.organization.findUniqueOrThrow({
       where: { id: orgId },
@@ -679,6 +749,56 @@ export interface CellCommentRow {
 // pure helpers (test 用に export)
 // ============================================================
 
+/**
+ * saved chosho_rows の id -> '/' 区切り name path を再帰計算した Map を返す。
+ * builder の name path 生成と同じ shape (parent.name/.../self.name)。
+ *
+ * activity lookup 用。 recentActivityByPath は試算表側で同じ name path で組まれている。
+ */
+export function buildNamePathByIdFromSavedRows(
+  rows: { id: string; accountName: string; parentRowId: string | null }[],
+): Map<string, string> {
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const out = new Map<string, string>();
+  for (const r of rows) {
+    const parts: string[] = [r.accountName];
+    let cur: { id: string; accountName: string; parentRowId: string | null } | undefined = r;
+    while (cur && cur.parentRowId) {
+      const parent = byId.get(cur.parentRowId);
+      if (!parent) break;
+      parts.unshift(parent.accountName);
+      cur = parent;
+    }
+    out.set(r.id, parts.join('/'));
+  }
+  return out;
+}
+
+/**
+ * 試算表 (MfTrialBalance) の rows を再帰展開し、name path → {debit, credit} の Map を埋める。
+ * builder の name path 生成 (chosho-preview.builder.buildNamePath) と整合させる。
+ *
+ * MfReportRow.values[1] = debit_amount, [2] = credit_amount (TB_COL.DEBIT/CREDIT)
+ */
+export function flattenTrialForActivity(
+  rows: MfReportRow[] | null,
+  parentNames: string[],
+  out: Map<string, { debit: number; credit: number }>,
+): void {
+  if (!rows) return;
+  for (const r of rows) {
+    const path = [...parentNames, r.name].join('/');
+    const debit = typeof r.values[TB_COL.DEBIT] === 'number' ? (r.values[TB_COL.DEBIT] as number) : 0;
+    const credit = typeof r.values[TB_COL.CREDIT] === 'number' ? (r.values[TB_COL.CREDIT] as number) : 0;
+    if (debit > 0 || credit > 0) {
+      out.set(path, { debit, credit });
+    }
+    if (r.rows && r.rows.length > 0) {
+      flattenTrialForActivity(r.rows, [...parentNames, r.name], out);
+    }
+  }
+}
+
 /** jsonb 列に保存された string[] をパース。string 以外の要素は drop。 */
 export function parseStringArray(value: Prisma.JsonValue | unknown): string[] {
   if (!Array.isArray(value)) return [];
@@ -721,8 +841,11 @@ export function computeAnomaliesFromSaved(input: {
   expectedValue: number | null;
   agingCheckEnabled: boolean;
   selectedMonth: number;
+  /** 直近3ヶ月の借方/貸方発生額。null/undefined なら抑制なし。 */
+  recentActivity?: { debit: number; credit: number } | null;
 }): ChoshoAnomaly[] {
   const { monthlyBalances, expectedRule, expectedValue, agingCheckEnabled, selectedMonth } = input;
+  const recentActivity = input.recentActivity ?? null;
   const out: ChoshoAnomaly[] = [];
 
   // EXPECTED_VALUE_VIOLATION
@@ -750,12 +873,18 @@ export function computeAnomaliesFromSaved(input: {
     const v2 = monthlyBalances[m2];
     if (typeof v0 === 'number' && typeof v1 === 'number' && typeof v2 === 'number') {
       if (v2 !== 0 && v0 === v1 && v1 === v2) {
-        out.push({
-          type: 'AGING_3M',
-          month: selectedMonth,
-          message: `直近3ヶ月 (${m0}/${m1}/${m2}月) の残高が ¥${Math.round(v2).toLocaleString()} で動いていません`,
-          detail: { sameAmount: v2, monthsChecked: [m0, m1, m2] },
-        });
+        // activity 抑制: 直近3ヶ月で debit > 0 OR credit > 0 なら「動きあり」 → 滞留扱いしない
+        const hasActivity =
+          recentActivity != null &&
+          (recentActivity.debit > 0 || recentActivity.credit > 0);
+        if (!hasActivity) {
+          out.push({
+            type: 'AGING_3M',
+            month: selectedMonth,
+            message: `直近3ヶ月 (${m0}/${m1}/${m2}月) の残高が ¥${Math.round(v2).toLocaleString()} で動いていません`,
+            detail: { sameAmount: v2, monthsChecked: [m0, m1, m2] },
+          });
+        }
       }
     }
   }

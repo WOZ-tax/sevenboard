@@ -440,6 +440,55 @@ describe('buildChoshoPreviewRows / sub-account filter', () => {
     expect(rows.map((r) => r.name)).toContain('在庫1');
   });
 
+  it('suppresses AGING_3M when recentActivityByPath shows debit/credit activity', () => {
+    // 売掛金子孫で 3ヶ月同額 → 通常なら aging 検知。
+    // 試算表上で debit/credit 発生があれば「動きあり」とみなして抑制。
+    const bs = makeBsFixture({
+      accountName: '売掛金',
+      subaccountName: '株式会社サンプル',
+      subaccountValues: [165000, 165000, 165000, null, null, null, null, null, null, null, null, null],
+    });
+    // 抑制なし → 検知あり
+    const r1 = buildChoshoPreviewRows({ bsTransition: bs, selectedMonth: 6 });
+    expect(r1.rows.find((r) => r.level === 3)!.anomalies.some((a) => a.type === 'AGING_3M')).toBe(true);
+    // 抑制あり (debit > 0) → 検知なし
+    const activity = new Map([
+      ['資産の部/流動資産/売掛金/株式会社サンプル', { debit: 50000, credit: 0 }],
+    ]);
+    const r2 = buildChoshoPreviewRows({ bsTransition: bs, selectedMonth: 6, recentActivityByPath: activity });
+    expect(r2.rows.find((r) => r.level === 3)!.anomalies.some((a) => a.type === 'AGING_3M')).toBe(false);
+    // 抑制あり (credit > 0) → 同様に検知なし
+    const activity2 = new Map([
+      ['資産の部/流動資産/売掛金/株式会社サンプル', { debit: 0, credit: 30000 }],
+    ]);
+    const r3 = buildChoshoPreviewRows({ bsTransition: bs, selectedMonth: 6, recentActivityByPath: activity2 });
+    expect(r3.rows.find((r) => r.level === 3)!.anomalies.some((a) => a.type === 'AGING_3M')).toBe(false);
+  });
+
+  it('does NOT suppress AGING_3M when activity entry is absent or both zero', () => {
+    const bs = makeBsFixture({
+      accountName: '売掛金',
+      subaccountName: '株式会社サンプル',
+      subaccountValues: [165000, 165000, 165000, null, null, null, null, null, null, null, null, null],
+    });
+    // path が map に無い (activity entry なし) → 検知あり
+    const r1 = buildChoshoPreviewRows({
+      bsTransition: bs,
+      selectedMonth: 6,
+      recentActivityByPath: new Map(),
+    });
+    expect(r1.rows.find((r) => r.level === 3)!.anomalies.some((a) => a.type === 'AGING_3M')).toBe(true);
+    // entry はあるが debit=credit=0 → 検知あり (= activity なし)
+    const r2 = buildChoshoPreviewRows({
+      bsTransition: bs,
+      selectedMonth: 6,
+      recentActivityByPath: new Map([
+        ['資産の部/流動資産/売掛金/株式会社サンプル', { debit: 0, credit: 0 }],
+      ]),
+    });
+    expect(r2.rows.find((r) => r.level === 3)!.anomalies.some((a) => a.type === 'AGING_3M')).toBe(true);
+  });
+
   it('preserves anomalies and rules through filter for target account sub-accounts', () => {
     const bs = makeBsFixture({
       accountName: '売掛金',

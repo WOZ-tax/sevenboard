@@ -578,10 +578,14 @@ export class MfApiService {
     orgId: string,
     fiscalYear?: number,
     endMonth?: number,
+    options?: { startMonth?: number; withSubAccounts?: boolean },
   ): Promise<MfTrialBalance> {
     const args: Record<string, any> = {};
     if (fiscalYear) args.fiscal_year = fiscalYear;
     if (endMonth) args.end_month = endMonth;
+    // start_month を指定すると期間集計 (start_month..end_month の合計 debit/credit が取れる)
+    if (options?.startMonth) args.start_month = options.startMonth;
+    if (options?.withSubAccounts) args.with_sub_accounts = true;
     return this.mcpRequest<MfTrialBalance>(
       orgId,
       'mfc_ca_getReportsTrialBalanceBalanceSheet',
