@@ -27,12 +27,16 @@ interface BuildInput {
    */
   ruleOverrides?: Map<string, ChoshoRuleOverride>;
   /**
-   * 表示対象とする勘定キーワード。指定すると、この keyword を name に含む行を
-   * 新ルート (level 0) に昇格し、その子孫だけ flat な配列で返す。
-   * 大区分・中区分 (資産の部 / 流動資産 等) は drop される。
+   * 補助科目の表示対象とする勘定キーワード。
+   *
+   * 動作:
+   *   - BS 全体 (大区分・中区分・全勘定) はそのまま残す
+   *   - **指定 keyword の勘定の補助科目・取引先だけ展開可能**
+   *   - 非対象勘定 (棚卸資産・短期借入金 等) の補助科目・取引先は drop
+   *     (親勘定の行自体は残るので BS 残高は読める)
    *
    * 省略時は TARGET_ACCOUNT_KEYWORDS (売掛金/買掛金/未収金/未払金/前受金/前払金/立替金)。
-   * 空配列 [] を渡すとフィルタを skip して BS 全体を返す (テスト用)。
+   * 空配列 [] を渡すと全補助科目を残す (BS 完全展開、テスト用)。
    */
   filterAccountKeywords?: string[];
 }
@@ -92,74 +96,77 @@ export function buildChoshoPreviewRows(input: BuildInput): BuildOutput {
   // 階層情報 (祖先 name list) を解決してから rule defaults / anomalies を埋める。
   applyRulesAndDetectAnomalies(out, monthOrder, input.selectedMonth, input.ruleOverrides);
 
-  // 該当勘定だけ抽出して新ルートに昇格 (大区分・中区分は drop)。
-  // 空配列指定時は filter skip。
+  // BS 全体は残し、非対象勘定の補助科目以下だけ drop。
   const keywords =
     input.filterAccountKeywords === undefined
       ? Array.from(TARGET_ACCOUNT_KEYWORDS)
       : input.filterAccountKeywords;
-  const filtered = keywords.length > 0 ? filterAndPromoteRows(out, keywords) : out;
+  const filtered =
+    keywords.length > 0 ? filterSubAccountsToTargetAccounts(out, keywords) : out;
 
-  return { rows: filtered, monthOrder };
+  // hasChildren を抽出後の状態で再計算 (drop された補助があれば false に)
+  // displayOrder は新配列の index で再付与
+  const parentRowKeys = new Set(
+    filtered.map((r) => r.parentRowKey).filter((v): v is string => !!v),
+  );
+  const result = filtered.map((r, i) => ({
+    ...r,
+    hasChildren: parentRowKeys.has(r.rowKey),
+    displayOrder: i,
+  }));
+
+  return { rows: result, monthOrder };
 }
 
 /**
- * 指定キーワードを name に含む行を新ルート (level 0) に昇格し、
- * その子孫だけ含む flat な配列を返す純関数。
+ * 補助科目以下 (= mfType==='account' の行の子孫) を、指定 keyword を含む親勘定の
+ * 下にあるものだけ残し、それ以外は drop する純関数。
  *
- * - 各ルートは parentRowKey = null になる
- * - level は「ルートからの相対深さ」に振り直す (元 level - root.level)
- * - displayOrder は新配列の index で再付与
- * - rowKey / monthlyBalances / anomalies / rule は維持
- * - hasChildren は子が抽出後に存在するかで再計算
+ * 残す:
+ *   - 大区分 / 中区分 (mfType !== 'account')
+ *   - すべての親勘定 (= mfType==='account' で祖先に account を持たない行)
+ *   - 対象 keyword を含む親勘定の補助科目・取引先
+ *
+ * drop:
+ *   - 非対象勘定 (棚卸資産・短期借入金 等) の補助科目・取引先
+ *   - つまり親勘定の行自体は残るので BS 残高合計は崩れない
  */
-export function filterAndPromoteRows(
+export function filterSubAccountsToTargetAccounts(
   rows: ChoshoPreviewRow[],
   keywords: string[],
 ): ChoshoPreviewRow[] {
   if (rows.length === 0) return [];
+  const byKey = new Map(rows.map((r) => [r.rowKey, r]));
 
-  // ルート候補 (= name に keyword を含む行) を元の displayOrder 順に取得
-  const roots = rows.filter((r) =>
-    keywords.some((k) => r.name.includes(k)),
-  );
+  return rows.filter((r) => {
+    // 大区分・中区分は素通し
+    if (r.mfType !== 'account') return true;
 
-  // 子検索を高速化するため parentRowKey -> children Map を構築
-  const childrenByParent = new Map<string | null, ChoshoPreviewRow[]>();
-  for (const r of rows) {
-    const arr = childrenByParent.get(r.parentRowKey);
-    if (arr) arr.push(r);
-    else childrenByParent.set(r.parentRowKey, [r]);
-  }
-
-  const out: ChoshoPreviewRow[] = [];
-  for (const root of roots) {
-    visitSubtree(root, childrenByParent, root.level, out, true);
-  }
-
-  // displayOrder を index で再付与
-  return out.map((r, i) => ({ ...r, displayOrder: i }));
-}
-
-function visitSubtree(
-  node: ChoshoPreviewRow,
-  childrenByParent: Map<string | null, ChoshoPreviewRow[]>,
-  baseLevel: number,
-  out: ChoshoPreviewRow[],
-  isRoot: boolean,
-): void {
-  const children = childrenByParent.get(node.rowKey) ?? [];
-  out.push({
-    ...node,
-    level: node.level - baseLevel,
-    parentRowKey: isRoot ? null : node.parentRowKey,
-    hasChildren: children.length > 0,
-    // displayOrder はあとで一括再付与するので暫定 0
-    displayOrder: 0,
+    // 自身は account。祖先 chain を辿って最初に見つかる account 祖先で判定:
+    //   - account 祖先がある = 自身は「補助科目 or 取引先」 → 親勘定が対象 keyword を含むか
+    //   - account 祖先が無い = 自身は「親勘定」 → 残す
+    let cur: ChoshoPreviewRow | undefined =
+      r.parentRowKey ? byKey.get(r.parentRowKey) : undefined;
+    while (cur) {
+      if (cur.mfType === 'account') {
+        // 補助/取引先と判明。 cur (親勘定) が対象 keyword を含めば残す。
+        // ただし cur の祖先にさらに account があれば cur 自体も補助で、その上の親勘定で判定する必要あり。
+        // 親勘定の特定: account chain の最も上 (祖先で account でない最初の親の直下)
+        let topAccount: ChoshoPreviewRow = cur;
+        while (true) {
+          const grand = topAccount.parentRowKey
+            ? byKey.get(topAccount.parentRowKey)
+            : undefined;
+          if (!grand || grand.mfType !== 'account') break;
+          topAccount = grand;
+        }
+        return keywords.some((k) => topAccount.name.includes(k));
+      }
+      cur = cur.parentRowKey ? byKey.get(cur.parentRowKey) : undefined;
+    }
+    // 自身が親勘定 (account 祖先なし) → 残す
+    return true;
   });
-  for (const c of children) {
-    visitSubtree(c, childrenByParent, baseLevel, out, false);
-  }
 }
 
 // ============================================================

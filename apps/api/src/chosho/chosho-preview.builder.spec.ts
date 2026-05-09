@@ -329,72 +329,91 @@ describe('buildChoshoPreviewRows / outOfRange independence', () => {
 });
 
 // ============================================================
-// 表示対象勘定フィルタ (TARGET_ACCOUNT_KEYWORDS)
+// 補助科目フィルタ (TARGET_ACCOUNT_KEYWORDS)
+//
+// 仕様:
+//   - BS全体 (大区分・中区分・全勘定) は残す
+//   - 7勘定 (売掛金/買掛金/未収金/未払金/前受金/前払金/立替金) の補助科目だけ展開
+//   - それ以外の勘定の補助科目・取引先は drop
+//   - 親勘定の行自体は drop しない (BS残高は崩れない)
 // ============================================================
 
-describe('buildChoshoPreviewRows / account filter', () => {
-  it('promotes target account to level 0 and drops 大区分・中区分', () => {
-    // fixture: 資産の部 (level 0) → 流動資産 (level 1) → 売掛金 (level 2) → サンプル (level 3)
-    // デフォルト filter (TARGET_ACCOUNT_KEYWORDS = ["売掛金", ...]) で売掛金が新ルートに昇格
+describe('buildChoshoPreviewRows / sub-account filter', () => {
+  it('keeps full BS hierarchy + sub-accounts of target account', () => {
+    // fixture: 資産の部 → 流動資産 → 売掛金 → 株式会社サンプル
     const bs = makeBsFixture({
       accountName: '売掛金',
       subaccountName: '株式会社サンプル',
       subaccountValues: Array(12).fill(100),
     });
     const { rows } = buildChoshoPreviewRows({ bsTransition: bs });
-    expect(rows.map((r) => r.name)).toEqual(['売掛金', '株式会社サンプル']);
-    expect(rows.map((r) => r.level)).toEqual([0, 1]);
-    // 売掛金行 (新ルート) は parentRowKey null
-    expect(rows[0].parentRowKey).toBeNull();
-    // 子行は元の parentRowKey (= 売掛金 rowKey) を保持
-    expect(rows[1].parentRowKey).toBe(rows[0].rowKey);
-    // displayOrder は新配列の index で再付与
-    expect(rows.map((r) => r.displayOrder)).toEqual([0, 1]);
-    // hasChildren は抽出後で再計算
-    expect(rows[0].hasChildren).toBe(true);
-    expect(rows[1].hasChildren).toBe(false);
+    // 4階層すべて残る (大区分・中区分・親勘定・補助)
+    expect(rows.map((r) => r.name)).toEqual([
+      '資産の部',
+      '流動資産',
+      '売掛金',
+      '株式会社サンプル',
+    ]);
+    expect(rows.map((r) => r.level)).toEqual([0, 1, 2, 3]);
   });
 
-  it('drops accounts not in TARGET_ACCOUNT_KEYWORDS (棚卸資産・短期借入金 等)', () => {
+  it('keeps non-target account row but drops its sub-accounts', () => {
+    // 商品 (棚卸資産) は対象外。親勘定行は残し、補助 "在庫1" は drop
     const bs = makeBsFixture({
       accountName: '商品',
       subaccountName: '在庫1',
       subaccountValues: Array(12).fill(100),
     });
     const { rows } = buildChoshoPreviewRows({ bsTransition: bs });
-    expect(rows).toEqual([]);
+    // 大区分・中区分・親勘定 (商品) は残る、補助 (在庫1) は drop
+    expect(rows.map((r) => r.name)).toEqual(['資産の部', '流動資産', '商品']);
+    // 親勘定 商品 は補助が drop されたので hasChildren = false に再計算
+    const shohin = rows.find((r) => r.name === '商品')!;
+    expect(shohin.hasChildren).toBe(false);
   });
 
-  it('uses default TARGET_ACCOUNT_KEYWORDS when filterAccountKeywords is undefined', () => {
-    // 対象7勘定: 売掛金・買掛金・未収金・未払金・前受金・前払金・立替金
-    for (const accountName of ['売掛金', '買掛金', '未収金', '未払金', '前受金', '前払金', '立替金']) {
+  it('keeps sub-accounts for all 7 target accounts', () => {
+    for (const accountName of [
+      '売掛金',
+      '買掛金',
+      '未収金',
+      '未払金',
+      '前受金',
+      '前払金',
+      '立替金',
+    ]) {
       const bs = makeBsFixture({
         accountName,
         subaccountName: '取引先A',
         subaccountValues: Array(12).fill(0),
       });
       const { rows } = buildChoshoPreviewRows({ bsTransition: bs });
-      expect(rows).toHaveLength(2);
-      expect(rows[0].name).toBe(accountName);
+      // 大区分・中区分・親勘定・補助 = 4 件
+      expect(rows.map((r) => r.name)).toContain('取引先A');
+      expect(rows).toHaveLength(4);
     }
   });
 
-  it('returns full BS hierarchy when filterAccountKeywords is empty array', () => {
-    const bs = makeBsFixture({ subaccountValues: Array(12).fill(100) });
+  it('returns full BS without dropping any row when filterAccountKeywords is empty', () => {
+    const bs = makeBsFixture({
+      accountName: '商品',
+      subaccountName: '在庫1',
+      subaccountValues: Array(12).fill(100),
+    });
     const { rows } = buildChoshoPreviewRows({ bsTransition: bs, filterAccountKeywords: [] });
-    expect(rows).toHaveLength(4); // 資産の部 / 流動資産 / 売掛金 / サンプル
+    // filter 無しなら 商品 + 在庫1 も残る
+    expect(rows).toHaveLength(4);
+    expect(rows.map((r) => r.name)).toContain('在庫1');
   });
 
-  it('preserves anomalies and rules through filter', () => {
-    // 売掛金子孫で aging 検知発生 → filter 後も anomalies が残る
+  it('preserves anomalies and rules through filter for target account sub-accounts', () => {
     const bs = makeBsFixture({
       accountName: '売掛金',
       subaccountValues: [200000, 200000, 165000, 165000, 165000, null, null, null, null, null, null, null],
     });
     const { rows } = buildChoshoPreviewRows({ bsTransition: bs, selectedMonth: 8 });
-    // 売掛金 (新 level 0) と 子 (新 level 1) の 2 件
-    expect(rows).toHaveLength(2);
-    const leaf = rows[1];
+    const leaf = rows.find((r) => r.level === 3)!; // 取引先 (補助) 行
+    expect(leaf).toBeDefined();
     expect(leaf.agingCheckEnabled).toBe(true);
     expect(leaf.anomalies).toHaveLength(1);
     expect(leaf.anomalies[0].type).toBe('AGING_3M');
