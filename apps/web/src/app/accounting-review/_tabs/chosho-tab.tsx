@@ -306,7 +306,7 @@ interface ChoshoTableProps {
     month: number;
     body: string;
     urls: string[];
-    anomalyType: "ZERO_VIOLATION" | "AGING_3M";
+    anomalyType: "EXPECTED_VALUE_VIOLATION" | "AGING_3M";
   }) => void;
   onDeleteCellComment?: (input: { rowId: string; month: number }) => void;
   isAddingRowComment?: boolean;
@@ -692,7 +692,7 @@ function AnomalyTooltipBody({
   hint?: string;
 }) {
   const labelOf = (type: ChoshoAnomaly["type"]): string => {
-    if (type === "ZERO_VIOLATION") return "0が正のはずが残高あり";
+    if (type === "EXPECTED_VALUE_VIOLATION") return "期待残高ズレ";
     if (type === "AGING_3M") return "3ヶ月以上滞留";
     return type;
   };

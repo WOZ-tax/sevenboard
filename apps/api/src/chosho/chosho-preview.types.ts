@@ -7,27 +7,27 @@
  */
 
 /**
- * 期待残高ルール。Unit 2B-1 では preview builder が以下の優先順位で決定する:
- *   1. ruleOverrides で渡された値 (Unit 2B-2 以降で DB から供給)
+ * 期待残高ルール。
+ *   1. ruleOverrides で渡された値 (DB から供給)
  *   2. ヒューリスティック (祖先勘定名に「売掛金/未収金/前払金/仮払金/立替金」が含まれ、
  *      かつ level >= 2 の行は agingCheckEnabled = true デフォルト)
  *   3. それ以外は NONE
  *
- * ZERO は自動推論しない (常に外部入力でのみ ON)。
+ * EXPECTED_VALUE は自動推論しない (常に外部入力でのみ ON、 expected_value とセット)。
  */
-export type ChoshoExpectedRuleValue = 'NONE' | 'ZERO' | 'AGING_3M';
+export type ChoshoExpectedRuleValue = 'NONE' | 'EXPECTED_VALUE' | 'AGING_3M';
 
 /**
  * 1 行で発火した異常 1 件。Unit 2B-1 時点では選択月のみ判定。
  */
 export interface ChoshoAnomaly {
   /** 異常種別。DB 側 enum (ChoshoAnomalyType) と整合させる。 */
-  type: 'ZERO_VIOLATION' | 'AGING_3M';
+  type: 'EXPECTED_VALUE_VIOLATION' | 'AGING_3M';
   /** 異常を検出したカレンダー月 (1-12)。selectedMonth と同じになる。 */
   month: number;
   /** UI tooltip / バナー表示用の人間可読メッセージ。 */
   message: string;
-  /** 追加コンテキスト (滞留判定の比較月配列、零残高違反の実残高 等)。 */
+  /** 追加コンテキスト (滞留判定の比較月配列、期待残高違反の実残高 + 期待値 等)。 */
   detail?: Record<string, unknown>;
 }
 
@@ -54,6 +54,8 @@ export interface ChoshoPreviewRow {
   hasChildren: boolean;
   /** 期待残高ルール。Unit 2B-1: ヒューリスティック or ruleOverrides で決定。 */
   expectedRule: ChoshoExpectedRuleValue;
+  /** EXPECTED_VALUE ルールのときの期待残高。NULL = 未設定 or 他ルール。 */
+  expectedValue: number | null;
   /** 滞留チェック有効フラグ。回転性勘定の子孫はデフォルト true。 */
   agingCheckEnabled: boolean;
   /** 検知された異常。空配列 = 異常なし。 */
@@ -66,6 +68,8 @@ export interface ChoshoPreviewRow {
  */
 export interface ChoshoRuleOverride {
   expectedRule?: ChoshoExpectedRuleValue;
+  /** EXPECTED_VALUE ルールのときに比較する数値。null = 未設定 (= 異常検知スキップ)。 */
+  expectedValue?: number | null;
   agingCheckEnabled?: boolean;
 }
 

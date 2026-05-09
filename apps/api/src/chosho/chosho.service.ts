@@ -117,6 +117,8 @@ export class ChoshoService {
             // monthlyBalances は jsonb 列。Prisma 経由で Record<number, number> をそのまま入る。
             monthlyBalances: r.monthlyBalances as Prisma.InputJsonValue,
             expectedRule: r.expectedRule,
+            // expectedValue は EXPECTED_VALUE ルール時のみ意味を持つ。null は未設定として保存。
+            expectedValue: r.expectedValue,
             agingCheckEnabled: r.agingCheckEnabled,
           },
           select: { id: true },
@@ -177,9 +179,13 @@ export class ChoshoService {
     // rowKey = id、parentRowKey = parentRowId (UI が preview と同じレンダリング経路で再描画できる)
     const rows: ChoshoPreviewRow[] = version.rows.map((r) => {
       const monthlyBalances = parseMonthlyBalances(r.monthlyBalances);
+      // Prisma の Decimal は string で来るので Number 変換。NULL は null 維持。
+      const expectedValue =
+        r.expectedValue == null ? null : Number(r.expectedValue.toString());
       const anomalies = computeAnomaliesFromSaved({
         monthlyBalances,
         expectedRule: r.expectedRule as ChoshoExpectedRuleValue,
+        expectedValue,
         agingCheckEnabled: r.agingCheckEnabled,
         selectedMonth: version.selectedMonth,
       });
@@ -197,6 +203,7 @@ export class ChoshoService {
         // children 判定は parentRowId の集合から逆引き
         hasChildren: false,
         expectedRule: r.expectedRule as ChoshoExpectedRuleValue,
+        expectedValue,
         agingCheckEnabled: r.agingCheckEnabled,
         anomalies,
       };
@@ -667,21 +674,22 @@ export function computeMonthOrderFromFyStart(fyStartMonth: number): number[] {
 export function computeAnomaliesFromSaved(input: {
   monthlyBalances: Record<number, number>;
   expectedRule: ChoshoExpectedRuleValue;
+  expectedValue: number | null;
   agingCheckEnabled: boolean;
   selectedMonth: number;
 }): ChoshoAnomaly[] {
-  const { monthlyBalances, expectedRule, agingCheckEnabled, selectedMonth } = input;
+  const { monthlyBalances, expectedRule, expectedValue, agingCheckEnabled, selectedMonth } = input;
   const out: ChoshoAnomaly[] = [];
 
-  // ZERO_VIOLATION
-  if (expectedRule === 'ZERO') {
+  // EXPECTED_VALUE_VIOLATION
+  if (expectedRule === 'EXPECTED_VALUE' && expectedValue !== null) {
     const v = monthlyBalances[selectedMonth];
-    if (typeof v === 'number' && v !== 0) {
+    if (typeof v === 'number' && v !== expectedValue) {
       out.push({
-        type: 'ZERO_VIOLATION',
+        type: 'EXPECTED_VALUE_VIOLATION',
         month: selectedMonth,
-        message: `「0が正」設定だが ¥${Math.round(v).toLocaleString()} が残っています`,
-        detail: { actualAmount: v },
+        message: `期待残高 ¥${Math.round(expectedValue).toLocaleString()} と一致しません (実残高 ¥${Math.round(v).toLocaleString()})`,
+        detail: { actualAmount: v, expectedValue },
       });
     }
   }

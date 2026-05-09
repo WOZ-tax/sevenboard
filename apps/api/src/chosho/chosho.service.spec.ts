@@ -47,21 +47,48 @@ describe('computeMonthOrderFromFyStart', () => {
 });
 
 describe('computeAnomaliesFromSaved', () => {
-  it('flags ZERO_VIOLATION when expectedRule=ZERO and selectedMonth balance != 0', () => {
+  it('flags EXPECTED_VALUE_VIOLATION when balance != expectedValue (期待値=0)', () => {
     const out = computeAnomaliesFromSaved({
       monthlyBalances: { 6: 165000 },
-      expectedRule: 'ZERO',
+      expectedRule: 'EXPECTED_VALUE',
+      expectedValue: 0,
       agingCheckEnabled: false,
       selectedMonth: 6,
     });
     expect(out).toHaveLength(1);
-    expect(out[0].type).toBe('ZERO_VIOLATION');
+    expect(out[0].type).toBe('EXPECTED_VALUE_VIOLATION');
+    expect(out[0].detail).toEqual({ actualAmount: 165000, expectedValue: 0 });
   });
 
-  it('does not flag ZERO_VIOLATION when balance is exactly 0', () => {
+  it('flags EXPECTED_VALUE_VIOLATION with non-zero expectedValue (期待値=300万)', () => {
+    const out = computeAnomaliesFromSaved({
+      monthlyBalances: { 6: 2_500_000 },
+      expectedRule: 'EXPECTED_VALUE',
+      expectedValue: 3_000_000,
+      agingCheckEnabled: false,
+      selectedMonth: 6,
+    });
+    expect(out).toHaveLength(1);
+    expect(out[0].type).toBe('EXPECTED_VALUE_VIOLATION');
+    expect(out[0].detail).toEqual({ actualAmount: 2_500_000, expectedValue: 3_000_000 });
+  });
+
+  it('does not flag EXPECTED_VALUE_VIOLATION when balance matches expectedValue', () => {
     const out = computeAnomaliesFromSaved({
       monthlyBalances: { 6: 0 },
-      expectedRule: 'ZERO',
+      expectedRule: 'EXPECTED_VALUE',
+      expectedValue: 0,
+      agingCheckEnabled: false,
+      selectedMonth: 6,
+    });
+    expect(out).toEqual([]);
+  });
+
+  it('does not flag EXPECTED_VALUE_VIOLATION when expectedValue is null', () => {
+    const out = computeAnomaliesFromSaved({
+      monthlyBalances: { 6: 100000 },
+      expectedRule: 'EXPECTED_VALUE',
+      expectedValue: null,
       agingCheckEnabled: false,
       selectedMonth: 6,
     });
@@ -73,6 +100,7 @@ describe('computeAnomaliesFromSaved', () => {
     const out = computeAnomaliesFromSaved({
       monthlyBalances: { 6: 165000, 7: 165000, 8: 165000 },
       expectedRule: 'NONE',
+      expectedValue: null,
       agingCheckEnabled: true,
       selectedMonth: 8,
     });
@@ -85,6 +113,7 @@ describe('computeAnomaliesFromSaved', () => {
     const out = computeAnomaliesFromSaved({
       monthlyBalances: { 7: 165000, 8: 165000 },
       expectedRule: 'NONE',
+      expectedValue: null,
       agingCheckEnabled: true,
       selectedMonth: 8,
     });
@@ -95,6 +124,7 @@ describe('computeAnomaliesFromSaved', () => {
     const out = computeAnomaliesFromSaved({
       monthlyBalances: { 12: 5000, 1: 5000, 2: 5000 },
       expectedRule: 'NONE',
+      expectedValue: null,
       agingCheckEnabled: true,
       selectedMonth: 2,
     });

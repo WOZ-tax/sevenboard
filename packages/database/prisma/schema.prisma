@@ -1315,6 +1315,9 @@ model ChoshoRow {
   /// 月別残高: {"4": 12345.0, "5": 23456.0, ...}
   monthlyBalances    Json                @default("{}") @map("monthly_balances")
   expectedRule       ChoshoExpectedRule  @default(NONE) @map("expected_rule")
+  /// 期待残高 (EXPECTED_VALUE ルールのときだけ意味を持つ)。
+  /// NULL = 未設定。0 / 300万 / 55,000 等、会計士が任意で指定する。
+  expectedValue      Decimal?            @map("expected_value") @db.Decimal
   agingCheckEnabled  Boolean             @default(false) @map("aging_check_enabled")
   evidenceText       String?             @map("evidence_text")
   notes              String?
@@ -1347,7 +1350,9 @@ model ChoshoRow {
 
 enum ChoshoExpectedRule {
   NONE
-  ZERO
+  /// 期待残高チェック。chosho_rows.expected_value と selectedMonth 残高の一致を見る。
+  /// 旧 ZERO は expected_value=0 として吸収。300 万 / 55,000 円等、任意の値を扱える。
+  EXPECTED_VALUE
   AGING_3M
 }
 
@@ -1400,6 +1405,7 @@ model ChoshoCellComment {
 }
 
 enum ChoshoAnomalyType {
-  ZERO_VIOLATION
+  /// 期待残高違反 (expected_value と一致しない)。旧 ZERO_VIOLATION の汎化版。
+  EXPECTED_VALUE_VIOLATION
   AGING_3M
 }

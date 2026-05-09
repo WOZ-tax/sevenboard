@@ -235,13 +235,13 @@ export interface RiskScanRunResult {
 }
 
 // === Chosho (残高調書) ===
-export type ChoshoExpectedRuleValue = 'NONE' | 'ZERO' | 'AGING_3M';
+export type ChoshoExpectedRuleValue = 'NONE' | 'EXPECTED_VALUE' | 'AGING_3M';
 
 /**
- * 1 行で発火した異常 1 件。Unit 2B-1 時点では選択月のみ判定。
+ * 1 行で発火した異常 1 件。選択月のみ判定。
  */
 export interface ChoshoAnomaly {
-  type: 'ZERO_VIOLATION' | 'AGING_3M';
+  type: 'EXPECTED_VALUE_VIOLATION' | 'AGING_3M';
   /** 異常を検出したカレンダー月 (1-12)。selectedMonth と同じ。 */
   month: number;
   /** UI tooltip 用の人間可読メッセージ。 */
@@ -266,8 +266,10 @@ export interface ChoshoPreviewRow {
   settlementBalance: number | null;
   total: number | null;
   hasChildren: boolean;
-  /** 期待残高ルール。Unit 2B-1: ヒューリスティック or override で決定。 */
+  /** 期待残高ルール。ヒューリスティック or override で決定。 */
   expectedRule: ChoshoExpectedRuleValue;
+  /** EXPECTED_VALUE ルール時の期待残高。null = 未設定 / 他ルール。 */
+  expectedValue: number | null;
   /** 滞留チェック有効フラグ。回転性勘定の子孫はデフォルト true。 */
   agingCheckEnabled: boolean;
   /** 検知された異常。空配列 = 異常なし。 */
@@ -306,7 +308,7 @@ export interface ChoshoCellComment {
   month: number;
   body: string;
   urls: string[];
-  anomalyType: 'ZERO_VIOLATION' | 'AGING_3M';
+  anomalyType: 'EXPECTED_VALUE_VIOLATION' | 'AGING_3M';
   authorId: string | null;
   createdAt: string;
   updatedAt: string;
@@ -1241,7 +1243,7 @@ export const api = {
       input: {
         body: string;
         urls?: string[];
-        anomalyType: 'ZERO_VIOLATION' | 'AGING_3M';
+        anomalyType: 'EXPECTED_VALUE_VIOLATION' | 'AGING_3M';
       },
     ) =>
       apiFetch<ChoshoCellComment>(

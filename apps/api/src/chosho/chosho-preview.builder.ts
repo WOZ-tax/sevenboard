@@ -208,6 +208,7 @@ function flattenMfRows(
       hasChildren,
       // Rule fields は applyRulesAndDetectAnomalies で上書き。一旦 NONE でプレースホルド。
       expectedRule: 'NONE',
+      expectedValue: null,
       agingCheckEnabled: false,
       anomalies: [],
     });
@@ -254,6 +255,7 @@ function applyRulesAndDetectAnomalies(
     const ov = ruleOverrides?.get(row.rowKey);
     if (ov) {
       if (ov.expectedRule != null) row.expectedRule = ov.expectedRule;
+      if (ov.expectedValue !== undefined) row.expectedValue = ov.expectedValue;
       if (ov.agingCheckEnabled != null) row.agingCheckEnabled = ov.agingCheckEnabled;
     }
 
@@ -297,15 +299,15 @@ function detectAnomalies(
 ): ChoshoAnomaly[] {
   const anomalies: ChoshoAnomaly[] = [];
 
-  // 零残高違反: expectedRule === ZERO で対象月残高が 0 でない
-  if (row.expectedRule === 'ZERO') {
+  // 期待残高違反: expectedRule === EXPECTED_VALUE で対象月残高が expected_value と一致しない
+  if (row.expectedRule === 'EXPECTED_VALUE' && row.expectedValue !== null) {
     const v = row.monthlyBalances[selectedMonth];
-    if (typeof v === 'number' && v !== 0) {
+    if (typeof v === 'number' && v !== row.expectedValue) {
       anomalies.push({
-        type: 'ZERO_VIOLATION',
+        type: 'EXPECTED_VALUE_VIOLATION',
         month: selectedMonth,
-        message: `「0が正」設定だが ${formatYen(v)} が残っています`,
-        detail: { actualAmount: v },
+        message: `期待残高 ${formatYen(row.expectedValue)} と一致しません (実残高 ${formatYen(v)})`,
+        detail: { actualAmount: v, expectedValue: row.expectedValue },
       });
     }
   }

@@ -172,21 +172,21 @@ describe('buildChoshoPreviewRows / rule defaults', () => {
     const { rows } = buildChoshoPreviewRows({ bsTransition: bs, filterAccountKeywords: [] });
     const targetKey = rows.at(-1)!.rowKey;
     const overrides = new Map<string, ChoshoRuleOverride>([
-      [targetKey, { expectedRule: 'ZERO', agingCheckEnabled: false }],
+      [targetKey, { expectedRule: 'EXPECTED_VALUE', expectedValue: 0, agingCheckEnabled: false }],
     ]);
     const { rows: out } = buildChoshoPreviewRows({ bsTransition: bs, filterAccountKeywords: [], ruleOverrides: overrides });
-    expect(out.at(-1)!.expectedRule).toBe('ZERO');
+    expect(out.at(-1)!.expectedRule).toBe('EXPECTED_VALUE');
+    expect(out.at(-1)!.expectedValue).toBe(0);
     expect(out.at(-1)!.agingCheckEnabled).toBe(false);
   });
 });
 
 // ============================================================
-// anomaly detection: zero violation
+// anomaly detection: expected value violation
 // ============================================================
 
-describe('buildChoshoPreviewRows / ZERO_VIOLATION', () => {
-  it('flags ZERO_VIOLATION when expectedRule=ZERO and selectedMonth balance is non-zero', () => {
-    // 商品 (非受取勘定) で aging を発火させず、ZERO_VIOLATION を単独で見る
+describe('buildChoshoPreviewRows / EXPECTED_VALUE_VIOLATION', () => {
+  it('flags EXPECTED_VALUE_VIOLATION when expectedRule=EXPECTED_VALUE and balance ≠ expectedValue (期待値=0)', () => {
     const bs = makeBsFixture({
       accountName: '商品',
       subaccountValues: [100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100],
@@ -197,18 +197,36 @@ describe('buildChoshoPreviewRows / ZERO_VIOLATION', () => {
       bsTransition: bs,
       filterAccountKeywords: [],
       selectedMonth: 6,
-      ruleOverrides: new Map([[leafKey, { expectedRule: 'ZERO' }]]),
+      ruleOverrides: new Map([[leafKey, { expectedRule: 'EXPECTED_VALUE', expectedValue: 0 }]]),
     });
     const leaf = rows.at(-1)!;
     expect(leaf.anomalies).toHaveLength(1);
-    expect(leaf.anomalies[0].type).toBe('ZERO_VIOLATION');
+    expect(leaf.anomalies[0].type).toBe('EXPECTED_VALUE_VIOLATION');
     expect(leaf.anomalies[0].month).toBe(6);
-    expect(leaf.anomalies[0].detail).toEqual({ actualAmount: 100 });
+    expect(leaf.anomalies[0].detail).toEqual({ actualAmount: 100, expectedValue: 0 });
   });
 
-  it('flags BOTH ZERO_VIOLATION and AGING_3M when both conditions hold (受取勘定 ZERO 上書き)', () => {
+  it('flags EXPECTED_VALUE_VIOLATION with non-zero expectedValue (期待値=300万)', () => {
+    const bs = makeBsFixture({
+      accountName: '商品',
+      subaccountValues: [3_000_000, 3_000_000, 2_500_000, null, null, null, null, null, null, null, null, null],
+    });
+    const initial = buildChoshoPreviewRows({ bsTransition: bs, filterAccountKeywords: [] });
+    const leafKey = initial.rows.at(-1)!.rowKey;
+    const { rows } = buildChoshoPreviewRows({
+      bsTransition: bs,
+      filterAccountKeywords: [],
+      selectedMonth: 6,
+      ruleOverrides: new Map([[leafKey, { expectedRule: 'EXPECTED_VALUE', expectedValue: 3_000_000 }]]),
+    });
+    const leaf = rows.at(-1)!;
+    expect(leaf.anomalies).toHaveLength(1);
+    expect(leaf.anomalies[0].detail).toEqual({ actualAmount: 2_500_000, expectedValue: 3_000_000 });
+  });
+
+  it('flags BOTH EXPECTED_VALUE_VIOLATION and AGING_3M when both conditions hold', () => {
     // 売掛金子孫 (aging ON デフォルト) で 12 ヶ月同額 ¥100 → aging 検知。
-    // さらに ZERO 上書き → ZERO_VIOLATION も発火。両方乗ることを保証。
+    // さらに EXPECTED_VALUE=0 上書き → EXPECTED_VALUE_VIOLATION も発火。
     const bs = makeBsFixture({
       subaccountValues: [100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100],
     });
@@ -218,13 +236,13 @@ describe('buildChoshoPreviewRows / ZERO_VIOLATION', () => {
       bsTransition: bs,
       filterAccountKeywords: [],
       selectedMonth: 6,
-      ruleOverrides: new Map([[leafKey, { expectedRule: 'ZERO' }]]),
+      ruleOverrides: new Map([[leafKey, { expectedRule: 'EXPECTED_VALUE', expectedValue: 0 }]]),
     });
     const types = rows.at(-1)!.anomalies.map((a) => a.type).sort();
-    expect(types).toEqual(['AGING_3M', 'ZERO_VIOLATION']);
+    expect(types).toEqual(['AGING_3M', 'EXPECTED_VALUE_VIOLATION']);
   });
 
-  it('does not flag ZERO_VIOLATION when selectedMonth balance is exactly 0', () => {
+  it('does not flag EXPECTED_VALUE_VIOLATION when balance matches expectedValue', () => {
     const bs = makeBsFixture({ subaccountValues: [100, 100, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] });
     const { rows } = buildChoshoPreviewRows({ bsTransition: bs, filterAccountKeywords: [], selectedMonth: 6 });
     const leafKey = rows.at(-1)!.rowKey;
@@ -232,9 +250,25 @@ describe('buildChoshoPreviewRows / ZERO_VIOLATION', () => {
       bsTransition: bs,
       filterAccountKeywords: [],
       selectedMonth: 6,
-      ruleOverrides: new Map([[leafKey, { expectedRule: 'ZERO' }]]),
+      ruleOverrides: new Map([[leafKey, { expectedRule: 'EXPECTED_VALUE', expectedValue: 0 }]]),
     });
     expect(re.rows.at(-1)!.anomalies).toEqual([]);
+  });
+
+  it('does not flag EXPECTED_VALUE_VIOLATION when expectedValue is null (未設定)', () => {
+    // EXPECTED_VALUE ルールに切り替えても expectedValue 未指定なら何も発火しない
+    const bs = makeBsFixture({ subaccountValues: [100, 100, 100, null, null, null, null, null, null, null, null, null] });
+    const { rows } = buildChoshoPreviewRows({ bsTransition: bs, filterAccountKeywords: [], selectedMonth: 6 });
+    const leafKey = rows.at(-1)!.rowKey;
+    const re = buildChoshoPreviewRows({
+      bsTransition: bs,
+      filterAccountKeywords: [],
+      selectedMonth: 6,
+      ruleOverrides: new Map([[leafKey, { expectedRule: 'EXPECTED_VALUE' }]]),
+    });
+    // EXPECTED_VALUE_VIOLATION は発火しない (expectedValue null のため)
+    const types = re.rows.at(-1)!.anomalies.map((a) => a.type);
+    expect(types).not.toContain('EXPECTED_VALUE_VIOLATION');
   });
 });
 

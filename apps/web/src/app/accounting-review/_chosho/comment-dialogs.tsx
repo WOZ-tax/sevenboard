@@ -236,7 +236,7 @@ export function CellCommentDialog({
   rowName: string;
   rowId: string;
   month: number;
-  anomalyType: "ZERO_VIOLATION" | "AGING_3M";
+  anomalyType: "EXPECTED_VALUE_VIOLATION" | "AGING_3M";
   anomalyMessage: string;
   existing: ChoshoCellComment | null;
   onUpsert: (input: {
@@ -244,7 +244,7 @@ export function CellCommentDialog({
     month: number;
     body: string;
     urls: string[];
-    anomalyType: "ZERO_VIOLATION" | "AGING_3M";
+    anomalyType: "EXPECTED_VALUE_VIOLATION" | "AGING_3M";
   }) => void;
   onDelete: (input: { rowId: string; month: number }) => void;
   isSaving: boolean;
@@ -283,7 +283,7 @@ export function CellCommentDialog({
 
         <div className="rounded bg-red-50 px-2 py-1.5 text-[11px] text-red-700">
           <span className="mr-1.5 font-semibold">
-            {anomalyType === "ZERO_VIOLATION" ? "0が正のはずが残高あり" : "3ヶ月以上滞留"}
+            {anomalyType === "EXPECTED_VALUE_VIOLATION" ? "期待残高ズレ" : "3ヶ月以上滞留"}
           </span>
           {anomalyMessage}
         </div>
