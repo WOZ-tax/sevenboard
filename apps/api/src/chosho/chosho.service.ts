@@ -1,5 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { ChoshoStatus, Prisma } from '@prisma/client';
+import {
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { ChoshoAnomalyType, ChoshoStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { MfApiService } from '../mf/mf-api.service';
 import { buildChoshoPreviewRows } from './chosho-preview.builder';
@@ -220,8 +224,225 @@ export class ChoshoService {
   }
 
   // ============================================================
+  // 行コメント (1:N)
+  // ============================================================
+
+  async listRowComments(orgId: string, versionId: string): Promise<RowCommentRow[]> {
+    const { tenantId } = await this.resolveOrg(orgId);
+    await this.assertVersionBelongsToOrg(versionId, orgId, tenantId);
+    const items = await this.prisma.choshoRowComment.findMany({
+      where: { tenantId, orgId, row: { versionId } },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        id: true,
+        rowId: true,
+        body: true,
+        urls: true,
+        authorId: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+    return items.map((c) => ({
+      id: c.id,
+      rowId: c.rowId,
+      body: c.body,
+      urls: parseStringArray(c.urls),
+      authorId: c.authorId,
+      createdAt: c.createdAt.toISOString(),
+      updatedAt: c.updatedAt.toISOString(),
+    }));
+  }
+
+  async addRowComment(
+    orgId: string,
+    versionId: string,
+    rowId: string,
+    body: string,
+    urls: string[],
+    authorId: string,
+  ): Promise<RowCommentRow> {
+    const { tenantId } = await this.resolveOrg(orgId);
+    await this.assertRowBelongsToVersion(rowId, versionId, orgId, tenantId);
+    const created = await this.prisma.choshoRowComment.create({
+      data: {
+        rowId,
+        tenantId,
+        orgId,
+        body,
+        urls: urls as Prisma.InputJsonValue,
+        authorId,
+      },
+    });
+    return {
+      id: created.id,
+      rowId: created.rowId,
+      body: created.body,
+      urls: parseStringArray(created.urls),
+      authorId: created.authorId,
+      createdAt: created.createdAt.toISOString(),
+      updatedAt: created.updatedAt.toISOString(),
+    };
+  }
+
+  async deleteRowComment(
+    orgId: string,
+    versionId: string,
+    commentId: string,
+    requesterId: string,
+  ): Promise<void> {
+    const { tenantId } = await this.resolveOrg(orgId);
+    // 削除前に「同テナント・同 org・同 version 配下のコメントか」を確認。
+    // 別テナントの commentId を投げられても 404 で止める。
+    const target = await this.prisma.choshoRowComment.findFirst({
+      where: {
+        id: commentId,
+        tenantId,
+        orgId,
+        row: { versionId },
+      },
+      select: { id: true, authorId: true },
+    });
+    if (!target) {
+      throw new NotFoundException('Row comment not found');
+    }
+    // Phase 1 簡易ルール: 削除は本人のみ。Phase 2 で advisor 権限拡張可。
+    if (target.authorId && target.authorId !== requesterId) {
+      throw new ForbiddenException('You can delete only your own comment');
+    }
+    await this.prisma.choshoRowComment.delete({ where: { id: commentId } });
+  }
+
+  // ============================================================
+  // セルコメント (1:1, UNIQUE(row_id, month))
+  // ============================================================
+
+  async listCellComments(orgId: string, versionId: string): Promise<CellCommentRow[]> {
+    const { tenantId } = await this.resolveOrg(orgId);
+    await this.assertVersionBelongsToOrg(versionId, orgId, tenantId);
+    const items = await this.prisma.choshoCellComment.findMany({
+      where: { tenantId, orgId, row: { versionId } },
+      orderBy: [{ rowId: 'asc' }, { month: 'asc' }],
+    });
+    return items.map((c) => ({
+      id: c.id,
+      rowId: c.rowId,
+      month: c.month,
+      body: c.body,
+      urls: parseStringArray(c.urls),
+      anomalyType: c.anomalyType,
+      authorId: c.authorId,
+      createdAt: c.createdAt.toISOString(),
+      updatedAt: c.updatedAt.toISOString(),
+    }));
+  }
+
+  async upsertCellComment(
+    orgId: string,
+    versionId: string,
+    rowId: string,
+    month: number,
+    body: string,
+    urls: string[],
+    anomalyType: ChoshoAnomalyType,
+    authorId: string,
+  ): Promise<CellCommentRow> {
+    const { tenantId } = await this.resolveOrg(orgId);
+    await this.assertRowBelongsToVersion(rowId, versionId, orgId, tenantId);
+    if (month < 1 || month > 12) {
+      throw new ForbiddenException('month must be 1..12');
+    }
+    const upserted = await this.prisma.choshoCellComment.upsert({
+      where: { rowId_month: { rowId, month } },
+      create: {
+        rowId,
+        tenantId,
+        orgId,
+        month,
+        body,
+        urls: urls as Prisma.InputJsonValue,
+        anomalyType,
+        authorId,
+      },
+      update: {
+        body,
+        urls: urls as Prisma.InputJsonValue,
+        anomalyType,
+        // authorId は最初の作成者を保持。上書き者は updatedAt で識別。
+      },
+    });
+    return {
+      id: upserted.id,
+      rowId: upserted.rowId,
+      month: upserted.month,
+      body: upserted.body,
+      urls: parseStringArray(upserted.urls),
+      anomalyType: upserted.anomalyType,
+      authorId: upserted.authorId,
+      createdAt: upserted.createdAt.toISOString(),
+      updatedAt: upserted.updatedAt.toISOString(),
+    };
+  }
+
+  async deleteCellComment(
+    orgId: string,
+    versionId: string,
+    rowId: string,
+    month: number,
+  ): Promise<void> {
+    const { tenantId } = await this.resolveOrg(orgId);
+    await this.assertRowBelongsToVersion(rowId, versionId, orgId, tenantId);
+    // 存在しない (row, month) でも 404 で返す
+    const target = await this.prisma.choshoCellComment.findFirst({
+      where: { rowId, month, tenantId, orgId },
+      select: { id: true },
+    });
+    if (!target) {
+      throw new NotFoundException('Cell comment not found');
+    }
+    await this.prisma.choshoCellComment.delete({ where: { id: target.id } });
+  }
+
+  // ============================================================
   // helpers
   // ============================================================
+
+  /**
+   * versionId が指定 org/tenant に属するかチェック。属していなければ 404。
+   * 別テナントから投げ込まれた versionId を service 層でも遮断する二重防御。
+   */
+  private async assertVersionBelongsToOrg(
+    versionId: string,
+    orgId: string,
+    tenantId: string,
+  ): Promise<void> {
+    const found = await this.prisma.choshoVersion.findFirst({
+      where: { id: versionId, orgId, tenantId },
+      select: { id: true },
+    });
+    if (!found) {
+      throw new NotFoundException('Chosho version not found');
+    }
+  }
+
+  /**
+   * rowId が指定 version/org/tenant に属するかチェック。
+   * 複合 FK で DB レイヤでも保証されているが、攻撃面を狭めるため早期 404。
+   */
+  private async assertRowBelongsToVersion(
+    rowId: string,
+    versionId: string,
+    orgId: string,
+    tenantId: string,
+  ): Promise<void> {
+    const found = await this.prisma.choshoRow.findFirst({
+      where: { id: rowId, versionId, orgId, tenantId },
+      select: { id: true },
+    });
+    if (!found) {
+      throw new NotFoundException('Chosho row not found');
+    }
+  }
 
   private async resolveOrg(orgId: string): Promise<{ tenantId: string; fyStartMonth: number }> {
     const org = await this.prisma.organization.findUniqueOrThrow({
@@ -258,9 +479,39 @@ export interface ChoshoVersionDetail {
   rows: ChoshoPreviewRow[];
 }
 
+/** GET /chosho/versions/:id/comments の戻り値要素 */
+export interface RowCommentRow {
+  id: string;
+  rowId: string;
+  body: string;
+  urls: string[];
+  authorId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** GET /chosho/versions/:id/cell-comments の戻り値要素 */
+export interface CellCommentRow {
+  id: string;
+  rowId: string;
+  month: number;
+  body: string;
+  urls: string[];
+  anomalyType: ChoshoAnomalyType;
+  authorId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // ============================================================
 // pure helpers (test 用に export)
 // ============================================================
+
+/** jsonb 列に保存された string[] をパース。string 以外の要素は drop。 */
+export function parseStringArray(value: Prisma.JsonValue | unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((v): v is string => typeof v === 'string');
+}
 
 export function parseMonthlyBalances(value: Prisma.JsonValue | unknown): Record<number, number> {
   if (value == null || typeof value !== 'object' || Array.isArray(value)) return {};

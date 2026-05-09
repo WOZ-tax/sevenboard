@@ -1,27 +1,38 @@
 "use client";
 
 /**
- * 残高調書タブ — Phase 1 Unit 2A/2B-1/2B-2:
+ * 残高調書タブ — Phase 1 Unit 2A/2B-1/2B-2/2B-3:
  *   - MF推移表 (BS) を 3 階層 expandable テーブルで表示
  *   - Unit 2B-1: 選択月セルの異常検知 (零残高違反 / 3ヶ月以上滞留) を赤表示
  *   - Unit 2B-2: preview の snapshot 保存 (DRAFT) + 保存済 version 読み込み
+ *   - Unit 2B-3: 行コメント (1:N) + セルコメント (1:1) の追加・編集・削除
  *
  * モード:
  *   URL ?versionId=... 指定時 → 保存済 version モード (GET /chosho/versions/:id)
+ *                              + コメント機能 ON
  *   未指定時             → preview モード (MF 推移表をその場で読む)
+ *                              + コメント機能 OFF (versionId が無いため)
  *
- * 次の Unit 2B-3 以降で追加:
- *   - 行コメント / 赤セルコメント / 期待ルール編集 / 確認済✓
+ * 次の Unit 2B-4 以降で追加:
+ *   - 期待ルール編集 / 確認済✓
  *   - draft → approved 承認フロー
  */
 
 import { useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronRight, Loader2, Save } from "lucide-react";
+import { ChevronRight, Loader2, MessageSquare, Save } from "lucide-react";
 import { toast } from "sonner";
 import { useChoshoPreview } from "@/hooks/use-chosho-preview";
-import { api, type ChoshoAnomaly, type ChoshoPreviewRow, type ChoshoVersionDetail } from "@/lib/api";
+import { useChoshoComments } from "@/hooks/use-chosho-comments";
+import {
+  api,
+  type ChoshoAnomaly,
+  type ChoshoCellComment,
+  type ChoshoPreviewRow,
+  type ChoshoRowComment,
+  type ChoshoVersionDetail,
+} from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -30,6 +41,12 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useAuthStore } from "@/lib/auth";
+import {
+  CellCommentDialog,
+  RowCommentCountBadge,
+  RowCommentDialog,
+} from "../_chosho/comment-dialogs";
 
 interface Props {
   orgId: string;
@@ -118,6 +135,10 @@ function SavedVersionView({ orgId, versionId }: { orgId: string; versionId: stri
     staleTime: 60 * 1000,
   });
 
+  // saved version モードでのみコメント機能を有効化
+  const comments = useChoshoComments({ orgId, versionId });
+  const currentUserId = useAuthStore((s) => s.user?.id ?? null);
+
   if (query.isLoading) {
     return (
       <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
@@ -139,6 +160,17 @@ function SavedVersionView({ orgId, versionId }: { orgId: string; versionId: stri
   return (
     <ChoshoTable
       data={data}
+      commentsEnabled
+      rowComments={comments.rowComments.data ?? []}
+      cellComments={comments.cellComments.data ?? []}
+      currentUserId={currentUserId}
+      onAddRowComment={comments.addRowComment.mutate}
+      onDeleteRowComment={comments.deleteRowComment.mutate}
+      onUpsertCellComment={comments.upsertCellComment.mutate}
+      onDeleteCellComment={comments.deleteCellComment.mutate}
+      isAddingRowComment={comments.addRowComment.isPending}
+      isUpsertingCellComment={comments.upsertCellComment.isPending}
+      isDeletingCellComment={comments.deleteCellComment.isPending}
       headerSlot={
         <div className="flex items-center gap-2">
           <Badge variant="outline" className="font-mono text-[10px]">
@@ -203,10 +235,7 @@ function SaveDraftButton({
   );
 }
 
-function ChoshoTable({
-  data,
-  headerSlot,
-}: {
+interface ChoshoTableProps {
   data: {
     fiscalYear: number;
     selectedMonth: number;
@@ -216,7 +245,41 @@ function ChoshoTable({
   };
   /** 右上のアクション領域 (保存ボタン or バッジ等)。 */
   headerSlot?: React.ReactNode;
-}) {
+  /** saved version モードのみ true。コメント機能の表示判定。 */
+  commentsEnabled?: boolean;
+  rowComments?: ChoshoRowComment[];
+  cellComments?: ChoshoCellComment[];
+  currentUserId?: string | null;
+  onAddRowComment?: (input: { rowId: string; body: string; urls: string[] }) => void;
+  onDeleteRowComment?: (commentId: string) => void;
+  onUpsertCellComment?: (input: {
+    rowId: string;
+    month: number;
+    body: string;
+    urls: string[];
+    anomalyType: "ZERO_VIOLATION" | "AGING_3M";
+  }) => void;
+  onDeleteCellComment?: (input: { rowId: string; month: number }) => void;
+  isAddingRowComment?: boolean;
+  isUpsertingCellComment?: boolean;
+  isDeletingCellComment?: boolean;
+}
+
+function ChoshoTable({
+  data,
+  headerSlot,
+  commentsEnabled = false,
+  rowComments = [],
+  cellComments = [],
+  currentUserId = null,
+  onAddRowComment,
+  onDeleteRowComment,
+  onUpsertCellComment,
+  onDeleteCellComment,
+  isAddingRowComment = false,
+  isUpsertingCellComment = false,
+  isDeletingCellComment = false,
+}: ChoshoTableProps) {
   // 親 rowKey の Set。closed なら子は描画しない。
   // 初期状態: level 0 (大区分) と level 1 を開く / level 2 以降は閉じる。
   const [expanded, setExpanded] = useState<Set<string>>(() => {
@@ -255,6 +318,33 @@ function ChoshoTable({
 
   // 選択月の column index (monthOrder ベース)。これより後ろの月は outOfRange。
   const selectedIdx = data.monthOrder.indexOf(data.selectedMonth);
+
+  // rowId -> その行の row comment 配列 への lookup map (saved version モードのみ)
+  const rowCommentsByRow = useMemo(() => {
+    const m = new Map<string, ChoshoRowComment[]>();
+    for (const c of rowComments) {
+      const arr = m.get(c.rowId);
+      if (arr) arr.push(c);
+      else m.set(c.rowId, [c]);
+    }
+    return m;
+  }, [rowComments]);
+
+  // (rowId, month) -> CellComment 1 件 (UNIQUE 制約あり)
+  const cellCommentsByCell = useMemo(() => {
+    const m = new Map<string, ChoshoCellComment>();
+    for (const c of cellComments) m.set(`${c.rowId}:${c.month}`, c);
+    return m;
+  }, [cellComments]);
+
+  // どの行/セルの Dialog を開いているか (一度に 1 つだけ)
+  const [openRowComment, setOpenRowComment] = useState<string | null>(null); // rowId
+  const [openCellComment, setOpenCellComment] = useState<{
+    rowId: string;
+    month: number;
+    anomaly: ChoshoAnomaly;
+    rowName: string;
+  } | null>(null);
 
   return (
     <div className="space-y-3">
@@ -304,22 +394,82 @@ function ChoshoTable({
               <th className="min-w-[96px] px-2 py-2 text-right font-semibold text-[var(--color-text-primary)] tabular-nums">
                 決算整理
               </th>
+              {commentsEnabled && (
+                <th className="min-w-[40px] px-1 py-2 text-center font-semibold text-[var(--color-text-primary)]">
+                  💬
+                </th>
+              )}
             </tr>
           </thead>
           <tbody>
-            {visibleRows.map((r) => (
-              <ChoshoRow
-                key={r.rowKey}
-                row={r}
-                monthOrder={data.monthOrder}
-                selectedIdx={selectedIdx}
-                isExpanded={expanded.has(r.rowKey)}
-                onToggle={() => toggle(r.rowKey)}
-              />
-            ))}
+            {visibleRows.map((r) => {
+              const rowCommentList = rowCommentsByRow.get(r.rowKey) ?? [];
+              const cellCommentLookup = (month: number) =>
+                cellCommentsByCell.get(`${r.rowKey}:${month}`) ?? null;
+              return (
+                <ChoshoRow
+                  key={r.rowKey}
+                  row={r}
+                  monthOrder={data.monthOrder}
+                  selectedIdx={selectedIdx}
+                  isExpanded={expanded.has(r.rowKey)}
+                  onToggle={() => toggle(r.rowKey)}
+                  commentsEnabled={commentsEnabled}
+                  rowCommentCount={rowCommentList.length}
+                  onOpenRowComment={() => setOpenRowComment(r.rowKey)}
+                  cellCommentLookup={cellCommentLookup}
+                  onOpenCellComment={(month, anomaly) =>
+                    setOpenCellComment({ rowId: r.rowKey, month, anomaly, rowName: r.name })
+                  }
+                />
+              );
+            })}
           </tbody>
         </table>
       </div>
+
+      {/* 行コメント Dialog */}
+      {commentsEnabled && openRowComment != null && (
+        <RowCommentDialog
+          open={openRowComment != null}
+          onOpenChange={(v) => { if (!v) setOpenRowComment(null); }}
+          rowId={openRowComment}
+          rowName={data.rows.find((r) => r.rowKey === openRowComment)?.name ?? ""}
+          comments={rowCommentsByRow.get(openRowComment) ?? []}
+          onAdd={(input) => onAddRowComment?.(input)}
+          onDelete={(commentId) => onDeleteRowComment?.(commentId)}
+          isAdding={isAddingRowComment}
+          currentUserId={currentUserId}
+        />
+      )}
+
+      {/* セルコメント Dialog */}
+      {commentsEnabled && openCellComment && (
+        <CellCommentDialog
+          open={!!openCellComment}
+          onOpenChange={(v) => { if (!v) setOpenCellComment(null); }}
+          rowId={openCellComment.rowId}
+          rowName={openCellComment.rowName}
+          month={openCellComment.month}
+          anomalyType={openCellComment.anomaly.type}
+          anomalyMessage={openCellComment.anomaly.message}
+          existing={
+            cellCommentsByCell.get(
+              `${openCellComment.rowId}:${openCellComment.month}`,
+            ) ?? null
+          }
+          onUpsert={(input) => {
+            onUpsertCellComment?.(input);
+            setOpenCellComment(null);
+          }}
+          onDelete={(input) => {
+            onDeleteCellComment?.(input);
+            setOpenCellComment(null);
+          }}
+          isSaving={isUpsertingCellComment}
+          isDeleting={isDeletingCellComment}
+        />
+      )}
     </div>
   );
 }
@@ -330,12 +480,22 @@ function ChoshoRow({
   selectedIdx,
   isExpanded,
   onToggle,
+  commentsEnabled,
+  rowCommentCount,
+  onOpenRowComment,
+  cellCommentLookup,
+  onOpenCellComment,
 }: {
   row: ChoshoPreviewRow;
   monthOrder: number[];
   selectedIdx: number;
   isExpanded: boolean;
   onToggle: () => void;
+  commentsEnabled: boolean;
+  rowCommentCount: number;
+  onOpenRowComment: () => void;
+  cellCommentLookup: (month: number) => ChoshoCellComment | null;
+  onOpenCellComment: (month: number, anomaly: ChoshoAnomaly) => void;
 }) {
   // 大区分 (level 0) は太字背景、勘定 (level 1) は通常太字、補助以降 (level 2+) は通常文字。
   const isHeader = row.level === 0;
@@ -391,6 +551,8 @@ function ChoshoRow({
         // anomalies[0].month と m が一致するセルだけ赤表示。
         const cellAnomalies = row.anomalies.filter((a) => a.month === m);
         const hasAnomaly = cellAnomalies.length > 0 && !outOfRange;
+        const cellComment = commentsEnabled ? cellCommentLookup(m) : null;
+        const hasCellComment = !!cellComment;
         const cellClass = cn(
           "px-2 py-1.5 text-right tabular-nums",
           v != null && v < 0 && "text-[var(--color-negative)]",
@@ -404,12 +566,25 @@ function ChoshoRow({
               <Tooltip>
                 <TooltipTrigger
                   type="button"
-                  className="cursor-help bg-transparent p-0 text-inherit underline decoration-red-300 decoration-dotted underline-offset-2"
+                  onClick={
+                    commentsEnabled
+                      ? () => onOpenCellComment(m, cellAnomalies[0])
+                      : undefined
+                  }
+                  className={cn(
+                    "bg-transparent p-0 text-inherit underline decoration-red-300 decoration-dotted underline-offset-2",
+                    commentsEnabled ? "cursor-pointer" : "cursor-help",
+                  )}
                 >
                   {content}
+                  {hasCellComment && (
+                    <span className="ml-0.5 text-[9px]" title="コメントあり">
+                      💬
+                    </span>
+                  )}
                 </TooltipTrigger>
                 <TooltipContent side="top" className="max-w-xs">
-                  <AnomalyTooltipBody anomalies={cellAnomalies} />
+                  <AnomalyTooltipBody anomalies={cellAnomalies} hint={commentsEnabled ? "クリックでコメント編集" : undefined} />
                 </TooltipContent>
               </Tooltip>
             </td>
@@ -424,11 +599,33 @@ function ChoshoRow({
       <td className="px-2 py-1.5 text-right tabular-nums">
         {row.settlementBalance != null ? formatYen(row.settlementBalance) : ""}
       </td>
+      {commentsEnabled && (
+        <td className="px-1 py-1.5 text-center">
+          {/* level 0 (大区分) は親集計なのでコメント不要 */}
+          {row.level > 0 && (
+            <button
+              type="button"
+              onClick={onOpenRowComment}
+              className="inline-flex items-center gap-0.5 rounded p-0.5 text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+              aria-label="行コメント"
+            >
+              <MessageSquare className="h-3 w-3" />
+              <RowCommentCountBadge count={rowCommentCount} />
+            </button>
+          )}
+        </td>
+      )}
     </tr>
   );
 }
 
-function AnomalyTooltipBody({ anomalies }: { anomalies: ChoshoAnomaly[] }) {
+function AnomalyTooltipBody({
+  anomalies,
+  hint,
+}: {
+  anomalies: ChoshoAnomaly[];
+  hint?: string;
+}) {
   const labelOf = (type: ChoshoAnomaly["type"]): string => {
     if (type === "ZERO_VIOLATION") return "0が正のはずが残高あり";
     if (type === "AGING_3M") return "3ヶ月以上滞留";
@@ -442,6 +639,7 @@ function AnomalyTooltipBody({ anomalies }: { anomalies: ChoshoAnomaly[] }) {
           <div className="text-muted-foreground">{a.message}</div>
         </div>
       ))}
+      {hint && <div className="text-[10px] italic text-muted-foreground">{hint}</div>}
     </div>
   );
 }

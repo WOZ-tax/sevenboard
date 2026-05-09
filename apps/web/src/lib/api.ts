@@ -288,6 +288,30 @@ export interface ChoshoPreviewResult {
 /** 保存済 chosho_versions の status (DB enum と一致)。 */
 export type ChoshoVersionStatus = 'DRAFT' | 'APPROVED' | 'ARCHIVED';
 
+/** 行コメント (1:N) */
+export interface ChoshoRowComment {
+  id: string;
+  rowId: string;
+  body: string;
+  urls: string[];
+  authorId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** セルコメント (1:1, UNIQUE(rowId, month)) */
+export interface ChoshoCellComment {
+  id: string;
+  rowId: string;
+  month: number;
+  body: string;
+  urls: string[];
+  anomalyType: 'ZERO_VIOLATION' | 'AGING_3M';
+  authorId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 /**
  * POST /chosho/versions または GET /chosho/versions/:id の戻り値。
  * preview と同じ row shape を持ち、UI は同じ描画経路で再利用できる。
@@ -1171,6 +1195,58 @@ export const api = {
     getVersion: (orgId: string, versionId: string) =>
       apiFetch<ChoshoVersionDetail>(
         `/organizations/${orgId}/chosho/versions/${versionId}`,
+      ),
+
+    // === 行コメント (1:N) ===
+    listRowComments: (orgId: string, versionId: string) =>
+      apiFetch<ChoshoRowComment[]>(
+        `/organizations/${orgId}/chosho/versions/${versionId}/comments`,
+      ),
+    addRowComment: (
+      orgId: string,
+      versionId: string,
+      rowId: string,
+      input: { body: string; urls?: string[] },
+    ) =>
+      apiFetch<ChoshoRowComment>(
+        `/organizations/${orgId}/chosho/versions/${versionId}/rows/${rowId}/comments`,
+        { method: 'POST', body: JSON.stringify(input) },
+      ),
+    deleteRowComment: (orgId: string, versionId: string, commentId: string) =>
+      apiFetch<void>(
+        `/organizations/${orgId}/chosho/versions/${versionId}/comments/${commentId}`,
+        { method: 'DELETE' },
+      ),
+
+    // === セルコメント (1:1) ===
+    listCellComments: (orgId: string, versionId: string) =>
+      apiFetch<ChoshoCellComment[]>(
+        `/organizations/${orgId}/chosho/versions/${versionId}/cell-comments`,
+      ),
+    upsertCellComment: (
+      orgId: string,
+      versionId: string,
+      rowId: string,
+      month: number,
+      input: {
+        body: string;
+        urls?: string[];
+        anomalyType: 'ZERO_VIOLATION' | 'AGING_3M';
+      },
+    ) =>
+      apiFetch<ChoshoCellComment>(
+        `/organizations/${orgId}/chosho/versions/${versionId}/rows/${rowId}/cell-comments/${month}`,
+        { method: 'PUT', body: JSON.stringify(input) },
+      ),
+    deleteCellComment: (
+      orgId: string,
+      versionId: string,
+      rowId: string,
+      month: number,
+    ) =>
+      apiFetch<void>(
+        `/organizations/${orgId}/chosho/versions/${versionId}/rows/${rowId}/cell-comments/${month}`,
+        { method: 'DELETE' },
       ),
   },
 
