@@ -1,18 +1,28 @@
 "use client";
 
 /**
- * 仕訳レビュータブ — Phase 0: 一覧 + フィルタ表示の枠。
+ * 仕訳レビュータブ — Phase 0: 一覧 + 期間フィルタ表示。
  *
- * Phase 0 スコープ (このタブの最終目標):
- *   - MF 仕訳取得 API (mfc_ca_getJournals) から期間内の仕訳一覧を取る
- *   - フィルタ: 期間 / 科目 / 金額レンジ / 未レビュー
- *   - risk-findings 検知ルールの自動マーク (異常仕訳ハイライト)
- *   - 行コメント + 差戻し (Phase 1+)
+ * このファイルのスコープ:
+ *   - 既存 GET /organizations/:orgId/mf/journals を使って期間内の仕訳を取得
+ *   - 期間フィルタ (今月 / 先月 / カスタム)
+ *   - 一覧表 (日付 / 借方科目 / 貸方科目 / 金額 / 摘要 / 取引先)
  *
- * このファイル時点ではUI枠だけ。データフェッチは次の unit で実装。
+ * 次の Unit (Phase 1+) で追加:
+ *   - 科目フィルタ / 金額レンジフィルタ / 未レビューフィルタ
+ *   - risk-findings 検知ルールでの異常仕訳マーク
+ *   - 残高調書からのドリルダウン経路 (?focusAccount= 等)
+ *   - 行コメント / 差戻し / 修正履歴
  */
 
-import { BookText } from "lucide-react";
+import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { Loader2, Search, Calendar } from "lucide-react";
+import { api } from "@/lib/api";
+import type { MfJournal } from "@/lib/api-types";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 
 interface Props {
   orgId: string;
@@ -20,24 +30,290 @@ interface Props {
   month: number | undefined;
 }
 
+// MF 仕訳 1 行の defensive accessor (api-types では loose unknown 型のため)。
+interface MfJournalRow {
+  id: string | null;
+  issueDate: string | null;
+  description: string | null;
+  partnerName: string | null;
+  // 借方/貸方の合計表示用に branches を集約した値
+  debits: { accountName: string; amount: number; subAccountName?: string }[];
+  credits: { accountName: string; amount: number; subAccountName?: string }[];
+  totalAmount: number;
+}
+
+function normalizeJournal(j: MfJournal): MfJournalRow {
+  const obj = j as unknown as Record<string, unknown>;
+  const branches = Array.isArray(j.branches) ? j.branches : [];
+  const debits: MfJournalRow["debits"] = [];
+  const credits: MfJournalRow["credits"] = [];
+  let totalAmount = 0;
+  for (const b of branches) {
+    const d = (b as Record<string, unknown>).debitor as Record<string, unknown> | undefined;
+    const c = (b as Record<string, unknown>).creditor as Record<string, unknown> | undefined;
+    if (d) {
+      const amount = Number(d.amount ?? 0);
+      debits.push({
+        accountName: String(d.account_name ?? d.accountName ?? "—"),
+        amount,
+        subAccountName: d.sub_account_name as string | undefined,
+      });
+      totalAmount += amount;
+    }
+    if (c) {
+      credits.push({
+        accountName: String(c.account_name ?? c.accountName ?? "—"),
+        amount: Number(c.amount ?? 0),
+        subAccountName: c.sub_account_name as string | undefined,
+      });
+    }
+  }
+  return {
+    id: (obj.id as string) ?? null,
+    issueDate: (obj.issue_date as string) ?? (obj.issueDate as string) ?? null,
+    description: (obj.description as string) ?? null,
+    partnerName: (obj.partner_name as string) ?? (obj.partnerName as string) ?? null,
+    debits,
+    credits,
+    totalAmount,
+  };
+}
+
+// ============================================================
+// 期間プリセット
+// ============================================================
+
+type RangePreset = "thisMonth" | "lastMonth" | "custom";
+
+function defaultRangeFor(preset: RangePreset, customStart: string, customEnd: string): { start: string; end: string } {
+  const today = new Date();
+  if (preset === "thisMonth") {
+    const start = new Date(today.getFullYear(), today.getMonth(), 1);
+    const end = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+    return { start: toISODate(start), end: toISODate(end) };
+  }
+  if (preset === "lastMonth") {
+    const start = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+    const end = new Date(today.getFullYear(), today.getMonth(), 0);
+    return { start: toISODate(start), end: toISODate(end) };
+  }
+  return { start: customStart, end: customEnd };
+}
+
+function toISODate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+// ============================================================
+// メイン
+// ============================================================
+
 export function JournalReviewTab({ orgId, fiscalYear, month }: Props) {
-  void orgId;
   void fiscalYear;
   void month;
+  const [preset, setPreset] = useState<RangePreset>("thisMonth");
+  const [customStart, setCustomStart] = useState("");
+  const [customEnd, setCustomEnd] = useState("");
+  const [searchText, setSearchText] = useState("");
+
+  const range = useMemo(() => defaultRangeFor(preset, customStart, customEnd), [preset, customStart, customEnd]);
+  const queryReady = !!orgId && !!range.start && !!range.end;
+
+  const query = useQuery({
+    queryKey: ["mf-journals", orgId, range.start, range.end],
+    queryFn: () => api.mf.getJournals(orgId, { startDate: range.start, endDate: range.end }),
+    enabled: queryReady,
+    staleTime: 60 * 1000,
+  });
+
+  const rows = useMemo(() => {
+    const all = (query.data?.journals ?? []).map(normalizeJournal);
+    if (!searchText.trim()) return all;
+    const q = searchText.trim().toLowerCase();
+    return all.filter(
+      (r) =>
+        (r.description ?? "").toLowerCase().includes(q) ||
+        (r.partnerName ?? "").toLowerCase().includes(q) ||
+        r.debits.some((d) => d.accountName.toLowerCase().includes(q)) ||
+        r.credits.some((c) => c.accountName.toLowerCase().includes(q)),
+    );
+  }, [query.data, searchText]);
+
+  if (!orgId) {
+    return (
+      <div className="rounded-md border border-dashed bg-muted/20 p-8 text-center">
+        <h3 className="text-base font-semibold text-[var(--color-text-primary)]">
+          顧問先を選択してください
+        </h3>
+      </div>
+    );
+  }
+
   return (
-    <div className="rounded-md border border-dashed bg-muted/20 p-8 text-center">
-      <BookText className="mx-auto mb-3 h-8 w-8 text-muted-foreground/60" />
-      <h3 className="text-base font-semibold text-[var(--color-text-primary)]">
-        仕訳レビュー
-      </h3>
-      <p className="mt-1.5 text-xs text-muted-foreground">
-        個別仕訳の検品 (準備中) — 期間/科目/金額/未レビューでフィルタ + 異常マーク
+    <div className="space-y-3">
+      {/* フィルタ行 */}
+      <div className="flex flex-wrap items-center gap-2 rounded-md border bg-card p-2 text-xs">
+        <div className="flex items-center gap-1">
+          <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
+          <span className="text-muted-foreground">期間</span>
+        </div>
+        <PresetButton current={preset} value="thisMonth" label="今月" onClick={setPreset} />
+        <PresetButton current={preset} value="lastMonth" label="先月" onClick={setPreset} />
+        <PresetButton current={preset} value="custom" label="カスタム" onClick={setPreset} />
+        {preset === "custom" && (
+          <>
+            <input
+              type="date"
+              value={customStart}
+              onChange={(e) => setCustomStart(e.target.value)}
+              className="rounded border px-1.5 py-0.5 text-xs"
+            />
+            <span className="text-muted-foreground">〜</span>
+            <input
+              type="date"
+              value={customEnd}
+              onChange={(e) => setCustomEnd(e.target.value)}
+              className="rounded border px-1.5 py-0.5 text-xs"
+            />
+          </>
+        )}
+        {preset !== "custom" && (
+          <span className="ml-1 text-muted-foreground">
+            {range.start} 〜 {range.end}
+          </span>
+        )}
+
+        <div className="ml-auto flex items-center gap-1.5">
+          <Search className="h-3.5 w-3.5 text-muted-foreground" />
+          <input
+            type="text"
+            value={searchText}
+            onChange={(e) => setSearchText(e.target.value)}
+            placeholder="科目 / 摘要 / 取引先で絞り込み"
+            className="w-56 rounded border px-2 py-0.5 text-xs"
+          />
+          {query.data && (
+            <Badge variant="secondary" className="text-[10px]">
+              {rows.length} / {query.data.journals.length} 件
+            </Badge>
+          )}
+        </div>
+      </div>
+
+      {/* 一覧 */}
+      {query.isLoading ? (
+        <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
+          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          仕訳を取得中…
+        </div>
+      ) : query.isError ? (
+        <div className="rounded-md border border-dashed bg-muted/20 p-6 text-center text-sm text-muted-foreground">
+          仕訳の取得に失敗しました。MFクラウド会計の接続状態を確認してください。
+        </div>
+      ) : rows.length === 0 ? (
+        <div className="rounded-md border border-dashed bg-muted/20 p-6 text-center text-sm text-muted-foreground">
+          指定期間に仕訳がありません
+        </div>
+      ) : (
+        <div className="overflow-x-auto rounded-md border bg-card">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b-2 border-[var(--color-border)] bg-[var(--color-background)]">
+                <th className="w-24 px-2 py-2 text-left font-semibold text-[var(--color-text-primary)]">日付</th>
+                <th className="px-2 py-2 text-left font-semibold text-[var(--color-text-primary)]">借方</th>
+                <th className="px-2 py-2 text-left font-semibold text-[var(--color-text-primary)]">貸方</th>
+                <th className="w-32 px-2 py-2 text-right font-semibold text-[var(--color-text-primary)]">金額</th>
+                <th className="px-2 py-2 text-left font-semibold text-[var(--color-text-primary)]">摘要</th>
+                <th className="w-32 px-2 py-2 text-left font-semibold text-[var(--color-text-primary)]">取引先</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r, i) => (
+                <tr key={r.id ?? i} className="border-b border-muted/50 hover:bg-muted/30">
+                  <td className="px-2 py-1.5 text-muted-foreground tabular-nums">
+                    {r.issueDate ?? "—"}
+                  </td>
+                  <td className="px-2 py-1.5">
+                    <SideCell sides={r.debits} />
+                  </td>
+                  <td className="px-2 py-1.5">
+                    <SideCell sides={r.credits} />
+                  </td>
+                  <td className="px-2 py-1.5 text-right tabular-nums">
+                    {formatYen(r.totalAmount)}
+                  </td>
+                  <td className="max-w-[280px] truncate px-2 py-1.5 text-muted-foreground" title={r.description ?? ""}>
+                    {r.description ?? "—"}
+                  </td>
+                  <td className="px-2 py-1.5 text-muted-foreground">
+                    {r.partnerName ?? "—"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <p className="text-[10px] italic text-muted-foreground">
+        異常検知マーク・コメント・差戻しは Phase 1 以降で実装予定です。
       </p>
-      <ul className="mx-auto mt-4 inline-block list-inside list-disc text-left text-[11px] text-muted-foreground">
-        <li>MF仕訳API + risk-findings の検知ルールで自動マーク</li>
-        <li>残高調書の行クリックから「該当取引の仕訳」へドリルダウン (Phase 1)</li>
-        <li>コメント / 差戻し / 修正履歴</li>
-      </ul>
     </div>
   );
+}
+
+// ============================================================
+// sub components
+// ============================================================
+
+function PresetButton({
+  current,
+  value,
+  label,
+  onClick,
+}: {
+  current: RangePreset;
+  value: RangePreset;
+  label: string;
+  onClick: (v: RangePreset) => void;
+}) {
+  const selected = current === value;
+  return (
+    <Button
+      type="button"
+      variant={selected ? "default" : "outline"}
+      size="sm"
+      className={cn("h-6 px-2 text-[11px]", selected && "")}
+      onClick={() => onClick(value)}
+    >
+      {label}
+    </Button>
+  );
+}
+
+function SideCell({
+  sides,
+}: {
+  sides: { accountName: string; amount: number; subAccountName?: string }[];
+}) {
+  if (sides.length === 0) return <span className="text-muted-foreground">—</span>;
+  return (
+    <div className="space-y-0.5">
+      {sides.map((s, i) => (
+        <div key={i} className="flex items-center gap-1.5">
+          <span className="font-medium text-[var(--color-text-primary)]">{s.accountName}</span>
+          {s.subAccountName && (
+            <span className="text-[10px] text-muted-foreground">/ {s.subAccountName}</span>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function formatYen(n: number): string {
+  return Math.round(n).toLocaleString();
 }
