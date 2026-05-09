@@ -608,10 +608,14 @@ export class MfApiService {
     orgId: string,
     fiscalYear?: number,
     endMonth?: number,
+    options?: { withSubAccounts?: boolean },
   ): Promise<MfTransition> {
     const args: Record<string, any> = { type: 'monthly' };
     if (fiscalYear) args.fiscal_year = fiscalYear;
     if (endMonth) args.end_month = endMonth;
+    // 補助科目を取得したい場合のみ true (デフォルト false で MF が補助を畳んだ
+    // 集約値だけ返すパターンを維持。他の caller への影響なし)
+    if (options?.withSubAccounts) args.with_sub_accounts = true;
     return this.mcpRequest<MfTransition>(
       orgId,
       'mfc_ca_getReportsTransitionBalanceSheet',

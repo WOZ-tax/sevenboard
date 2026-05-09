@@ -44,7 +44,7 @@ export class ChoshoService {
   ): Promise<ChoshoPreviewResult> {
     const { fyStartMonth } = await this.resolveOrg(orgId);
     const bsTransition = await this.mfApi
-      .getTransitionBS(orgId, fiscalYear, selectedMonth)
+      .getTransitionBS(orgId, fiscalYear, selectedMonth, { withSubAccounts: true })
       .catch(() => null);
     const { rows, monthOrder } = buildChoshoPreviewRows({
       bsTransition,
@@ -75,7 +75,7 @@ export class ChoshoService {
 
     // server 側で再生成。client から渡された rows は信用しない。
     const bsTransition = await this.mfApi
-      .getTransitionBS(orgId, fiscalYear, selectedMonth)
+      .getTransitionBS(orgId, fiscalYear, selectedMonth, { withSubAccounts: true })
       .catch(() => null);
     const { rows: previewRows, monthOrder } = buildChoshoPreviewRows({
       bsTransition,
