@@ -285,6 +285,27 @@ export interface ChoshoPreviewResult {
   rows: ChoshoPreviewRow[];
 }
 
+/** 保存済 chosho_versions の status (DB enum と一致)。 */
+export type ChoshoVersionStatus = 'DRAFT' | 'APPROVED' | 'ARCHIVED';
+
+/**
+ * POST /chosho/versions または GET /chosho/versions/:id の戻り値。
+ * preview と同じ row shape を持ち、UI は同じ描画経路で再利用できる。
+ */
+export interface ChoshoVersionDetail {
+  versionId: string;
+  orgId: string;
+  fiscalYear: number;
+  selectedMonth: number;
+  status: ChoshoVersionStatus;
+  title: string | null;
+  createdAt: string;
+  approvedAt: string | null;
+  fyStartMonth: number;
+  monthOrder: number[];
+  rows: ChoshoPreviewRow[];
+}
+
 export const api = {
   // Auth
   login: (email: string, password: string) =>
@@ -1133,6 +1154,23 @@ export const api = {
     preview: (orgId: string, fiscalYear: number, month: number) =>
       apiFetch<ChoshoPreviewResult>(
         `/organizations/${orgId}/chosho/preview?fiscalYear=${fiscalYear}&month=${month}`,
+      ),
+    /**
+     * preview の snapshot を DRAFT で保存。row 配列は client から送らず、
+     * server 側で再生成される (越境改ざん防止)。Phase 1 Unit 2B-2。
+     */
+    createVersion: (
+      orgId: string,
+      input: { fiscalYear: number; month: number; title?: string },
+    ) =>
+      apiFetch<ChoshoVersionDetail>(
+        `/organizations/${orgId}/chosho/versions`,
+        { method: 'POST', body: JSON.stringify(input) },
+      ),
+    /** 保存済 version を読み取り。preview と同じ row shape。 */
+    getVersion: (orgId: string, versionId: string) =>
+      apiFetch<ChoshoVersionDetail>(
+        `/organizations/${orgId}/chosho/versions/${versionId}`,
       ),
   },
 

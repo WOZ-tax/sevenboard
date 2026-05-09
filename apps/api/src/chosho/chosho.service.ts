@@ -1,16 +1,25 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { ChoshoStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { MfApiService } from '../mf/mf-api.service';
 import { buildChoshoPreviewRows } from './chosho-preview.builder';
-import type { ChoshoPreviewResult } from './chosho-preview.types';
+import type {
+  ChoshoAnomaly,
+  ChoshoExpectedRuleValue,
+  ChoshoPreviewResult,
+  ChoshoPreviewRow,
+} from './chosho-preview.types';
 
 /**
  * 残高調書 service。
  *
- * Unit 2A スコープ: MF 推移表を取得して純関数 builder で 3 階層 row 配列に変換し、
- * preview として返すだけ。chosho_versions / chosho_rows への INSERT は一切行わない。
+ * 役割:
+ *   preview      : MF 推移表 + builder でその場生成 (DB なし)
+ *   createDraft  : preview と同じロジックを再実行 → chosho_versions / chosho_rows に snapshot 保存
+ *   getVersion   : 保存済 version を読み取り、UI が再描画できる shape で返す
  *
- * tenant/org 権限境界は controller の PermissionGuard で担保 (既存パターン準拠)。
+ * tenant/org 権限境界は controller の PermissionGuard で担保。本 service では
+ * tenantId/orgId を必ずクエリ条件に含めて、別テナント越境を service レイヤでも二重防御する。
  */
 @Injectable()
 export class ChoshoService {
@@ -19,42 +28,313 @@ export class ChoshoService {
     private mfApi: MfApiService,
   ) {}
 
-  /**
-   * 指定 (orgId, fiscalYear, selectedMonth) の残高調書プレビューを返す。
-   *
-   * @param selectedMonth カレンダー月 (1-12)。この月までを「確定」、それ以降を outOfRange 扱いに UI で表現する想定。
-   *                      MF API 側にも end_month として渡し、年換算等の影響を抑える。
-   */
+  // ============================================================
+  // preview (DB 書き込みなし)
+  // ============================================================
+
   async preview(
     orgId: string,
     fiscalYear: number,
     selectedMonth: number,
   ): Promise<ChoshoPreviewResult> {
-    // Organization から期首月を導出。fiscalMonthEnd=3 (3月決算) → fyStart=4。
-    const org = await this.prisma.organization.findUniqueOrThrow({
-      where: { id: orgId },
-      select: { fiscalMonthEnd: true },
-    });
-    const fyStartMonth = (org.fiscalMonthEnd % 12) + 1;
-
-    // MF 接続が無い org でも 200 を返したいので catch して null 化。
+    const { fyStartMonth } = await this.resolveOrg(orgId);
     const bsTransition = await this.mfApi
       .getTransitionBS(orgId, fiscalYear, selectedMonth)
       .catch(() => null);
-
     const { rows, monthOrder } = buildChoshoPreviewRows({
       bsTransition,
       selectedMonth,
-      // Unit 2B-1 時点では DB 永続ルールがないため override は渡さない。
-      // Unit 2B-2 で chosho_rows から読んで Map<rowKey, ChoshoRuleOverride> に詰める。
+    });
+    return { fiscalYear, selectedMonth, fyStartMonth, monthOrder, rows };
+  }
+
+  // ============================================================
+  // createDraft (snapshot 保存)
+  // ============================================================
+
+  /**
+   * preview と同じ shape の row 配列を server 側で再生成して chosho_versions / chosho_rows に保存。
+   * client から row を受け取らない (越境防止)。
+   *
+   * Insert 順序: preview rows は DFS 順で displayOrder が連番なので、parent が必ず先に挿入される。
+   * 1 pass で rowKey -> 生成された DB id の Map を逐次拡張し、子行は Map から parentRowId を解決する。
+   */
+  async createDraft(
+    orgId: string,
+    fiscalYear: number,
+    selectedMonth: number,
+    title: string | null,
+    createdById: string,
+  ): Promise<ChoshoVersionDetail> {
+    const { tenantId, fyStartMonth } = await this.resolveOrg(orgId);
+
+    // server 側で再生成。client から渡された rows は信用しない。
+    const bsTransition = await this.mfApi
+      .getTransitionBS(orgId, fiscalYear, selectedMonth)
+      .catch(() => null);
+    const { rows: previewRows, monthOrder } = buildChoshoPreviewRows({
+      bsTransition,
+      selectedMonth,
     });
 
+    const versionId = await this.prisma.$transaction(async (tx) => {
+      const version = await tx.choshoVersion.create({
+        data: {
+          tenantId,
+          orgId,
+          fiscalYear,
+          selectedMonth,
+          status: ChoshoStatus.DRAFT,
+          title,
+          createdById,
+        },
+        select: { id: true },
+      });
+
+      // rowKey -> DB id の Map。DFS 順なので親が必ず先に入る。
+      const idByRowKey = new Map<string, string>();
+      for (const r of previewRows) {
+        const parentRowId = r.parentRowKey
+          ? (idByRowKey.get(r.parentRowKey) ?? null)
+          : null;
+        const created = await tx.choshoRow.create({
+          data: {
+            versionId: version.id,
+            tenantId,
+            orgId,
+            level: r.level,
+            displayOrder: r.displayOrder,
+            parentRowId,
+            // schema は accountName 必須 / subaccountName / partnerName optional の 3 列だが、
+            // MF 階層の深さは不定 (2-4 階層) なので column 分離せず、すべて accountName に
+            // 入れる。階層は level + parentRowId で完全復元できる。
+            accountName: r.name,
+            // monthlyBalances は jsonb 列。Prisma 経由で Record<number, number> をそのまま入る。
+            monthlyBalances: r.monthlyBalances as Prisma.InputJsonValue,
+            expectedRule: r.expectedRule,
+            agingCheckEnabled: r.agingCheckEnabled,
+          },
+          select: { id: true },
+        });
+        idByRowKey.set(r.rowKey, created.id);
+      }
+
+      return version.id;
+    });
+
+    // 保存後即時で詳細を返す (UI が即座に「保存済 version モード」へ遷移できるように)
+    const detail = await this.getVersionInternal(orgId, versionId);
+    // monthOrder は preview から流用 (DB には保存しない値)
+    detail.monthOrder = monthOrder;
+    detail.fyStartMonth = fyStartMonth;
+    return detail;
+  }
+
+  // ============================================================
+  // getVersion (snapshot 読み取り)
+  // ============================================================
+
+  async getVersion(
+    orgId: string,
+    versionId: string,
+  ): Promise<ChoshoVersionDetail> {
+    const detail = await this.getVersionInternal(orgId, versionId);
+    // 期首月は読み取り時に Organization から再取得 (snapshot に持たない)
+    const { fyStartMonth } = await this.resolveOrg(orgId);
+    detail.fyStartMonth = fyStartMonth;
+    detail.monthOrder = computeMonthOrderFromFyStart(fyStartMonth);
+    return detail;
+  }
+
+  /**
+   * tenantId は controller 経由で確定済の orgId からだけ引く (越境チェックを service 層で再度)。
+   * 別テナントの versionId を投げられても 404 にする。
+   */
+  private async getVersionInternal(
+    orgId: string,
+    versionId: string,
+  ): Promise<ChoshoVersionDetail> {
+    const { tenantId } = await this.resolveOrg(orgId);
+
+    const version = await this.prisma.choshoVersion.findFirst({
+      where: { id: versionId, orgId, tenantId },
+      include: {
+        rows: {
+          orderBy: { displayOrder: 'asc' },
+        },
+      },
+    });
+    if (!version) {
+      throw new NotFoundException('Chosho version not found');
+    }
+
+    // saved row -> ChoshoPreviewRow 互換 shape へ整形。
+    // rowKey = id、parentRowKey = parentRowId (UI が preview と同じレンダリング経路で再描画できる)
+    const rows: ChoshoPreviewRow[] = version.rows.map((r) => {
+      const monthlyBalances = parseMonthlyBalances(r.monthlyBalances);
+      const anomalies = computeAnomaliesFromSaved({
+        monthlyBalances,
+        expectedRule: r.expectedRule as ChoshoExpectedRuleValue,
+        agingCheckEnabled: r.agingCheckEnabled,
+        selectedMonth: version.selectedMonth,
+      });
+      return {
+        rowKey: r.id,
+        parentRowKey: r.parentRowId,
+        level: r.level,
+        displayOrder: r.displayOrder,
+        name: r.accountName,
+        // saved row には mfType がない (snapshot 用なので) — UI は mfType を使ってないので空でOK
+        mfType: '',
+        monthlyBalances,
+        settlementBalance: null,
+        total: null,
+        // children 判定は parentRowId の集合から逆引き
+        hasChildren: false,
+        expectedRule: r.expectedRule as ChoshoExpectedRuleValue,
+        agingCheckEnabled: r.agingCheckEnabled,
+        anomalies,
+      };
+    });
+
+    // hasChildren を1パスで埋める
+    const parentIds = new Set(rows.map((r) => r.parentRowKey).filter((v): v is string => !!v));
+    for (const r of rows) {
+      r.hasChildren = parentIds.has(r.rowKey);
+    }
+
     return {
-      fiscalYear,
-      selectedMonth,
-      fyStartMonth,
-      monthOrder,
+      versionId: version.id,
+      orgId: version.orgId,
+      fiscalYear: version.fiscalYear,
+      selectedMonth: version.selectedMonth,
+      status: version.status,
+      title: version.title,
+      createdAt: version.createdAt.toISOString(),
+      approvedAt: version.approvedAt?.toISOString() ?? null,
+      // 後で resolveOrg / monthOrder 計算で上書きされる初期値
+      fyStartMonth: 0,
+      monthOrder: [],
       rows,
     };
   }
+
+  // ============================================================
+  // helpers
+  // ============================================================
+
+  private async resolveOrg(orgId: string): Promise<{ tenantId: string; fyStartMonth: number }> {
+    const org = await this.prisma.organization.findUniqueOrThrow({
+      where: { id: orgId },
+      select: { tenantId: true, fiscalMonthEnd: true },
+    });
+    // fiscalMonthEnd=3 (3月決算) → fyStart=4
+    return {
+      tenantId: org.tenantId,
+      fyStartMonth: (org.fiscalMonthEnd % 12) + 1,
+    };
+  }
+}
+
+// ============================================================
+// 戻り値型
+// ============================================================
+
+/**
+ * GET /chosho/versions/:id および POST /chosho/versions の戻り値。
+ * preview と shape を揃えて UI が同じ描画経路を使えるようにする。
+ */
+export interface ChoshoVersionDetail {
+  versionId: string;
+  orgId: string;
+  fiscalYear: number;
+  selectedMonth: number;
+  status: ChoshoStatus;
+  title: string | null;
+  createdAt: string;
+  approvedAt: string | null;
+  fyStartMonth: number;
+  monthOrder: number[];
+  rows: ChoshoPreviewRow[];
+}
+
+// ============================================================
+// pure helpers (test 用に export)
+// ============================================================
+
+export function parseMonthlyBalances(value: Prisma.JsonValue | unknown): Record<number, number> {
+  if (value == null || typeof value !== 'object' || Array.isArray(value)) return {};
+  const out: Record<number, number> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    const month = parseInt(k, 10);
+    if (!Number.isFinite(month) || month < 1 || month > 12) continue;
+    if (typeof v === 'number') out[month] = v;
+  }
+  return out;
+}
+
+/**
+ * 期首月から MF 推移表の column 順 (例: 期首4月 → [4,5,6,...,3]) を再生成する。
+ * snapshot には monthOrder を保存していないため、読み取り時に期首月から推論する。
+ */
+export function computeMonthOrderFromFyStart(fyStartMonth: number): number[] {
+  const out: number[] = [];
+  for (let i = 0; i < 12; i++) {
+    out.push(((fyStartMonth - 1 + i) % 12) + 1);
+  }
+  return out;
+}
+
+/**
+ * 保存済 row に対して再度異常検知を走らせる。
+ * Phase 1 ではルール定義が変わらない前提で「保存時と同じ判定」が読み取り時にも返る。
+ *
+ * builder 内部の純関数 (checkAging3M / checkZeroViolation) と同じロジック。
+ * builder からの export を増やすと public 表面が広がるので意図的に重複定義 (≤30行で許容)。
+ */
+export function computeAnomaliesFromSaved(input: {
+  monthlyBalances: Record<number, number>;
+  expectedRule: ChoshoExpectedRuleValue;
+  agingCheckEnabled: boolean;
+  selectedMonth: number;
+}): ChoshoAnomaly[] {
+  const { monthlyBalances, expectedRule, agingCheckEnabled, selectedMonth } = input;
+  const out: ChoshoAnomaly[] = [];
+
+  // ZERO_VIOLATION
+  if (expectedRule === 'ZERO') {
+    const v = monthlyBalances[selectedMonth];
+    if (typeof v === 'number' && v !== 0) {
+      out.push({
+        type: 'ZERO_VIOLATION',
+        month: selectedMonth,
+        message: `「0が正」設定だが ¥${Math.round(v).toLocaleString()} が残っています`,
+        detail: { actualAmount: v },
+      });
+    }
+  }
+
+  // AGING_3M (期首月から推論した monthOrder で 3 ヶ月遡って同額判定)
+  if (agingCheckEnabled || expectedRule === 'AGING_3M') {
+    // 期首月不明な状態だと monthOrder が組めないが、selectedMonth から逆算で
+    // 「直近3ヶ月の自然な月配列」を作る (12月→11→10 のように)。
+    const m2 = selectedMonth;
+    const m1 = m2 === 1 ? 12 : m2 - 1;
+    const m0 = m1 === 1 ? 12 : m1 - 1;
+    const v0 = monthlyBalances[m0];
+    const v1 = monthlyBalances[m1];
+    const v2 = monthlyBalances[m2];
+    if (typeof v0 === 'number' && typeof v1 === 'number' && typeof v2 === 'number') {
+      if (v2 !== 0 && v0 === v1 && v1 === v2) {
+        out.push({
+          type: 'AGING_3M',
+          month: selectedMonth,
+          message: `直近3ヶ月 (${m0}/${m1}/${m2}月) の残高が ¥${Math.round(v2).toLocaleString()} で動いていません`,
+          detail: { sameAmount: v2, monthsChecked: [m0, m1, m2] },
+        });
+      }
+    }
+  }
+
+  return out;
 }

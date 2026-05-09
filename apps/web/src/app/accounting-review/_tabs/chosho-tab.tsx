@@ -1,24 +1,30 @@
 "use client";
 
 /**
- * 残高調書タブ — Phase 1 Unit 2A/2B-1: MF推移表 (BS) を 3 階層 expandable テーブルで表示。
+ * 残高調書タブ — Phase 1 Unit 2A/2B-1/2B-2:
+ *   - MF推移表 (BS) を 3 階層 expandable テーブルで表示
+ *   - Unit 2B-1: 選択月セルの異常検知 (零残高違反 / 3ヶ月以上滞留) を赤表示
+ *   - Unit 2B-2: preview の snapshot 保存 (DRAFT) + 保存済 version 読み込み
  *
- * このファイルのスコープ:
- *   - useChoshoPreview で API 取得 (DB 書き込みなしの preview)
- *   - 3 階層 (大区分→勘定→補助→取引先) を expandable rows で展開/折りたたみ
- *   - 期首〜選択月: 通常表示 / 選択月以降: outOfRange (淡くグレー)
- *   - Unit 2B-1: 選択月セルの異常検知結果 (anomalies[]) を赤表示 + tooltip
+ * モード:
+ *   URL ?versionId=... 指定時 → 保存済 version モード (GET /chosho/versions/:id)
+ *   未指定時             → preview モード (MF 推移表をその場で読む)
  *
- * 次の Unit 2B-2 以降で追加:
+ * 次の Unit 2B-3 以降で追加:
  *   - 行コメント / 赤セルコメント / 期待ルール編集 / 確認済✓
- *   - chosho_versions テーブルへの保存・承認フロー
+ *   - draft → approved 承認フロー
  */
 
 import { useMemo, useState } from "react";
-import { ChevronRight, Loader2 } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ChevronRight, Loader2, Save } from "lucide-react";
+import { toast } from "sonner";
 import { useChoshoPreview } from "@/hooks/use-chosho-preview";
-import type { ChoshoAnomaly, ChoshoPreviewRow } from "@/lib/api";
+import { api, type ChoshoAnomaly, type ChoshoPreviewRow, type ChoshoVersionDetail } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import {
   Tooltip,
   TooltipContent,
@@ -32,6 +38,20 @@ interface Props {
 }
 
 export function ChoshoTab({ orgId, fiscalYear, month }: Props) {
+  const searchParams = useSearchParams();
+  const versionId = searchParams.get("versionId");
+
+  if (versionId) {
+    return <SavedVersionView orgId={orgId} versionId={versionId} />;
+  }
+  return <PreviewView orgId={orgId} fiscalYear={fiscalYear} month={month} />;
+}
+
+// ============================================================
+// preview モード (URL に ?versionId= が無いとき)
+// ============================================================
+
+function PreviewView({ orgId, fiscalYear, month }: Props) {
   const query = useChoshoPreview({ orgId, fiscalYear, month });
 
   if (!orgId || fiscalYear == null || month == null) {
@@ -71,11 +91,121 @@ export function ChoshoTab({ orgId, fiscalYear, month }: Props) {
     );
   }
 
-  return <ChoshoTable data={data} />;
+  return (
+    <ChoshoTable
+      data={data}
+      headerSlot={
+        <SaveDraftButton
+          orgId={orgId}
+          fiscalYear={data.fiscalYear}
+          month={data.selectedMonth}
+        />
+      }
+    />
+  );
+}
+
+// ============================================================
+// 保存済 version モード (URL に ?versionId= があるとき)
+// ============================================================
+
+function SavedVersionView({ orgId, versionId }: { orgId: string; versionId: string }) {
+  const router = useRouter();
+  const query = useQuery<ChoshoVersionDetail>({
+    queryKey: ["chosho", "version", orgId, versionId],
+    queryFn: () => api.chosho.getVersion(orgId, versionId),
+    enabled: !!orgId && !!versionId,
+    staleTime: 60 * 1000,
+  });
+
+  if (query.isLoading) {
+    return (
+      <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
+        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+        保存済の残高調書を読み込み中…
+      </div>
+    );
+  }
+  if (query.isError || !query.data) {
+    return (
+      <EmptyState
+        message="保存済の残高調書が見つかりません"
+        sub="version ID が無効か、別の顧問先の version の可能性があります。"
+      />
+    );
+  }
+
+  const data = query.data;
+  return (
+    <ChoshoTable
+      data={data}
+      headerSlot={
+        <div className="flex items-center gap-2">
+          <Badge variant="outline" className="font-mono text-[10px]">
+            {data.status === "DRAFT" ? "下書き" : data.status === "APPROVED" ? "承認済" : "保管"}
+          </Badge>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 text-xs"
+            onClick={() => router.push("/accounting-review")}
+          >
+            preview に戻る
+          </Button>
+        </div>
+      }
+    />
+  );
+}
+
+// ============================================================
+// 保存ボタン
+// ============================================================
+
+function SaveDraftButton({
+  orgId,
+  fiscalYear,
+  month,
+}: {
+  orgId: string;
+  fiscalYear: number;
+  month: number;
+}) {
+  const router = useRouter();
+  const qc = useQueryClient();
+  const mutation = useMutation({
+    mutationFn: () => api.chosho.createVersion(orgId, { fiscalYear, month }),
+    onSuccess: (saved) => {
+      qc.setQueryData(["chosho", "version", orgId, saved.versionId], saved);
+      toast.success("残高調書を下書き保存しました");
+      // URL に ?versionId= を付けて保存済モードへ遷移
+      router.push(`/accounting-review?versionId=${saved.versionId}`);
+    },
+    onError: () => {
+      toast.error("保存に失敗しました。再度お試しください。");
+    },
+  });
+
+  return (
+    <Button
+      size="sm"
+      className="h-7 text-xs"
+      onClick={() => mutation.mutate()}
+      disabled={mutation.isPending}
+    >
+      {mutation.isPending ? (
+        <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
+      ) : (
+        <Save className="mr-1.5 h-3 w-3" />
+      )}
+      下書き保存
+    </Button>
+  );
 }
 
 function ChoshoTable({
   data,
+  headerSlot,
 }: {
   data: {
     fiscalYear: number;
@@ -84,6 +214,8 @@ function ChoshoTable({
     monthOrder: number[];
     rows: ChoshoPreviewRow[];
   };
+  /** 右上のアクション領域 (保存ボタン or バッジ等)。 */
+  headerSlot?: React.ReactNode;
 }) {
   // 親 rowKey の Set。closed なら子は描画しない。
   // 初期状態: level 0 (大区分) と level 1 を開く / level 2 以降は閉じる。
@@ -136,6 +268,7 @@ function ChoshoTable({
           </span>
         </div>
         <div className="flex items-center gap-3">
+          {headerSlot}
           <span className="flex items-center gap-1">
             <span className="inline-block h-2.5 w-2.5 rounded-sm bg-muted/40" />
             未確定 (選択月以降)

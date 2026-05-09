@@ -161,7 +161,8 @@ export class AuthorizationService {
       permission === 'org:mf:read' ||
       permission === 'org:simulation:read' ||
       permission === 'org:onboarding:read' ||
-      permission === 'org:risk_findings:read'
+      permission === 'org:risk_findings:read' ||
+      permission === 'org:chosho:read'
     ) {
       return true;
     }
@@ -193,7 +194,8 @@ export class AuthorizationService {
       permission === 'org:briefing:manage' ||
       permission === 'org:onboarding:manage' ||
       permission === 'org:risk_findings:manage' ||
-      permission === 'org:risk_findings:scan'
+      permission === 'org:risk_findings:scan' ||
+      permission === 'org:chosho:manage'
     ) {
       return membership.role === 'owner' || membership.role === 'advisor';
     }
