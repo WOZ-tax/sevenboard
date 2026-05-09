@@ -331,12 +331,17 @@ function ChoshoTable({
   isDeletingCellComment = false,
 }: ChoshoTableProps) {
   // 親 rowKey の Set。closed なら子は描画しない。
-  // 初期状態: BS全体表示なので大区分 (level 0) と中区分 (level 1) を開く。
-  // 勘定の補助 (level >= 3) はデフォルト閉じる (取引先は数が多いため)。
+  // 初期展開ルール:
+  //   - 大区分・中区分・中間集計 (mfType !== 'account'): デフォルト開く
+  //     → これにより「売上債権合計」「その他流動資産合計」等の中間集計の下にある
+  //       勘定行 (売掛金 等) がデフォルトで見える状態になる
+  //   - 親勘定 (mfType === 'account' で hasChildren=true): デフォルト閉じる
+  //     → 補助科目・取引先は折りたたみで明示的に展開する
   const [expanded, setExpanded] = useState<Set<string>>(() => {
     const init = new Set<string>();
     for (const r of data.rows) {
-      if (r.hasChildren && r.level <= 1) init.add(r.rowKey);
+      if (!r.hasChildren) continue;
+      if (r.mfType !== "account") init.add(r.rowKey);
     }
     return init;
   });
