@@ -91,7 +91,7 @@ describe('buildChoshoPreviewRows / flatten', () => {
 
   it('flattens MF nested rows in DFS order with parentRowKey', () => {
     const bs = makeBsFixture({ subaccountValues: [100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100] });
-    const { rows, monthOrder } = buildChoshoPreviewRows({ bsTransition: bs });
+    const { rows, monthOrder } = buildChoshoPreviewRows({ bsTransition: bs, filterAccountKeywords: [] });
 
     expect(monthOrder).toEqual([4, 5, 6, 7, 8, 9, 10, 11, 12, 1, 2, 3]);
     expect(rows).toHaveLength(4); // 資産の部 → 流動資産 → 売掛金 → サンプル
@@ -111,7 +111,7 @@ describe('buildChoshoPreviewRows / flatten', () => {
 
   it('extracts monthlyBalances / settlementBalance / total from values array', () => {
     const bs = makeBsFixture({ subaccountValues: [10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120] });
-    const { rows } = buildChoshoPreviewRows({ bsTransition: bs });
+    const { rows } = buildChoshoPreviewRows({ bsTransition: bs, filterAccountKeywords: [] });
     const leaf = rows.at(-1)!;
     expect(leaf.monthlyBalances).toEqual({
       4: 10, 5: 20, 6: 30, 7: 40, 8: 50, 9: 60,
@@ -124,7 +124,7 @@ describe('buildChoshoPreviewRows / flatten', () => {
 
   it('skips months with null values (MF 未取得月)', () => {
     const bs = makeBsFixture({ subaccountValues: [100, 100, null, null, null, null, null, null, null, null, null, null] });
-    const { rows } = buildChoshoPreviewRows({ bsTransition: bs });
+    const { rows } = buildChoshoPreviewRows({ bsTransition: bs, filterAccountKeywords: [] });
     const leaf = rows.at(-1)!;
     expect(Object.keys(leaf.monthlyBalances)).toEqual(['4', '5']);
   });
@@ -141,7 +141,7 @@ describe('buildChoshoPreviewRows / rule defaults', () => {
       subaccountName: '株式会社XYZ',
       subaccountValues: Array(12).fill(100),
     });
-    const { rows } = buildChoshoPreviewRows({ bsTransition: bs });
+    const { rows } = buildChoshoPreviewRows({ bsTransition: bs, filterAccountKeywords: [] });
     // level 0 (資産の部) / level 1 (流動資産): false
     expect(rows[0].agingCheckEnabled).toBe(false);
     expect(rows[1].agingCheckEnabled).toBe(false);
@@ -157,24 +157,24 @@ describe('buildChoshoPreviewRows / rule defaults', () => {
       subaccountName: '在庫1',
       subaccountValues: Array(12).fill(100),
     });
-    const { rows } = buildChoshoPreviewRows({ bsTransition: bs });
+    const { rows } = buildChoshoPreviewRows({ bsTransition: bs, filterAccountKeywords: [] });
     expect(rows.every((r) => r.agingCheckEnabled === false)).toBe(true);
   });
 
   it('never auto-enables ZERO rule (must be explicitly set via override)', () => {
     const bs = makeBsFixture({ subaccountValues: Array(12).fill(0) });
-    const { rows } = buildChoshoPreviewRows({ bsTransition: bs });
+    const { rows } = buildChoshoPreviewRows({ bsTransition: bs, filterAccountKeywords: [] });
     expect(rows.every((r) => r.expectedRule === 'NONE')).toBe(true);
   });
 
   it('applies ruleOverrides on top of heuristics', () => {
     const bs = makeBsFixture({ subaccountValues: Array(12).fill(0) });
-    const { rows } = buildChoshoPreviewRows({ bsTransition: bs });
+    const { rows } = buildChoshoPreviewRows({ bsTransition: bs, filterAccountKeywords: [] });
     const targetKey = rows.at(-1)!.rowKey;
     const overrides = new Map<string, ChoshoRuleOverride>([
       [targetKey, { expectedRule: 'ZERO', agingCheckEnabled: false }],
     ]);
-    const { rows: out } = buildChoshoPreviewRows({ bsTransition: bs, ruleOverrides: overrides });
+    const { rows: out } = buildChoshoPreviewRows({ bsTransition: bs, filterAccountKeywords: [], ruleOverrides: overrides });
     expect(out.at(-1)!.expectedRule).toBe('ZERO');
     expect(out.at(-1)!.agingCheckEnabled).toBe(false);
   });
@@ -191,10 +191,11 @@ describe('buildChoshoPreviewRows / ZERO_VIOLATION', () => {
       accountName: '商品',
       subaccountValues: [100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100],
     });
-    const initial = buildChoshoPreviewRows({ bsTransition: bs });
+    const initial = buildChoshoPreviewRows({ bsTransition: bs, filterAccountKeywords: [] });
     const leafKey = initial.rows.at(-1)!.rowKey;
     const { rows } = buildChoshoPreviewRows({
       bsTransition: bs,
+      filterAccountKeywords: [],
       selectedMonth: 6,
       ruleOverrides: new Map([[leafKey, { expectedRule: 'ZERO' }]]),
     });
@@ -211,10 +212,11 @@ describe('buildChoshoPreviewRows / ZERO_VIOLATION', () => {
     const bs = makeBsFixture({
       subaccountValues: [100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100],
     });
-    const initial = buildChoshoPreviewRows({ bsTransition: bs });
+    const initial = buildChoshoPreviewRows({ bsTransition: bs, filterAccountKeywords: [] });
     const leafKey = initial.rows.at(-1)!.rowKey;
     const { rows } = buildChoshoPreviewRows({
       bsTransition: bs,
+      filterAccountKeywords: [],
       selectedMonth: 6,
       ruleOverrides: new Map([[leafKey, { expectedRule: 'ZERO' }]]),
     });
@@ -224,10 +226,11 @@ describe('buildChoshoPreviewRows / ZERO_VIOLATION', () => {
 
   it('does not flag ZERO_VIOLATION when selectedMonth balance is exactly 0', () => {
     const bs = makeBsFixture({ subaccountValues: [100, 100, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] });
-    const { rows } = buildChoshoPreviewRows({ bsTransition: bs, selectedMonth: 6 });
+    const { rows } = buildChoshoPreviewRows({ bsTransition: bs, filterAccountKeywords: [], selectedMonth: 6 });
     const leafKey = rows.at(-1)!.rowKey;
     const re = buildChoshoPreviewRows({
       bsTransition: bs,
+      filterAccountKeywords: [],
       selectedMonth: 6,
       ruleOverrides: new Map([[leafKey, { expectedRule: 'ZERO' }]]),
     });
@@ -245,7 +248,7 @@ describe('buildChoshoPreviewRows / AGING_3M', () => {
     const bs = makeBsFixture({
       subaccountValues: [200000, 200000, 165000, 165000, 165000, null, null, null, null, null, null, null],
     });
-    const { rows } = buildChoshoPreviewRows({ bsTransition: bs, selectedMonth: 8 });
+    const { rows } = buildChoshoPreviewRows({ bsTransition: bs, filterAccountKeywords: [], selectedMonth: 8 });
     const leaf = rows.at(-1)!;
     expect(leaf.agingCheckEnabled).toBe(true);
     expect(leaf.anomalies).toHaveLength(1);
@@ -260,7 +263,7 @@ describe('buildChoshoPreviewRows / AGING_3M', () => {
     const bs = makeBsFixture({
       subaccountValues: [165000, 165000, 165000, 100000, null, null, null, null, null, null, null, null],
     });
-    const { rows } = buildChoshoPreviewRows({ bsTransition: bs, selectedMonth: 7 });
+    const { rows } = buildChoshoPreviewRows({ bsTransition: bs, filterAccountKeywords: [], selectedMonth: 7 });
     expect(rows.at(-1)!.anomalies).toEqual([]);
   });
 
@@ -268,7 +271,7 @@ describe('buildChoshoPreviewRows / AGING_3M', () => {
     const bs = makeBsFixture({
       subaccountValues: [0, 0, 0, null, null, null, null, null, null, null, null, null],
     });
-    const { rows } = buildChoshoPreviewRows({ bsTransition: bs, selectedMonth: 6 });
+    const { rows } = buildChoshoPreviewRows({ bsTransition: bs, filterAccountKeywords: [], selectedMonth: 6 });
     expect(rows.at(-1)!.anomalies).toEqual([]);
   });
 
@@ -277,10 +280,10 @@ describe('buildChoshoPreviewRows / AGING_3M', () => {
       subaccountValues: [165000, 165000, null, null, null, null, null, null, null, null, null, null],
     });
     // 4月選択: monthOrder の先頭、比較材料なし
-    const r4 = buildChoshoPreviewRows({ bsTransition: bs, selectedMonth: 4 });
+    const r4 = buildChoshoPreviewRows({ bsTransition: bs, filterAccountKeywords: [], selectedMonth: 4 });
     expect(r4.rows.at(-1)!.anomalies).toEqual([]);
     // 5月選択: 前月までしかない、比較材料不足
-    const r5 = buildChoshoPreviewRows({ bsTransition: bs, selectedMonth: 5 });
+    const r5 = buildChoshoPreviewRows({ bsTransition: bs, filterAccountKeywords: [], selectedMonth: 5 });
     expect(r5.rows.at(-1)!.anomalies).toEqual([]);
   });
 
@@ -289,7 +292,7 @@ describe('buildChoshoPreviewRows / AGING_3M', () => {
       accountName: '商品',
       subaccountValues: [165000, 165000, 165000, null, null, null, null, null, null, null, null, null],
     });
-    const { rows } = buildChoshoPreviewRows({ bsTransition: bs, selectedMonth: 6 });
+    const { rows } = buildChoshoPreviewRows({ bsTransition: bs, filterAccountKeywords: [], selectedMonth: 6 });
     expect(rows.at(-1)!.anomalies).toEqual([]);
   });
 });
@@ -305,23 +308,96 @@ describe('buildChoshoPreviewRows / outOfRange independence', () => {
     const bs = makeBsFixture({
       subaccountValues: [165000, 165000, 165000, null, null, null, null, null, null, null, null, null],
     });
-    const r6 = buildChoshoPreviewRows({ bsTransition: bs, selectedMonth: 6 });
+    const r6 = buildChoshoPreviewRows({ bsTransition: bs, filterAccountKeywords: [], selectedMonth: 6 });
     expect(r6.rows.at(-1)!.anomalies).toHaveLength(1); // 6月選択なら滞留検知
-    const r10 = buildChoshoPreviewRows({ bsTransition: bs, selectedMonth: 10 });
+    const r10 = buildChoshoPreviewRows({ bsTransition: bs, filterAccountKeywords: [], selectedMonth: 10 });
     expect(r10.rows.at(-1)!.anomalies).toEqual([]); // 10月選択なら検知なし (10月残高欠落)
   });
 
   it('keeps monthlyBalances unchanged regardless of selectedMonth (anomaly does not mutate balances)', () => {
     const bs = makeBsFixture({ subaccountValues: Array(12).fill(100) });
-    const r1 = buildChoshoPreviewRows({ bsTransition: bs, selectedMonth: 6 });
-    const r2 = buildChoshoPreviewRows({ bsTransition: bs, selectedMonth: 12 });
+    const r1 = buildChoshoPreviewRows({ bsTransition: bs, filterAccountKeywords: [], selectedMonth: 6 });
+    const r2 = buildChoshoPreviewRows({ bsTransition: bs, filterAccountKeywords: [], selectedMonth: 12 });
     expect(r1.rows.at(-1)!.monthlyBalances).toEqual(r2.rows.at(-1)!.monthlyBalances);
   });
 
   it('skips anomaly detection entirely when selectedMonth is undefined', () => {
     const bs = makeBsFixture({ subaccountValues: [165000, 165000, 165000, null, null, null, null, null, null, null, null, null] });
-    const { rows } = buildChoshoPreviewRows({ bsTransition: bs });
+    const { rows } = buildChoshoPreviewRows({ bsTransition: bs, filterAccountKeywords: [] });
     expect(rows.every((r) => r.anomalies.length === 0)).toBe(true);
+  });
+});
+
+// ============================================================
+// 表示対象勘定フィルタ (TARGET_ACCOUNT_KEYWORDS)
+// ============================================================
+
+describe('buildChoshoPreviewRows / account filter', () => {
+  it('promotes target account to level 0 and drops 大区分・中区分', () => {
+    // fixture: 資産の部 (level 0) → 流動資産 (level 1) → 売掛金 (level 2) → サンプル (level 3)
+    // デフォルト filter (TARGET_ACCOUNT_KEYWORDS = ["売掛金", ...]) で売掛金が新ルートに昇格
+    const bs = makeBsFixture({
+      accountName: '売掛金',
+      subaccountName: '株式会社サンプル',
+      subaccountValues: Array(12).fill(100),
+    });
+    const { rows } = buildChoshoPreviewRows({ bsTransition: bs });
+    expect(rows.map((r) => r.name)).toEqual(['売掛金', '株式会社サンプル']);
+    expect(rows.map((r) => r.level)).toEqual([0, 1]);
+    // 売掛金行 (新ルート) は parentRowKey null
+    expect(rows[0].parentRowKey).toBeNull();
+    // 子行は元の parentRowKey (= 売掛金 rowKey) を保持
+    expect(rows[1].parentRowKey).toBe(rows[0].rowKey);
+    // displayOrder は新配列の index で再付与
+    expect(rows.map((r) => r.displayOrder)).toEqual([0, 1]);
+    // hasChildren は抽出後で再計算
+    expect(rows[0].hasChildren).toBe(true);
+    expect(rows[1].hasChildren).toBe(false);
+  });
+
+  it('drops accounts not in TARGET_ACCOUNT_KEYWORDS (棚卸資産・短期借入金 等)', () => {
+    const bs = makeBsFixture({
+      accountName: '商品',
+      subaccountName: '在庫1',
+      subaccountValues: Array(12).fill(100),
+    });
+    const { rows } = buildChoshoPreviewRows({ bsTransition: bs });
+    expect(rows).toEqual([]);
+  });
+
+  it('uses default TARGET_ACCOUNT_KEYWORDS when filterAccountKeywords is undefined', () => {
+    // 対象7勘定: 売掛金・買掛金・未収金・未払金・前受金・前払金・立替金
+    for (const accountName of ['売掛金', '買掛金', '未収金', '未払金', '前受金', '前払金', '立替金']) {
+      const bs = makeBsFixture({
+        accountName,
+        subaccountName: '取引先A',
+        subaccountValues: Array(12).fill(0),
+      });
+      const { rows } = buildChoshoPreviewRows({ bsTransition: bs });
+      expect(rows).toHaveLength(2);
+      expect(rows[0].name).toBe(accountName);
+    }
+  });
+
+  it('returns full BS hierarchy when filterAccountKeywords is empty array', () => {
+    const bs = makeBsFixture({ subaccountValues: Array(12).fill(100) });
+    const { rows } = buildChoshoPreviewRows({ bsTransition: bs, filterAccountKeywords: [] });
+    expect(rows).toHaveLength(4); // 資産の部 / 流動資産 / 売掛金 / サンプル
+  });
+
+  it('preserves anomalies and rules through filter', () => {
+    // 売掛金子孫で aging 検知発生 → filter 後も anomalies が残る
+    const bs = makeBsFixture({
+      accountName: '売掛金',
+      subaccountValues: [200000, 200000, 165000, 165000, 165000, null, null, null, null, null, null, null],
+    });
+    const { rows } = buildChoshoPreviewRows({ bsTransition: bs, selectedMonth: 8 });
+    // 売掛金 (新 level 0) と 子 (新 level 1) の 2 件
+    expect(rows).toHaveLength(2);
+    const leaf = rows[1];
+    expect(leaf.agingCheckEnabled).toBe(true);
+    expect(leaf.anomalies).toHaveLength(1);
+    expect(leaf.anomalies[0].type).toBe('AGING_3M');
   });
 });
 

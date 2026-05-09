@@ -331,11 +331,12 @@ function ChoshoTable({
   isDeletingCellComment = false,
 }: ChoshoTableProps) {
   // 親 rowKey の Set。closed なら子は描画しない。
-  // 初期状態: level 0 (大区分) と level 1 を開く / level 2 以降は閉じる。
+  // 初期状態: filter 後は level 0=勘定 / level 1=補助 / level 2=取引先。
+  // 勘定 (level 0) はデフォルトで開く、補助以下は閉じる (取引先は数が多いため)。
   const [expanded, setExpanded] = useState<Set<string>>(() => {
     const init = new Set<string>();
     for (const r of data.rows) {
-      if (r.hasChildren && r.level <= 1) init.add(r.rowKey);
+      if (r.hasChildren && r.level === 0) init.add(r.rowKey);
     }
     return init;
   });
@@ -401,10 +402,13 @@ function ChoshoTable({
       <div className="flex items-center justify-between text-xs text-muted-foreground">
         <div>
           <span className="font-semibold text-[var(--color-text-primary)]">
-            残高調書 (BS)
+            残高調書
           </span>
           <span className="ml-2">
             {data.fiscalYear}年度 / {data.selectedMonth}月度時点 (期首{data.fyStartMonth}月)
+          </span>
+          <span className="ml-2 text-[10px]">
+            ※ 売掛金・買掛金・未収金・未払金・前受金・前払金・立替金 のみ表示
           </span>
         </div>
         <div className="flex items-center gap-3">
@@ -657,18 +661,16 @@ function ChoshoRow({
       </td>
       {commentsEnabled && (
         <td className="px-1 py-1.5 text-center">
-          {/* level 0 (大区分) は親集計なのでコメント不要 */}
-          {row.level > 0 && (
-            <button
-              type="button"
-              onClick={onOpenRowComment}
-              className="inline-flex items-center gap-0.5 rounded p-0.5 text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-              aria-label="行コメント"
-            >
-              <MessageSquare className="h-3 w-3" />
-              <RowCommentCountBadge count={rowCommentCount} />
-            </button>
-          )}
+          {/* 全行に💬ボタン (filter 後は level 0 = 勘定行になる) */}
+          <button
+            type="button"
+            onClick={onOpenRowComment}
+            className="inline-flex items-center gap-0.5 rounded p-0.5 text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+            aria-label="行コメント"
+          >
+            <MessageSquare className="h-3 w-3" />
+            <RowCommentCountBadge count={rowCommentCount} />
+          </button>
         </td>
       )}
     </tr>

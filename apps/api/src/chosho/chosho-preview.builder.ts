@@ -26,6 +26,15 @@ interface BuildInput {
    * Unit 2B-1 では undefined / 空 Map を想定。
    */
   ruleOverrides?: Map<string, ChoshoRuleOverride>;
+  /**
+   * 表示対象とする勘定キーワード。指定すると、この keyword を name に含む行を
+   * 新ルート (level 0) に昇格し、その子孫だけ flat な配列で返す。
+   * 大区分・中区分 (資産の部 / 流動資産 等) は drop される。
+   *
+   * 省略時は TARGET_ACCOUNT_KEYWORDS (売掛金/買掛金/未収金/未払金/前受金/前払金/立替金)。
+   * 空配列 [] を渡すとフィルタを skip して BS 全体を返す (テスト用)。
+   */
+  filterAccountKeywords?: string[];
 }
 
 interface BuildOutput {
@@ -49,6 +58,23 @@ const RECEIVABLE_ACCOUNT_KEYWORDS = [
   '立替金',
 ] as const;
 
+/**
+ * 残高調書の表示対象勘定。これらの勘定だけ抽出し、補助科目を折りたたみで展開する。
+ * filterAccountKeywords 省略時のデフォルト。
+ *
+ * 中小企業の月次・決算レビューで内訳チェックが必須な定番科目。
+ * BS 全体ではなくフォーカスを絞ることで、顧問のレビュー集中度を上げる。
+ */
+export const TARGET_ACCOUNT_KEYWORDS = [
+  '売掛金',
+  '買掛金',
+  '未収金',
+  '未払金',
+  '前受金',
+  '前払金',
+  '立替金',
+] as const;
+
 export function buildChoshoPreviewRows(input: BuildInput): BuildOutput {
   if (!input.bsTransition) {
     return { rows: [], monthOrder: [] };
@@ -66,7 +92,74 @@ export function buildChoshoPreviewRows(input: BuildInput): BuildOutput {
   // 階層情報 (祖先 name list) を解決してから rule defaults / anomalies を埋める。
   applyRulesAndDetectAnomalies(out, monthOrder, input.selectedMonth, input.ruleOverrides);
 
-  return { rows: out, monthOrder };
+  // 該当勘定だけ抽出して新ルートに昇格 (大区分・中区分は drop)。
+  // 空配列指定時は filter skip。
+  const keywords =
+    input.filterAccountKeywords === undefined
+      ? Array.from(TARGET_ACCOUNT_KEYWORDS)
+      : input.filterAccountKeywords;
+  const filtered = keywords.length > 0 ? filterAndPromoteRows(out, keywords) : out;
+
+  return { rows: filtered, monthOrder };
+}
+
+/**
+ * 指定キーワードを name に含む行を新ルート (level 0) に昇格し、
+ * その子孫だけ含む flat な配列を返す純関数。
+ *
+ * - 各ルートは parentRowKey = null になる
+ * - level は「ルートからの相対深さ」に振り直す (元 level - root.level)
+ * - displayOrder は新配列の index で再付与
+ * - rowKey / monthlyBalances / anomalies / rule は維持
+ * - hasChildren は子が抽出後に存在するかで再計算
+ */
+export function filterAndPromoteRows(
+  rows: ChoshoPreviewRow[],
+  keywords: string[],
+): ChoshoPreviewRow[] {
+  if (rows.length === 0) return [];
+
+  // ルート候補 (= name に keyword を含む行) を元の displayOrder 順に取得
+  const roots = rows.filter((r) =>
+    keywords.some((k) => r.name.includes(k)),
+  );
+
+  // 子検索を高速化するため parentRowKey -> children Map を構築
+  const childrenByParent = new Map<string | null, ChoshoPreviewRow[]>();
+  for (const r of rows) {
+    const arr = childrenByParent.get(r.parentRowKey);
+    if (arr) arr.push(r);
+    else childrenByParent.set(r.parentRowKey, [r]);
+  }
+
+  const out: ChoshoPreviewRow[] = [];
+  for (const root of roots) {
+    visitSubtree(root, childrenByParent, root.level, out, true);
+  }
+
+  // displayOrder を index で再付与
+  return out.map((r, i) => ({ ...r, displayOrder: i }));
+}
+
+function visitSubtree(
+  node: ChoshoPreviewRow,
+  childrenByParent: Map<string | null, ChoshoPreviewRow[]>,
+  baseLevel: number,
+  out: ChoshoPreviewRow[],
+  isRoot: boolean,
+): void {
+  const children = childrenByParent.get(node.rowKey) ?? [];
+  out.push({
+    ...node,
+    level: node.level - baseLevel,
+    parentRowKey: isRoot ? null : node.parentRowKey,
+    hasChildren: children.length > 0,
+    // displayOrder はあとで一括再付与するので暫定 0
+    displayOrder: 0,
+  });
+  for (const c of children) {
+    visitSubtree(c, childrenByParent, baseLevel, out, false);
+  }
 }
 
 // ============================================================
