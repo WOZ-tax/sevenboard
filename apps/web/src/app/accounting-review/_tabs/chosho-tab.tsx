@@ -21,7 +21,7 @@
 import { useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronRight, Loader2, MessageSquare, Save } from "lucide-react";
+import { ChevronRight, Loader2, MessageSquare, Save, Settings2 } from "lucide-react";
 import { toast } from "sonner";
 import { useChoshoPreview } from "@/hooks/use-chosho-preview";
 import { useChoshoComments } from "@/hooks/use-chosho-comments";
@@ -47,6 +47,7 @@ import {
   RowCommentCountBadge,
   RowCommentDialog,
 } from "../_chosho/comment-dialogs";
+import { RuleEditDialog } from "../_chosho/rule-edit-dialog";
 
 interface Props {
   orgId: string;
@@ -188,9 +189,11 @@ function SavedVersionView({ orgId, versionId }: { orgId: string; versionId: stri
       onDeleteRowComment={comments.deleteRowComment.mutate}
       onUpsertCellComment={comments.upsertCellComment.mutate}
       onDeleteCellComment={comments.deleteCellComment.mutate}
+      onUpdateRowRule={comments.updateRowRule.mutate}
       isAddingRowComment={comments.addRowComment.isPending}
       isUpsertingCellComment={comments.upsertCellComment.isPending}
       isDeletingCellComment={comments.deleteCellComment.isPending}
+      isUpdatingRowRule={comments.updateRowRule.isPending}
       headerSlot={
         <div className="flex items-center gap-2">
           <Badge
@@ -309,9 +312,16 @@ interface ChoshoTableProps {
     anomalyType: "EXPECTED_VALUE_VIOLATION" | "AGING_3M";
   }) => void;
   onDeleteCellComment?: (input: { rowId: string; month: number }) => void;
+  onUpdateRowRule?: (input: {
+    rowId: string;
+    expectedRule: "NONE" | "EXPECTED_VALUE" | "AGING_3M";
+    expectedValue: number | null;
+    agingCheckEnabled: boolean;
+  }) => void;
   isAddingRowComment?: boolean;
   isUpsertingCellComment?: boolean;
   isDeletingCellComment?: boolean;
+  isUpdatingRowRule?: boolean;
 }
 
 function ChoshoTable({
@@ -326,9 +336,11 @@ function ChoshoTable({
   onDeleteRowComment,
   onUpsertCellComment,
   onDeleteCellComment,
+  onUpdateRowRule,
   isAddingRowComment = false,
   isUpsertingCellComment = false,
   isDeletingCellComment = false,
+  isUpdatingRowRule = false,
 }: ChoshoTableProps) {
   // 親 rowKey の Set。closed なら子は描画しない。
   // 初期展開ルール:
@@ -401,6 +413,8 @@ function ChoshoTable({
     anomaly: ChoshoAnomaly;
     rowName: string;
   } | null>(null);
+  // ルール編集 Dialog (Unit 2B-5b)。saved + DRAFT のみ開ける
+  const [openRowRule, setOpenRowRule] = useState<ChoshoPreviewRow | null>(null);
 
   return (
     <div className="space-y-3">
@@ -454,9 +468,14 @@ function ChoshoTable({
                 決算整理
               </th>
               {commentsEnabled && (
-                <th className="min-w-[40px] px-1 py-2 text-center font-semibold text-[var(--color-text-primary)]">
-                  💬
-                </th>
+                <>
+                  <th className="min-w-[40px] px-1 py-2 text-center font-semibold text-[var(--color-text-primary)]">
+                    ルール
+                  </th>
+                  <th className="min-w-[40px] px-1 py-2 text-center font-semibold text-[var(--color-text-primary)]">
+                    💬
+                  </th>
+                </>
               )}
             </tr>
           </thead>
@@ -481,6 +500,7 @@ function ChoshoTable({
                   onOpenCellComment={(month, anomaly) =>
                     setOpenCellComment({ rowId: r.rowKey, month, anomaly, rowName: r.name })
                   }
+                  onOpenRowRule={() => setOpenRowRule(r)}
                 />
               );
             })}
@@ -500,6 +520,31 @@ function ChoshoTable({
           onDelete={(commentId) => onDeleteRowComment?.(commentId)}
           isAdding={isAddingRowComment}
           currentUserId={currentUserId}
+          editable={commentsEditable}
+        />
+      )}
+
+      {/* 行ルール編集 Dialog */}
+      {commentsEnabled && openRowRule && (
+        <RuleEditDialog
+          open={!!openRowRule}
+          onOpenChange={(v) => { if (!v) setOpenRowRule(null); }}
+          rowName={openRowRule.name}
+          initial={{
+            expectedRule: openRowRule.expectedRule,
+            expectedValue: openRowRule.expectedValue,
+            agingCheckEnabled: openRowRule.agingCheckEnabled,
+          }}
+          onSave={(rule) => {
+            onUpdateRowRule?.({
+              rowId: openRowRule.rowKey,
+              expectedRule: rule.expectedRule,
+              expectedValue: rule.expectedValue,
+              agingCheckEnabled: rule.agingCheckEnabled,
+            });
+            setOpenRowRule(null);
+          }}
+          isSaving={isUpdatingRowRule}
           editable={commentsEditable}
         />
       )}
@@ -548,6 +593,7 @@ function ChoshoRow({
   onOpenRowComment,
   cellCommentLookup,
   onOpenCellComment,
+  onOpenRowRule,
 }: {
   row: ChoshoPreviewRow;
   monthOrder: number[];
@@ -561,6 +607,7 @@ function ChoshoRow({
   onOpenRowComment: () => void;
   cellCommentLookup: (month: number) => ChoshoCellComment | null;
   onOpenCellComment: (month: number, anomaly: ChoshoAnomaly) => void;
+  onOpenRowRule: () => void;
 }) {
   // 大区分 (level 0) は太字背景、勘定 (level 1) は通常太字、補助以降 (level 2+) は通常文字。
   const isHeader = row.level === 0;
@@ -665,20 +712,41 @@ function ChoshoRow({
         {row.settlementBalance != null ? formatYen(row.settlementBalance) : ""}
       </td>
       {commentsEnabled && (
-        <td className="px-1 py-1.5 text-center">
-          {/* 大区分 (level 0) は親集計なのでコメント不要、勘定以下は💬付ける */}
-          {row.level > 0 && (
-            <button
-              type="button"
-              onClick={onOpenRowComment}
-              className="inline-flex items-center gap-0.5 rounded p-0.5 text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-              aria-label="行コメント"
-            >
-              <MessageSquare className="h-3 w-3" />
-              <RowCommentCountBadge count={rowCommentCount} />
-            </button>
-          )}
-        </td>
+        <>
+          <td className="px-1 py-1.5 text-center">
+            {/* 大区分・中区分はルール意味なし (mfType !== 'account')、勘定以下にだけアイコン */}
+            {row.mfType === "account" && (
+              <button
+                type="button"
+                onClick={onOpenRowRule}
+                className={cn(
+                  "inline-flex items-center gap-0.5 rounded p-0.5 text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+                  // 何らかのルールが設定済の行は色付け
+                  (row.expectedRule !== "NONE" || row.agingCheckEnabled) &&
+                    "text-[var(--color-primary)]",
+                )}
+                aria-label="行ルール編集"
+                title={ruleSummaryText(row)}
+              >
+                <Settings2 className="h-3 w-3" />
+              </button>
+            )}
+          </td>
+          <td className="px-1 py-1.5 text-center">
+            {/* 大区分 (level 0) は親集計なのでコメント不要、勘定以下は💬付ける */}
+            {row.level > 0 && (
+              <button
+                type="button"
+                onClick={onOpenRowComment}
+                className="inline-flex items-center gap-0.5 rounded p-0.5 text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                aria-label="行コメント"
+              >
+                <MessageSquare className="h-3 w-3" />
+                <RowCommentCountBadge count={rowCommentCount} />
+              </button>
+            )}
+          </td>
+        </>
       )}
     </tr>
   );
@@ -711,6 +779,23 @@ function AnomalyTooltipBody({
 
 function formatYen(n: number): string {
   return Math.round(n).toLocaleString();
+}
+
+function ruleSummaryText(row: ChoshoPreviewRow): string {
+  const parts: string[] = [];
+  if (row.expectedRule === "EXPECTED_VALUE") {
+    parts.push(
+      row.expectedValue == null
+        ? "期待残高: 未設定"
+        : `期待残高: ¥${formatYen(row.expectedValue)}`,
+    );
+  } else if (row.expectedRule === "AGING_3M") {
+    parts.push("滞留チェック強制");
+  }
+  if (row.agingCheckEnabled) {
+    parts.push("滞留チェック ON");
+  }
+  return parts.length > 0 ? parts.join(" / ") : "ルール未設定 (クリックで編集)";
 }
 
 function EmptyState({ message, sub }: { message: string; sub?: string }) {

@@ -4,7 +4,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   api,
   type ChoshoCellComment,
+  type ChoshoExpectedRuleValue,
   type ChoshoRowComment,
+  type ChoshoVersionDetail,
 } from "@/lib/api";
 
 /**
@@ -78,6 +80,25 @@ export function useChoshoComments(args: {
     onSuccess: () => qc.invalidateQueries({ queryKey: cellKey }),
   });
 
+  // 行ルール更新 (期待残高 / 滞留チェック)。成功で version cache を返り値で上書き。
+  const versionKey = ["chosho", "version", orgId, versionId];
+  const updateRowRule = useMutation({
+    mutationFn: (input: {
+      rowId: string;
+      expectedRule: ChoshoExpectedRuleValue;
+      expectedValue: number | null;
+      agingCheckEnabled: boolean;
+    }) =>
+      api.chosho.updateRowRule(orgId, versionId!, input.rowId, {
+        expectedRule: input.expectedRule,
+        expectedValue: input.expectedValue,
+        agingCheckEnabled: input.agingCheckEnabled,
+      }),
+    onSuccess: (saved: ChoshoVersionDetail) => {
+      qc.setQueryData(versionKey, saved);
+    },
+  });
+
   return {
     rowComments,
     cellComments,
@@ -85,5 +106,6 @@ export function useChoshoComments(args: {
     deleteRowComment,
     upsertCellComment,
     deleteCellComment,
+    updateRowRule,
   };
 }

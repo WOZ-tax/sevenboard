@@ -20,6 +20,7 @@ import { ChoshoService } from './chosho.service';
 import { CreateChoshoVersionDto } from './dto/create-chosho-version.dto';
 import { CreateRowCommentDto } from './dto/row-comment.dto';
 import { UpsertCellCommentDto } from './dto/cell-comment.dto';
+import { UpdateRowRuleDto } from './dto/row-rule.dto';
 
 /**
  * 残高調書 API。
@@ -93,6 +94,29 @@ export class ChoshoController {
     @Param('versionId', ParseUUIDPipe) versionId: string,
   ) {
     return this.service.approve(orgId, versionId, req.user.id);
+  }
+
+  // ============================================================
+  // 行ルール編集 (期待残高 / 滞留チェック)
+  // ============================================================
+
+  /**
+   * chosho_rows 1 行のルール (expectedRule + expectedValue + agingCheckEnabled) を更新。
+   * DRAFT 時のみ可能。APPROVED は service 層で 409 ConflictException。
+   */
+  @Put('versions/:versionId/rows/:rowId/rule')
+  @RequirePermission('org:chosho:manage')
+  async updateRowRule(
+    @Param('orgId', ParseUUIDPipe) orgId: string,
+    @Param('versionId', ParseUUIDPipe) versionId: string,
+    @Param('rowId', ParseUUIDPipe) rowId: string,
+    @Body() dto: UpdateRowRuleDto,
+  ) {
+    return this.service.updateRowRule(orgId, versionId, rowId, {
+      expectedRule: dto.expectedRule,
+      expectedValue: dto.expectedValue ?? null,
+      agingCheckEnabled: dto.agingCheckEnabled,
+    });
   }
 
   // ============================================================

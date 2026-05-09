@@ -321,6 +321,50 @@ export class ChoshoService {
   }
 
   // ============================================================
+  // 行ルール編集 (expectedRule / expectedValue / agingCheckEnabled)
+  // ============================================================
+
+  /**
+   * chosho_rows 1 行のルールを更新。DRAFT 時のみ可能。
+   *
+   * Phase 1 Unit 2B-5b。
+   * 期待残高ルール (EXPECTED_VALUE + expected_value) と滞留チェック (agingCheckEnabled)
+   * を会計士が UI から行ごとに編集できるようにする経路。
+   */
+  async updateRowRule(
+    orgId: string,
+    versionId: string,
+    rowId: string,
+    rule: {
+      expectedRule: 'NONE' | 'EXPECTED_VALUE' | 'AGING_3M';
+      expectedValue?: number | null;
+      agingCheckEnabled: boolean;
+    },
+  ): Promise<ChoshoVersionDetail> {
+    const { tenantId } = await this.resolveOrg(orgId);
+    await this.assertVersionIsDraft(versionId, orgId, tenantId);
+    await this.assertRowBelongsToVersion(rowId, versionId, orgId, tenantId);
+
+    // EXPECTED_VALUE 以外なら expected_value をクリア (NULL に戻す) して整合性を保つ
+    const expectedValueToSave: Prisma.Decimal | null =
+      rule.expectedRule === 'EXPECTED_VALUE' && rule.expectedValue != null
+        ? new Prisma.Decimal(rule.expectedValue)
+        : null;
+
+    await this.prisma.choshoRow.update({
+      where: { id: rowId },
+      data: {
+        expectedRule: rule.expectedRule as 'NONE' | 'EXPECTED_VALUE' | 'AGING_3M',
+        expectedValue: expectedValueToSave,
+        agingCheckEnabled: rule.agingCheckEnabled,
+      },
+    });
+
+    // 更新後の version 全体を返して UI が再描画できるように
+    return this.getVersion(orgId, versionId);
+  }
+
+  // ============================================================
   // 行コメント (1:N)
   // ============================================================
 

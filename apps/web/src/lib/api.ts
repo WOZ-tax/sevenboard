@@ -1209,6 +1209,25 @@ export const api = {
         { method: 'POST' },
       ),
 
+    /**
+     * 行ルール更新 (期待残高 / 滞留チェック)。DRAFT のみ可能。
+     * 成功で更新後の version 全体が返る (query cache をそのまま差し替え可能)。
+     */
+    updateRowRule: (
+      orgId: string,
+      versionId: string,
+      rowId: string,
+      input: {
+        expectedRule: ChoshoExpectedRuleValue;
+        expectedValue?: number | null;
+        agingCheckEnabled: boolean;
+      },
+    ) =>
+      apiFetch<ChoshoVersionDetail>(
+        `/organizations/${orgId}/chosho/versions/${versionId}/rows/${rowId}/rule`,
+        { method: 'PUT', body: JSON.stringify(input) },
+      ),
+
     // === 行コメント (1:N) ===
     listRowComments: (orgId: string, versionId: string) =>
       apiFetch<ChoshoRowComment[]>(
