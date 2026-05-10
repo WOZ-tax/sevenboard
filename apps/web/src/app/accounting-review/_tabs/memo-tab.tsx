@@ -32,6 +32,7 @@ import {
   type ChoshoRecentCellComment,
   type JournalReviewCommentItem,
   type JournalReviewFlagItem,
+  type JournalReviewSnapshotItem,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -52,15 +53,7 @@ interface Props {
   month: number | undefined;
 }
 
-interface MfJournalRefItem {
-  id: string;
-  number: string | null;
-  issueDate: string | null;
-  description: string | null;
-  debits: { accountName: string; subAccountName?: string; amount: number }[];
-  credits: { accountName: string; subAccountName?: string; amount: number }[];
-  totalAmount: number;
-}
+type MfJournalRefItem = JournalReviewSnapshotItem;
 
 export function MemoTab({ orgId, fiscalYear, month }: Props) {
   const router = useRouter();
@@ -110,14 +103,31 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
     staleTime: 30_000,
   });
   const flags = flagsQuery.data ?? [];
+  const flaggedJournalIds = flags.map((f) => f.journalId);
+  const flaggedJournalKey = flaggedJournalIds.slice().sort().join(",");
 
-  // フラグ立った journal の MF 詳細を取得 (取引No / 日付 / 科目 / 摘要 用)
-  // 全期間フィルタ時は会計年度内の各月を順に取得する。
+  // フラグ立った journal の表示用 snapshot を取得。
+  // 未取得月だけ API 側で MF から取得し、2回目以降はDB cacheから返す。
   const journalsQuery = useQuery({
-    queryKey: ["mf-journals-for-memo", orgId, fiscalYear, monthFilterValue ?? "all", monthsInFy.join(",")],
+    queryKey: [
+      "journal-review-snapshots-for-memo",
+      orgId,
+      fiscalYear,
+      monthFilterValue ?? "all",
+      month ?? "no-through-month",
+      flaggedJournalKey,
+    ],
     queryFn: () =>
-      fetchJournalsForFilter(orgId, fiscalYear!, monthFilterValue, fyStartMonth, monthsInFy),
-    enabled: !!orgId && fiscalYear != null,
+      api.journalReview.listSnapshots(orgId, {
+        fiscalYear: fiscalYear!,
+        month: monthFilterValue,
+        throughMonth: monthFilterValue == null ? month : undefined,
+      }),
+    enabled:
+      !!orgId &&
+      fiscalYear != null &&
+      flagsQuery.isSuccess &&
+      flaggedJournalIds.length > 0,
     staleTime: 60 * 1000,
   });
   const journalsById = useMemo(() => {
@@ -127,9 +137,8 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
   }, [journalsQuery.data]);
 
   // 期間内のフラグ立った journal_id 配列を作って、その分のコメントだけ引く
-  const flaggedJournalIds = flags.map((f) => f.journalId);
   const commentsQuery = useQuery({
-    queryKey: ["journal-comments", orgId, flaggedJournalIds.sort().join(",")],
+    queryKey: ["journal-comments", orgId, flaggedJournalKey],
     queryFn: () => api.journalReview.listComments(orgId, flaggedJournalIds),
     enabled: !!orgId && flaggedJournalIds.length > 0,
     staleTime: 30_000,
@@ -1309,111 +1318,4 @@ function formatYyyyMm(fiscalYear: number | undefined, month: number, fyStartMont
   if (fiscalYear == null) return `?-${String(month).padStart(2, "0")}`;
   const year = month >= fyStartMonth ? fiscalYear : fiscalYear + 1;
   return `${year}-${String(month).padStart(2, "0")}`;
-}
-
-// ============================================================
-// MF 仕訳取得 (memo タブ専用、journal-tab と同じ shape)
-// ============================================================
-
-/**
- * memo タブのフィルタ ("全期間" or 特定月) に応じて journals を取る。
- * 全期間時: 会計年度の各月を順に並列取得して合算 (期首4月なら 4-3 月)。
- */
-async function fetchJournalsForFilter(
-  orgId: string,
-  fiscalYear: number,
-  selectedMonth: number | undefined,
-  fyStartMonth: number,
-  monthsInFy: number[],
-): Promise<MfJournalRefItem[]> {
-  if (selectedMonth != null) {
-    const year = selectedMonth >= fyStartMonth ? fiscalYear : fiscalYear + 1;
-    const range = monthRange(year, selectedMonth);
-    const data = await api.mf.getJournals(orgId, { startDate: range.start, endDate: range.end });
-    return (data?.journals ?? [])
-      .map(normalizeForMemo)
-      .filter((j): j is MfJournalRefItem => j != null);
-  }
-  // 全期間: 各月を並列に取得して合算
-  const all: MfJournalRefItem[] = [];
-  await Promise.all(
-    monthsInFy.map(async (m) => {
-      const year = m >= fyStartMonth ? fiscalYear : fiscalYear + 1;
-      const range = monthRange(year, m);
-      try {
-        const data = await api.mf.getJournals(orgId, { startDate: range.start, endDate: range.end });
-        for (const j of data?.journals ?? []) {
-          const norm = normalizeForMemo(j);
-          if (norm) all.push(norm);
-        }
-      } catch {
-        // 一部月の MF 取得失敗は他月に伝播させない (memo タブの目的は overlay 表示なので best-effort)
-      }
-    }),
-  );
-  return all;
-}
-
-function monthRange(year: number, month: number): { start: string; end: string } {
-  const start = new Date(year, month - 1, 1);
-  const end = new Date(year, month, 0);
-  const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  return { start: fmt(start), end: fmt(end) };
-}
-
-function normalizeForMemo(j: unknown): MfJournalRefItem | null {
-  const obj = j as Record<string, unknown>;
-  const id = typeof obj.id === "string" ? obj.id : null;
-  if (!id) return null;
-  const numberRaw = obj.number;
-  const number =
-    typeof numberRaw === "number" && Number.isFinite(numberRaw)
-      ? String(numberRaw)
-      : typeof numberRaw === "string" && numberRaw
-        ? numberRaw
-        : null;
-  const branches = Array.isArray(obj.branches) ? (obj.branches as Record<string, unknown>[]) : [];
-  const debits: MfJournalRefItem["debits"] = [];
-  const credits: MfJournalRefItem["credits"] = [];
-  let total = 0;
-  let firstRemark: string | null = null;
-  for (const b of branches) {
-    if (firstRemark == null && typeof b.remark === "string" && b.remark) {
-      firstRemark = b.remark;
-    }
-    const d = b.debitor as Record<string, unknown> | undefined;
-    if (d) {
-      const amount = Number(d.value ?? d.amount ?? 0);
-      debits.push({
-        accountName: typeof d.account_name === "string" ? d.account_name : "—",
-        subAccountName: typeof d.sub_account_name === "string" ? d.sub_account_name : undefined,
-        amount,
-      });
-      total += amount;
-    }
-    const c = b.creditor as Record<string, unknown> | undefined;
-    if (c) {
-      credits.push({
-        accountName: typeof c.account_name === "string" ? c.account_name : "—",
-        subAccountName: typeof c.sub_account_name === "string" ? c.sub_account_name : undefined,
-        amount: Number(c.value ?? c.amount ?? 0),
-      });
-    }
-  }
-  return {
-    id,
-    number,
-    issueDate:
-      (typeof obj.transaction_date === "string" ? obj.transaction_date : null) ??
-      (typeof obj.date === "string" ? obj.date : null) ??
-      null,
-    description:
-      firstRemark ??
-      (typeof obj.memo === "string" ? obj.memo : null) ??
-      (typeof obj.description === "string" ? obj.description : null) ??
-      null,
-    debits,
-    credits,
-    totalAmount: total,
-  };
 }

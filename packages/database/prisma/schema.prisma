@@ -81,6 +81,8 @@ model Organization {
   choshoCellComments     ChoshoCellComment[]
   journalReviewFlags     JournalReviewFlag[]
   journalReviewComments  JournalReviewComment[]
+  journalReviewSnapshots JournalReviewSnapshot[]
+  journalReviewSnapshotMonths JournalReviewSnapshotMonth[]
 
   @@unique([id, tenantId])
   @@unique([tenantId, code])
@@ -1489,4 +1491,50 @@ model JournalReviewComment {
   @@index([tenantId, orgId, journalId, createdAt])
   @@index([parentCommentId])
   @@map("journal_review_comments")
+}
+
+/// 仕訳レビュー: MF 仕訳の表示用 snapshot。
+/// memo タブの会計期間表示で MF API を毎回全月取得しないため、月単位で累積キャッシュする。
+model JournalReviewSnapshot {
+  id            String   @id @default(uuid()) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  orgId         String   @map("org_id") @db.Uuid
+  fiscalYear    Int      @map("fiscal_year")
+  month         Int
+  journalId     String   @map("journal_id")
+  number        String?
+  issueDate     String?  @map("issue_date")
+  description   String?
+  partnerName   String?  @map("partner_name")
+  debitSummary  Json     @default("[]") @map("debit_summary")
+  creditSummary Json     @default("[]") @map("credit_summary")
+  totalAmount   Decimal  @default(0) @map("total_amount") @db.Decimal(18, 2)
+  fetchedAt     DateTime @default(now()) @map("fetched_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [orgId, tenantId], references: [id, tenantId])
+
+  @@unique([tenantId, orgId, journalId])
+  @@index([tenantId, orgId, fiscalYear, month])
+  @@map("journal_review_snapshots")
+}
+
+/// 仕訳レビュー: 月単位 snapshot の取得済みマーカー。
+/// 仕訳が0件の月でも再取得を避けるため、snapshot 本体とは別に管理する。
+model JournalReviewSnapshotMonth {
+  id         String   @id @default(uuid()) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  orgId      String   @map("org_id") @db.Uuid
+  fiscalYear Int      @map("fiscal_year")
+  month      Int
+  fetchedAt  DateTime @default(now()) @map("fetched_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [orgId, tenantId], references: [id, tenantId])
+
+  @@unique([tenantId, orgId, fiscalYear, month])
+  @@index([tenantId, orgId, fiscalYear])
+  @@map("journal_review_snapshot_months")
 }

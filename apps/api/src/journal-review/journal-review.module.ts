@@ -1,7 +1,11 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
+import { MfModule } from '../mf/mf.module';
 import { PrismaModule } from '../prisma/prisma.module';
-import { JournalReviewController } from './journal-review.controller';
+import {
+  JournalReviewController,
+  JournalReviewSnapshotsController,
+} from './journal-review.controller';
 import { JournalReviewCommentsController } from './journal-review.comments.controller';
 import { JournalReviewService } from './journal-review.service';
 
@@ -12,8 +16,12 @@ import { JournalReviewService } from './journal-review.service';
  * AuthModule は forwardRef 必須 (memory: NestJS 循環依存)。
  */
 @Module({
-  imports: [forwardRef(() => AuthModule), PrismaModule],
-  controllers: [JournalReviewController, JournalReviewCommentsController],
+  imports: [forwardRef(() => AuthModule), forwardRef(() => MfModule), PrismaModule],
+  controllers: [
+    JournalReviewController,
+    JournalReviewSnapshotsController,
+    JournalReviewCommentsController,
+  ],
   providers: [JournalReviewService],
   exports: [JournalReviewService],
 })

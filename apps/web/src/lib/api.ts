@@ -318,6 +318,20 @@ export interface JournalReviewCommentItem {
   updatedAt: string;
 }
 
+export interface JournalReviewSnapshotItem {
+  id: string;
+  number: string | null;
+  issueDate: string | null;
+  description: string | null;
+  partnerName: string | null;
+  debits: { accountName: string; subAccountName?: string; amount: number }[];
+  credits: { accountName: string; subAccountName?: string; amount: number }[];
+  totalAmount: number;
+  fiscalYear: number;
+  month: number;
+  fetchedAt: string;
+}
+
 /** 保存済 chosho_versions の status (DB enum と一致)。 */
 export type ChoshoVersionStatus = 'DRAFT' | 'APPROVED' | 'ARCHIVED';
 
@@ -1447,6 +1461,17 @@ export const api = {
         : '';
       return apiFetch<JournalReviewCommentItem[]>(
         `/organizations/${orgId}/journal-comments${qs}`,
+      );
+    },
+    listSnapshots: (
+      orgId: string,
+      input: { fiscalYear: number; month?: number; throughMonth?: number },
+    ) => {
+      const qs = new URLSearchParams({ fiscalYear: String(input.fiscalYear) });
+      if (input.month != null) qs.set('month', String(input.month));
+      if (input.throughMonth != null) qs.set('throughMonth', String(input.throughMonth));
+      return apiFetch<JournalReviewSnapshotItem[]>(
+        `/organizations/${orgId}/journal-review/snapshots?${qs.toString()}`,
       );
     },
     addComment: (

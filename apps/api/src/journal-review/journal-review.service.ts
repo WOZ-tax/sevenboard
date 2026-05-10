@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { MfApiService } from '../mf/mf-api.service';
 
 /**
  * 仕訳レビュー: 「要確認」フラグ + (Phase 2-2 で) コメントスレッド を扱う service。
@@ -14,7 +15,10 @@ import { PrismaService } from '../prisma/prisma.service';
  */
 @Injectable()
 export class JournalReviewService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private mfApi: MfApiService,
+  ) {}
 
   /**
    * 期間 (fiscalYear × month) 内の flag 一覧を返す。
@@ -222,6 +226,49 @@ export class JournalReviewService {
     return toCommentItem(updated);
   }
 
+  async listSnapshots(
+    orgId: string,
+    fiscalYear: number,
+    month?: number,
+    throughMonth?: number,
+  ): Promise<JournalReviewSnapshotItem[]> {
+    const { tenantId, fiscalMonthEnd } = await this.resolveOrg(orgId);
+    const fyStartMonth = fiscalMonthEnd === 12 ? 1 : fiscalMonthEnd + 1;
+    const targetMonths =
+      month != null
+        ? [month]
+        : monthsForFiscalPeriod(fyStartMonth, throughMonth);
+
+    await this.ensureSnapshotMonths(orgId, tenantId, fiscalYear, targetMonths, fyStartMonth);
+
+    const flags = await this.prisma.journalReviewFlag.findMany({
+      where: {
+        tenantId,
+        orgId,
+        fiscalYear,
+        month: { in: targetMonths },
+      },
+      select: { journalId: true, month: true },
+    });
+    const journalIds = Array.from(new Set(flags.map((f) => f.journalId)));
+    if (journalIds.length === 0) return [];
+
+    let snapshots = await this.findSnapshotsForJournals(tenantId, orgId, journalIds);
+    const cachedIds = new Set(snapshots.map((s) => s.journalId));
+    const fallbackMonths = Array.from(
+      new Set(flags.filter((f) => !cachedIds.has(f.journalId)).map((f) => f.month)),
+    );
+    if (fallbackMonths.length > 0) {
+      await Promise.allSettled(
+        fallbackMonths.map((m) =>
+          this.fetchAndCacheSnapshotMonth(orgId, tenantId, fiscalYear, m, fyStartMonth),
+        ),
+      );
+      snapshots = await this.findSnapshotsForJournals(tenantId, orgId, journalIds);
+    }
+    return snapshots.map(toSnapshotItem);
+  }
+
   async deleteComment(
     orgId: string,
     commentId: string,
@@ -241,12 +288,101 @@ export class JournalReviewService {
     await this.prisma.journalReviewComment.delete({ where: { id: commentId } });
   }
 
-  private async resolveOrg(orgId: string): Promise<{ tenantId: string }> {
+  private async findSnapshotsForJournals(
+    tenantId: string,
+    orgId: string,
+    journalIds: string[],
+  ) {
+    return this.prisma.journalReviewSnapshot.findMany({
+      where: {
+        tenantId,
+        orgId,
+        journalId: { in: journalIds },
+      },
+      orderBy: [{ month: 'asc' }, { issueDate: 'asc' }, { number: 'asc' }],
+    });
+  }
+
+  private async ensureSnapshotMonths(
+    orgId: string,
+    tenantId: string,
+    fiscalYear: number,
+    months: number[],
+    fyStartMonth: number,
+  ): Promise<void> {
+    if (months.length === 0) return;
+    const existing = await this.prisma.journalReviewSnapshotMonth.findMany({
+      where: { tenantId, orgId, fiscalYear, month: { in: months } },
+      select: { month: true },
+    });
+    const existingMonths = new Set(existing.map((m) => m.month));
+    const missingMonths = months.filter((m) => !existingMonths.has(m));
+    if (missingMonths.length === 0) return;
+
+    await Promise.allSettled(
+      missingMonths.map((m) =>
+        this.fetchAndCacheSnapshotMonth(orgId, tenantId, fiscalYear, m, fyStartMonth),
+      ),
+    );
+  }
+
+  private async fetchAndCacheSnapshotMonth(
+    orgId: string,
+    tenantId: string,
+    fiscalYear: number,
+    month: number,
+    fyStartMonth: number,
+  ): Promise<void> {
+    const year = month >= fyStartMonth ? fiscalYear : fiscalYear + 1;
+    const range = monthRange(year, month);
+    const data = await this.mfApi.getJournals(orgId, {
+      startDate: range.start,
+      endDate: range.end,
+    });
+    const source = Array.isArray(data?.journals) ? (data.journals as unknown[]) : [];
+    const rows: NormalizedJournalSnapshot[] = [];
+    for (const item of source) {
+      const normalized = normalizeJournalSnapshot(item);
+      if (normalized) rows.push(normalized);
+    }
+    const fetchedAt = new Date();
+
+    for (const chunk of chunkArray(rows, 500)) {
+      await this.prisma.journalReviewSnapshot.createMany({
+        data: chunk.map((j) => ({
+          tenantId,
+          orgId,
+          fiscalYear,
+          month,
+          journalId: j.id,
+          number: j.number,
+          issueDate: j.issueDate,
+          description: j.description,
+          partnerName: j.partnerName,
+          debitSummary: j.debits as unknown as Prisma.InputJsonValue,
+          creditSummary: j.credits as unknown as Prisma.InputJsonValue,
+          totalAmount: new Prisma.Decimal(j.totalAmount),
+          fetchedAt,
+        })),
+        skipDuplicates: true,
+      });
+    }
+
+    await this.prisma.journalReviewSnapshotMonth.upsert({
+      where: {
+        tenantId_orgId_fiscalYear_month: { tenantId, orgId, fiscalYear, month },
+      },
+      create: { tenantId, orgId, fiscalYear, month, fetchedAt },
+      update: { fetchedAt },
+    });
+  }
+
+  private async resolveOrg(orgId: string): Promise<{ tenantId: string; fiscalMonthEnd: number }> {
     const org = await this.prisma.organization.findUniqueOrThrow({
       where: { id: orgId },
-      select: { tenantId: true },
+      select: { tenantId: true, fiscalMonthEnd: true },
     });
-    return { tenantId: org.tenantId };
+    return { tenantId: org.tenantId, fiscalMonthEnd: org.fiscalMonthEnd };
   }
 }
 
@@ -271,6 +407,26 @@ export interface JournalReviewCommentItem {
   authorName: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface JournalReviewSideSummary {
+  accountName: string;
+  subAccountName?: string;
+  amount: number;
+}
+
+export interface JournalReviewSnapshotItem {
+  id: string;
+  number: string | null;
+  issueDate: string | null;
+  description: string | null;
+  partnerName: string | null;
+  debits: JournalReviewSideSummary[];
+  credits: JournalReviewSideSummary[];
+  totalAmount: number;
+  fiscalYear: number;
+  month: number;
+  fetchedAt: string;
 }
 
 function toCommentItem(c: {
@@ -298,4 +454,163 @@ function toCommentItem(c: {
     createdAt: c.createdAt.toISOString(),
     updatedAt: c.updatedAt.toISOString(),
   };
+}
+
+function toSnapshotItem(s: {
+  journalId: string;
+  number: string | null;
+  issueDate: string | null;
+  description: string | null;
+  partnerName: string | null;
+  debitSummary: Prisma.JsonValue;
+  creditSummary: Prisma.JsonValue;
+  totalAmount: Prisma.Decimal | number | string;
+  fiscalYear: number;
+  month: number;
+  fetchedAt: Date;
+}): JournalReviewSnapshotItem {
+  return {
+    id: s.journalId,
+    number: s.number,
+    issueDate: s.issueDate,
+    description: s.description,
+    partnerName: s.partnerName,
+    debits: parseSideSummary(s.debitSummary),
+    credits: parseSideSummary(s.creditSummary),
+    totalAmount: Number(s.totalAmount ?? 0),
+    fiscalYear: s.fiscalYear,
+    month: s.month,
+    fetchedAt: s.fetchedAt.toISOString(),
+  };
+}
+
+interface NormalizedJournalSnapshot {
+  id: string;
+  number: string | null;
+  issueDate: string | null;
+  description: string | null;
+  partnerName: string | null;
+  debits: JournalReviewSideSummary[];
+  credits: JournalReviewSideSummary[];
+  totalAmount: number;
+}
+
+function normalizeJournalSnapshot(j: unknown): NormalizedJournalSnapshot | null {
+  const obj = j as Record<string, unknown>;
+  const id = pickString(obj.id);
+  if (!id) return null;
+  const branches = Array.isArray(obj.branches)
+    ? (obj.branches as Record<string, unknown>[])
+    : [];
+  const debits: JournalReviewSideSummary[] = [];
+  const credits: JournalReviewSideSummary[] = [];
+  let totalAmount = 0;
+  let firstRemark: string | null = null;
+  let firstPartner: string | null = null;
+
+  for (const b of branches) {
+    if (firstRemark == null) {
+      const remark = pickString(b.remark);
+      if (remark) firstRemark = remark;
+    }
+    const debit = normalizeJournalSide(b.debitor as Record<string, unknown> | undefined);
+    if (debit) {
+      debits.push(debit);
+      totalAmount += debit.amount;
+      if (firstPartner == null) {
+        firstPartner = pickString((b.debitor as Record<string, unknown> | undefined)?.trade_partner_name) ?? null;
+      }
+    }
+    const credit = normalizeJournalSide(b.creditor as Record<string, unknown> | undefined);
+    if (credit) {
+      credits.push(credit);
+      if (firstPartner == null) {
+        firstPartner = pickString((b.creditor as Record<string, unknown> | undefined)?.trade_partner_name) ?? null;
+      }
+    }
+  }
+
+  return {
+    id,
+    number: normalizeNumber(obj.number),
+    issueDate:
+      pickString(obj.transaction_date) ??
+      pickString(obj.date) ??
+      pickString(obj.issue_date) ??
+      null,
+    description:
+      firstRemark ??
+      pickString(obj.memo) ??
+      pickString(obj.description) ??
+      null,
+    partnerName:
+      firstPartner ??
+      pickString(obj.partner_name) ??
+      pickString(obj.trade_partner_name) ??
+      null,
+    debits,
+    credits,
+    totalAmount,
+  };
+}
+
+function normalizeJournalSide(side: Record<string, unknown> | undefined): JournalReviewSideSummary | null {
+  if (!side) return null;
+  return {
+    accountName: pickString(side.account_name) ?? '—',
+    subAccountName: pickString(side.sub_account_name),
+    amount: Number(side.value ?? side.amount ?? 0),
+  };
+}
+
+function parseSideSummary(value: Prisma.JsonValue): JournalReviewSideSummary[] {
+  if (!Array.isArray(value)) return [];
+  const out: JournalReviewSideSummary[] = [];
+  for (const v of value) {
+    if (!v || typeof v !== 'object' || Array.isArray(v)) continue;
+    const obj = v as Record<string, unknown>;
+    const accountName = pickString(obj.accountName);
+    if (!accountName) continue;
+    out.push({
+      accountName,
+      subAccountName: pickString(obj.subAccountName),
+      amount: Number(obj.amount ?? 0),
+    });
+  }
+  return out;
+}
+
+function normalizeNumber(value: unknown): string | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  return pickString(value) ?? null;
+}
+
+function pickString(value: unknown): string | undefined {
+  return typeof value === 'string' && value ? value : undefined;
+}
+
+function monthsForFiscalPeriod(fyStartMonth: number, throughMonth?: number): number[] {
+  const months: number[] = [];
+  for (let i = 0; i < 12; i++) {
+    months.push(((fyStartMonth - 1 + i) % 12) + 1);
+  }
+  if (throughMonth == null) return months;
+  const idx = months.indexOf(throughMonth);
+  return idx >= 0 ? months.slice(0, idx + 1) : months;
+}
+
+function monthRange(year: number, month: number): { start: string; end: string } {
+  const start = new Date(Date.UTC(year, month - 1, 1));
+  const end = new Date(Date.UTC(year, month, 0));
+  const fmt = (d: Date) =>
+    `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+  return { start: fmt(start), end: fmt(end) };
+}
+
+function chunkArray<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
+  }
+  return chunks;
 }

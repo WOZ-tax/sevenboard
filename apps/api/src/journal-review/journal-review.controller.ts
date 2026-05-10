@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -75,4 +76,32 @@ export class JournalReviewController {
   ): Promise<void> {
     await this.service.deleteFlag(orgId, journalId);
   }
+}
+
+@Controller('organizations/:orgId/journal-review')
+@UseGuards(JwtAuthGuard, PermissionGuard)
+export class JournalReviewSnapshotsController {
+  constructor(private service: JournalReviewService) {}
+
+  @Get('snapshots')
+  @RequirePermission('org:journal_review:read')
+  async listSnapshots(
+    @Param('orgId', ParseUUIDPipe) orgId: string,
+    @Query('fiscalYear', ParseIntPipe) fiscalYear: number,
+    @Query('month') monthRaw?: string,
+    @Query('throughMonth') throughMonthRaw?: string,
+  ) {
+    const month = parseOptionalMonth(monthRaw, 'month');
+    const throughMonth = parseOptionalMonth(throughMonthRaw, 'throughMonth');
+    return this.service.listSnapshots(orgId, fiscalYear, month, throughMonth);
+  }
+}
+
+function parseOptionalMonth(value: string | undefined, label: string): number | undefined {
+  if (value == null || value === '') return undefined;
+  const month = Number(value);
+  if (!Number.isInteger(month) || month < 1 || month > 12) {
+    throw new BadRequestException(`${label} must be an integer between 1 and 12`);
+  }
+  return month;
 }
