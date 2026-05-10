@@ -109,8 +109,9 @@ export class JournalReviewService {
   }
 
   /**
-   * 指定 journal の flag を削除 (履歴ごと消す)。
-   * 通常は upsertFlag(resolved=true) で十分なので、運用上ほぼ未使用。
+   * 指定 journal のレビューメモごと削除する (flag + 紐づく全 comment)。
+   * memo タブからの「メモ削除」で呼ばれる。 comments は journalId が
+   * テキスト一致で紐づくだけ (FK ではない) なので、同じ transaction で消す。
    */
   async deleteFlag(orgId: string, journalId: string): Promise<void> {
     const { tenantId } = await this.resolveOrg(orgId);
@@ -122,7 +123,12 @@ export class JournalReviewService {
     if (!existing) {
       throw new NotFoundException('Flag not found');
     }
-    await this.prisma.journalReviewFlag.delete({ where: { id: existing.id } });
+    await this.prisma.$transaction([
+      this.prisma.journalReviewComment.deleteMany({
+        where: { tenantId, orgId, journalId },
+      }),
+      this.prisma.journalReviewFlag.delete({ where: { id: existing.id } }),
+    ]);
   }
 
   // ============================================================

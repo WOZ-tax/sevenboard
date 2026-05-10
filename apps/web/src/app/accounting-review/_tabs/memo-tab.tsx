@@ -153,6 +153,15 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["journal-flags", orgId, fiscalYear, month] }),
   });
+  const deleteFlagMutation = useMutation({
+    mutationFn: (journalId: string) => api.journalReview.deleteFlag(orgId, journalId),
+    onSuccess: () => {
+      // フラグ自体 + 紐づく全コメントが消えるので両方の cache を invalidate
+      qc.invalidateQueries({ queryKey: ["journal-flags", orgId] });
+      qc.invalidateQueries({ queryKey: ["journal-comments", orgId] });
+    },
+    onError: () => toast.error("レビューメモ削除に失敗しました"),
+  });
 
   // 行展開状態 + compose mode (新規 root コメント編集)
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -271,6 +280,7 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
               <th className="w-20 px-2 py-2 text-center font-semibold text-[var(--color-text-primary)]">コメント</th>
               <th className="w-20 px-2 py-2 text-center font-semibold text-[var(--color-text-primary)]">返信</th>
               <th className="w-24 px-2 py-2 text-center font-semibold text-[var(--color-text-primary)]">ステータス</th>
+              <th className="w-10 px-1 py-2 text-center font-semibold text-[var(--color-text-primary)]" title="メモ削除"></th>
             </tr>
           </thead>
           <tbody>
@@ -303,8 +313,19 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
                   onToggleResolve={() =>
                     upsertFlag.mutate({ journalId: flag.journalId, resolved: !isResolved })
                   }
+                  onDeleteFlag={() => {
+                    if (
+                      typeof window !== "undefined" &&
+                      window.confirm(
+                        "このレビューメモを削除しますか?\nフラグと紐づく全コメント (返信含む) が消えます。",
+                      )
+                    ) {
+                      deleteFlagMutation.mutate(flag.journalId);
+                    }
+                  }}
                   isAdding={addComment.isPending}
                   isResolving={upsertFlag.isPending}
+                  isDeletingFlag={deleteFlagMutation.isPending}
                 />
               );
             })}
@@ -348,8 +369,10 @@ function FlaggedJournalRow({
   onAdd,
   onDelete,
   onToggleResolve,
+  onDeleteFlag,
   isAdding,
   isResolving,
+  isDeletingFlag,
 }: {
   flag: JournalReviewFlagItem;
   journal: MfJournalRefItem | null;
@@ -367,8 +390,10 @@ function FlaggedJournalRow({
   onAdd: (input: { journalId: string; body: string; urls: string[]; parentCommentId?: string }) => void;
   onDelete: (commentId: string) => void;
   onToggleResolve: () => void;
+  onDeleteFlag: () => void;
   isAdding: boolean;
   isResolving: boolean;
+  isDeletingFlag: boolean;
 }) {
   return (
     <>
@@ -422,11 +447,23 @@ function FlaggedJournalRow({
             {isResolved ? "✓ 解決済" : "未解決"}
           </Button>
         </td>
+        <td className="px-1 py-1.5 text-center">
+          <button
+            type="button"
+            onClick={onDeleteFlag}
+            disabled={isDeletingFlag}
+            className="inline-flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-red-50 hover:text-red-600 disabled:opacity-40"
+            title="レビューメモを削除 (フラグ + 全コメント)"
+            aria-label="レビューメモを削除"
+          >
+            {isDeletingFlag ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+          </button>
+        </td>
       </tr>
       {isExpanded && (
         <tr className="border-b border-muted/50">
           <td></td>
-          <td colSpan={7} className="px-2 py-2">
+          <td colSpan={8} className="px-2 py-2">
             <CommentThread
               journalId={flag.journalId}
               roots={rootComments}
