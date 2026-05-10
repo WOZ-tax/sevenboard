@@ -739,8 +739,10 @@ function ChoshoRow({
         const hasAnomaly = cellAnomalies.length > 0 && !outOfRange;
         const cellComment = commentsEnabled ? cellCommentLookup(m) : null;
         const hasCellComment = !!cellComment;
-        // 大区分・中区分は コメント対象外 (集計行)。 mfType==='account' のみクリッカブル。
-        const isCommentable = commentsEnabled && row.mfType === "account" && !outOfRange;
+        // 大区分 (level 0) はコメント対象外 (集計の最上位)。
+        // saved version では mfType が空文字になるため、 level ベースで判定する
+        // (preview の mfType==='account' を level > 0 で代用、 中区分含めセル単位でメモ可能に)。
+        const isCommentable = commentsEnabled && row.level > 0 && !outOfRange;
         const cellClass = cn(
           "px-2 py-1.5 text-right tabular-nums",
           v != null && v < 0 && "text-[var(--color-negative)]",
