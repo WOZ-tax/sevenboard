@@ -397,7 +397,7 @@ function FlaggedJournalRow({
 }) {
   return (
     <>
-      <tr className={cn("border-b border-muted/50", !isResolved && "bg-red-50/40 hover:bg-red-50/70", isResolved && "hover:bg-muted/30")}>
+      <tr className={cn("border-b border-muted/50", !isResolved && "bg-blue-50/40 hover:bg-blue-50/70", isResolved && "hover:bg-muted/30")}>
         <td className="px-1 py-1.5 text-center">
           <button
             type="button"
@@ -438,7 +438,7 @@ function FlaggedJournalRow({
             className={cn(
               "h-6 px-2 text-[10px]",
               isResolved && "border-emerald-300 text-emerald-700",
-              !isResolved && "bg-red-600 hover:bg-red-700",
+              !isResolved && "bg-blue-600 hover:bg-blue-700",
             )}
             onClick={onToggleResolve}
             disabled={isResolving}
@@ -1025,7 +1025,7 @@ function CellMemoRow({
 
   return (
     <>
-      <tr className={cn("border-b border-muted/50", !isResolved && "bg-red-50/40 hover:bg-red-50/70", isResolved && "hover:bg-muted/30")}>
+      <tr className={cn("border-b border-muted/50", !isResolved && "bg-blue-50/40 hover:bg-blue-50/70", isResolved && "hover:bg-muted/30")}>
         <td className="px-1 py-1.5 text-center">
           <button
             type="button"

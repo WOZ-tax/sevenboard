@@ -172,7 +172,7 @@ export function JournalCommentDialog({
             isResolved ? (
               <Badge variant="outline" className="border-emerald-300 text-emerald-700">✓ 解決済</Badge>
             ) : (
-              <Badge variant="default" className="bg-red-600 hover:bg-red-700">未解決</Badge>
+              <Badge variant="default" className="bg-blue-600 hover:bg-blue-700">未解決</Badge>
             )
           ) : (
             <Badge variant="outline" className="text-muted-foreground">フラグなし — 保存で要確認に</Badge>

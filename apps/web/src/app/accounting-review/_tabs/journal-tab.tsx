@@ -413,7 +413,7 @@ export function JournalReviewTab({ orgId, fiscalYear, month }: Props) {
             </span>
           )}
           {flagByJournalId.size > 0 && (
-            <span className="flex items-center gap-1 text-[10px] text-red-700">
+            <span className="flex items-center gap-1 text-[10px] text-blue-700">
               <Flag className="h-3 w-3" />
               要確認 {Array.from(flagByJournalId.values()).filter((f) => f.resolvedAt == null).length} 件 (未解決)
             </span>
@@ -472,9 +472,14 @@ export function JournalReviewTab({ orgId, fiscalYear, month }: Props) {
                     onClick={handleRowClick}
                     className={cn(
                       "cursor-pointer border-b border-muted/50",
-                      // user flag (未解決) を最優先で赤に。AI 検知は user flag が無い時に表示
+                      // 配色ルール:
+                      //   - 赤系: AI 検知 / 自動レビューアラート専用 (将来のルール検知系もここ)
+                      //   - 青系: ユーザーが手で立てた「要確認」フラグ
+                      // user flag を立てているのは「人が見るべきと判断した行」なので、
+                      // 自動アラート (赤) とは別軸の色にする。 user flag が立っていれば
+                      // 青を優先表示し、AI 検知は user flag が無い時のみ赤で表示。
                       userFlagOpen
-                        ? "border-l-2 border-l-red-500 bg-red-50 hover:bg-red-100"
+                        ? "border-l-2 border-l-blue-500 bg-blue-50 hover:bg-blue-100"
                         : aiFlagged
                           ? "border-l-2 border-l-red-300 bg-red-50/60 hover:bg-red-100/70"
                           : "hover:bg-muted/30",
@@ -643,14 +648,14 @@ function FlagCell({
       </button>
     );
   }
-  // 未解決: 赤
+  // 未解決: 青 (赤は AI 検知 / レビューアラート専用)
   if (flag.resolvedAt == null) {
     return (
       <button
         type="button"
         onClick={onToggle}
         disabled={disabled}
-        className="rounded p-0.5 text-red-600 hover:bg-red-100"
+        className="rounded p-0.5 text-blue-600 hover:bg-blue-100"
         title={`要確認 (${new Date(flag.flaggedAt).toLocaleString("ja-JP")}) — クリックで解決`}
         aria-label="解決済にする"
       >
