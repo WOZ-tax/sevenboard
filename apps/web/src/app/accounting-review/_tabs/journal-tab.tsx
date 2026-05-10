@@ -37,53 +37,120 @@ interface Props {
   month: number | undefined;
 }
 
-// MF 仕訳 1 行の defensive accessor (api-types では loose unknown 型のため)。
+/**
+ * MF v3 仕訳の defensive accessor。
+ * 実 shape は apps/api/src/mf/review.service.ts の writeJournalCsv 参照:
+ *   - 日付: j.transaction_date (or j.date)
+ *   - 摘要: branches[0].remark (or j.memo)
+ *   - 取引先: branches[].debitor/creditor.trade_partner_name (journal level にはない)
+ *   - 金額: branches[].debitor/creditor.value (or .amount)
+ *   - 税区分: branches[].debitor/creditor.tax_name
+ *   - 適格判定: branches[].debitor/creditor.invoice_kind
+ */
+interface MfJournalSide {
+  accountName: string;
+  subAccountName?: string;
+  amount: number;
+  taxName?: string;
+  invoiceKind?: string;
+  partnerName?: string;
+}
+
 interface MfJournalRow {
   id: string | null;
   issueDate: string | null;
   description: string | null;
   partnerName: string | null;
-  // 借方/貸方の合計表示用に branches を集約した値
-  debits: { accountName: string; amount: number; subAccountName?: string }[];
-  credits: { accountName: string; amount: number; subAccountName?: string }[];
+  debits: MfJournalSide[];
+  credits: MfJournalSide[];
   totalAmount: number;
+}
+
+function pickString(v: unknown): string | undefined {
+  return typeof v === "string" && v ? v : undefined;
+}
+
+function normalizeSide(side: Record<string, unknown> | undefined): MfJournalSide | null {
+  if (!side) return null;
+  return {
+    accountName: pickString(side.account_name) ?? "—",
+    subAccountName: pickString(side.sub_account_name),
+    amount: Number(side.value ?? side.amount ?? 0),
+    taxName: pickString(side.tax_name),
+    invoiceKind: pickString(side.invoice_kind),
+    partnerName: pickString(side.trade_partner_name),
+  };
 }
 
 function normalizeJournal(j: MfJournal): MfJournalRow {
   const obj = j as unknown as Record<string, unknown>;
   const branches = Array.isArray(j.branches) ? j.branches : [];
-  const debits: MfJournalRow["debits"] = [];
-  const credits: MfJournalRow["credits"] = [];
+  const debits: MfJournalSide[] = [];
+  const credits: MfJournalSide[] = [];
   let totalAmount = 0;
+  let firstRemark: string | null = null;
+  let firstPartner: string | null = null;
+
   for (const b of branches) {
-    const d = (b as Record<string, unknown>).debitor as Record<string, unknown> | undefined;
-    const c = (b as Record<string, unknown>).creditor as Record<string, unknown> | undefined;
-    if (d) {
-      const amount = Number(d.amount ?? 0);
-      debits.push({
-        accountName: String(d.account_name ?? d.accountName ?? "—"),
-        amount,
-        subAccountName: d.sub_account_name as string | undefined,
-      });
-      totalAmount += amount;
+    const bo = b as Record<string, unknown>;
+    // 摘要は branch.remark を優先 (journal.memo は手書きメモ的に使われる)
+    if (firstRemark == null) {
+      const r = pickString(bo.remark);
+      if (r) firstRemark = r;
     }
+    const d = normalizeSide(bo.debitor as Record<string, unknown> | undefined);
+    if (d) {
+      debits.push(d);
+      totalAmount += d.amount;
+      if (firstPartner == null && d.partnerName) firstPartner = d.partnerName;
+    }
+    const c = normalizeSide(bo.creditor as Record<string, unknown> | undefined);
     if (c) {
-      credits.push({
-        accountName: String(c.account_name ?? c.accountName ?? "—"),
-        amount: Number(c.amount ?? 0),
-        subAccountName: c.sub_account_name as string | undefined,
-      });
+      credits.push(c);
+      if (firstPartner == null && c.partnerName) firstPartner = c.partnerName;
     }
   }
+
   return {
-    id: (obj.id as string) ?? null,
-    issueDate: (obj.issue_date as string) ?? (obj.issueDate as string) ?? null,
-    description: (obj.description as string) ?? null,
-    partnerName: (obj.partner_name as string) ?? (obj.partnerName as string) ?? null,
+    id: pickString(obj.id) ?? pickString(obj.number) ?? null,
+    issueDate:
+      pickString(obj.transaction_date) ??
+      pickString(obj.date) ??
+      pickString(obj.issue_date) ??
+      null,
+    description:
+      firstRemark ??
+      pickString(obj.memo) ??
+      pickString(obj.description) ??
+      null,
+    partnerName:
+      firstPartner ??
+      pickString(obj.partner_name) ??
+      pickString(obj.trade_partner_name) ??
+      null,
     debits,
     credits,
     totalAmount,
   };
+}
+
+// invoice_kind を人間可読ラベルに変換。空 / NOT_TARGET は表示しない。
+function invoiceKindLabel(k?: string): { label: string; className: string } | null {
+  if (!k || k === "INVOICE_KIND_NOT_TARGET") return null;
+  if (k === "INVOICE_KIND_QUALIFIED") {
+    return { label: "適格", className: "bg-blue-50 text-blue-700 border-blue-200" };
+  }
+  if (k === "INVOICE_KIND_80_PERCENT") {
+    return { label: "80%控除", className: "bg-amber-50 text-amber-700 border-amber-200" };
+  }
+  if (k === "INVOICE_KIND_50_PERCENT") {
+    return { label: "50%控除", className: "bg-orange-50 text-orange-700 border-orange-200" };
+  }
+  if (k === "INVOICE_KIND_NOT_QUALIFIED") {
+    return { label: "不適格", className: "bg-red-50 text-red-700 border-red-200" };
+  }
+  // 想定外の enum もそのまま表示 (regression 検知)
+  return { label: k.replace(/^INVOICE_KIND_/, ""), className: "bg-muted text-muted-foreground border-muted" };
 }
 
 // ============================================================
@@ -414,19 +481,38 @@ function PresetButton({
 function SideCell({
   sides,
 }: {
-  sides: { accountName: string; amount: number; subAccountName?: string }[];
+  sides: MfJournalSide[];
 }) {
   if (sides.length === 0) return <span className="text-muted-foreground">—</span>;
   return (
     <div className="space-y-0.5">
-      {sides.map((s, i) => (
-        <div key={i} className="flex items-center gap-1.5">
-          <span className="font-medium text-[var(--color-text-primary)]">{s.accountName}</span>
-          {s.subAccountName && (
-            <span className="text-[10px] text-muted-foreground">/ {s.subAccountName}</span>
-          )}
-        </div>
-      ))}
+      {sides.map((s, i) => {
+        const inv = invoiceKindLabel(s.invoiceKind);
+        return (
+          <div key={i} className="flex flex-wrap items-center gap-1.5">
+            <span className="font-medium text-[var(--color-text-primary)]">{s.accountName}</span>
+            {s.subAccountName && (
+              <span className="text-[10px] text-muted-foreground">/ {s.subAccountName}</span>
+            )}
+            {s.taxName && (
+              <span className="rounded border border-muted/60 bg-muted/30 px-1 py-0 text-[9px] text-muted-foreground" title="消費税区分">
+                {s.taxName}
+              </span>
+            )}
+            {inv && (
+              <span
+                className={cn(
+                  "rounded border px-1 py-0 text-[9px] font-medium",
+                  inv.className,
+                )}
+                title="インボイス区分"
+              >
+                {inv.label}
+              </span>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
