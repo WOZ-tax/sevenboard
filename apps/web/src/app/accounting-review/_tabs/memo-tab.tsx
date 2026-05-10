@@ -46,6 +46,7 @@ import {
 } from "@/components/ui/select";
 import { useAuthStore } from "@/lib/auth";
 import { useFyElapsed } from "@/hooks/use-fy-elapsed";
+import { ThinkingIndicator } from "@/components/ai/thinking-indicator";
 
 interface Props {
   orgId: string;
@@ -245,12 +246,19 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
     );
   }
 
+  // 初回 snapshot 取得は MF を 12 ヶ月分叩くため数〜十数秒。 ThinkingIndicator で
+  // 段階表示する (AI 生成中と同じ感じ)。 cache hit 時は ms オーダーで終わるので、
+  // この分岐に来ない。
   if (flagsQuery.isLoading || journalsQuery.isLoading) {
     return (
-      <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
-        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-        読み込み中…
-      </div>
+      <ThinkingIndicator
+        stages={[
+          "フラグ立った仕訳を集計中",
+          "MF から仕訳詳細を取得中",
+          "取引No / 科目 / 摘要 を整形中",
+          "コメントスレッドと紐付け中",
+        ]}
+      />
     );
   }
 
