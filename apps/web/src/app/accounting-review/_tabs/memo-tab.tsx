@@ -11,7 +11,7 @@
  *   該当行が展開された状態 + 新規コメント入力欄が開いた状態で着地
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -61,15 +61,22 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
   const currentUserId = useAuthStore((s) => s.user?.id ?? null);
 
   // 期間フィルタ: 「全期間 (会計年度全体)」or 「特定月度」
-  // - グローバル期間セレクターで月が選ばれていれば初期値はその月
-  // - "all" を選ぶと fiscalYear 内の全月分のメモを表示
-  const [filterMonth, setFilterMonth] = useState<number | "all">(
-    month != null ? month : "all",
-  );
-  // グローバル期間セレクターの月が変わったら追従 (ユーザーが all を明示選択した場合は維持)
+  // 初期表示は fiscalYear 内の全期間。グローバル期間セレクターの後続変更だけ追従する。
+  const [filterMonth, setFilterMonth] = useState<number | "all">("all");
   const [userOverride, setUserOverride] = useState(false);
+  const observedGlobalMonthRef = useRef<number | undefined>(undefined);
+  const observedFiscalYearRef = useRef<number | undefined>(fiscalYear);
   useEffect(() => {
-    if (!userOverride && month != null) setFilterMonth(month);
+    if (observedFiscalYearRef.current === fiscalYear) return;
+    observedFiscalYearRef.current = fiscalYear;
+    setFilterMonth("all");
+    setUserOverride(false);
+  }, [fiscalYear]);
+  useEffect(() => {
+    const prev = observedGlobalMonthRef.current;
+    observedGlobalMonthRef.current = month;
+    if (prev == null || month == null || month === prev || userOverride) return;
+    setFilterMonth(month);
   }, [month, userOverride]);
   const handleSetFilterMonth = (next: number | "all") => {
     setFilterMonth(next);
@@ -77,6 +84,7 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
   };
 
   const monthFilterValue = filterMonth === "all" ? undefined : filterMonth;
+  const flagsQueryKey = ["journal-flags", orgId, fiscalYear, monthFilterValue ?? "all"] as const;
   const { fyStartMonth } = useFyElapsed();
   const monthsInFy = useMemo(() => {
     // 期首から12ヶ月分のカレンダー月を順に並べる (例: fyStart=4 → [4..12, 1..3])
@@ -87,7 +95,7 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
 
   // フラグ立った journal 一覧 (フィルタ反映)
   const flagsQuery = useQuery({
-    queryKey: ["journal-flags", orgId, fiscalYear, monthFilterValue ?? "all"],
+    queryKey: flagsQueryKey,
     queryFn: () => api.journalReview.listFlags(orgId, fiscalYear!, monthFilterValue),
     enabled: !!orgId && fiscalYear != null,
     staleTime: 30_000,
@@ -145,13 +153,13 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
   });
   const deleteComment = (commentId: string) => deleteCommentMutation.mutate(commentId);
   const upsertFlag = useMutation({
-    mutationFn: (input: { journalId: string; resolved: boolean }) =>
+    mutationFn: (input: { journalId: string; fiscalYear: number; month: number; resolved: boolean }) =>
       api.journalReview.upsertFlag(orgId, input.journalId, {
         resolved: input.resolved,
-        fiscalYear: fiscalYear ?? undefined,
-        month: month ?? undefined,
+        fiscalYear: input.fiscalYear,
+        month: input.month,
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["journal-flags", orgId, fiscalYear, month] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: flagsQueryKey }),
   });
   const deleteFlagMutation = useMutation({
     mutationFn: (journalId: string) => api.journalReview.deleteFlag(orgId, journalId),
@@ -311,7 +319,12 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
                   onAdd={(input) => addComment.mutate(input)}
                   onDelete={(id) => deleteComment(id)}
                   onToggleResolve={() =>
-                    upsertFlag.mutate({ journalId: flag.journalId, resolved: !isResolved })
+                    upsertFlag.mutate({
+                      journalId: flag.journalId,
+                      fiscalYear: flag.fiscalYear,
+                      month: flag.month,
+                      resolved: !isResolved,
+                    })
                   }
                   onDeleteFlag={() => {
                     if (
@@ -337,6 +350,7 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
         orgId={orgId}
         fiscalYear={fiscalYear}
         month={monthFilterValue}
+        fyStartMonth={fyStartMonth}
         currentUserId={currentUserId}
       />
 
@@ -807,12 +821,14 @@ function ChoshoCellMemoSection({
   orgId,
   fiscalYear,
   month,
+  fyStartMonth,
   currentUserId,
 }: {
   orgId: string;
   fiscalYear: number | undefined;
   /** undefined = 会計年度全期間、 number = 該当月のみ */
   month: number | undefined;
+  fyStartMonth: number;
   currentUserId: string | null;
 }) {
   const qc = useQueryClient();
@@ -905,6 +921,11 @@ function ChoshoCellMemoSection({
   if (cellQuery.isLoading) return null;
   if (cellsGroup.length === 0) return null; // セルコメントが無い期間は section 自体非表示
 
+  const periodLabel =
+    month == null
+      ? `${fiscalYear}年度 全期間`
+      : `${formatYyyyMm(fiscalYear, month, fyStartMonth)}時点`;
+
   const handleToggleExpand = (key: string) => {
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -918,7 +939,7 @@ function ChoshoCellMemoSection({
     <div className="space-y-2">
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <span className="font-semibold text-[var(--color-text-primary)]">残高調書セル</span>
-        <span>{fiscalYear}年{month}月度時点で {cellsGroup.length} 件のセルにコメント</span>
+        <span>{periodLabel}で {cellsGroup.length} 件のセルにコメント</span>
       </div>
       <div className="overflow-x-auto rounded-md border bg-card">
         <table className="w-full text-xs">
@@ -939,9 +960,7 @@ function ChoshoCellMemoSection({
               const isExpanded = expanded.has(g.key);
               const allResolved =
                 g.roots.length > 0 && g.roots.every((r) => r.resolvedAt != null);
-              // YYYY-MM ラベル: fiscalYear と month から calendar year を導出するのが理想だが、
-              // ここでは selectedMonth (=memoタブの month) と一致するため fiscalYear ベースで近似
-              const yyyymm = formatYyyyMm(fiscalYear, g.month);
+              const yyyymm = formatYyyyMm(fiscalYear, g.month, fyStartMonth);
               return (
                 <CellMemoRow
                   key={g.key}
@@ -1170,11 +1189,11 @@ function CellMemoRow({
   );
 }
 
-/** SevenBoard fiscalYear × selectedMonth → "YYYY-MM" を近似 (期跨ぎは fiscalYear+1 補正) */
-function formatYyyyMm(fiscalYear: number | undefined, month: number): string {
+/** SevenBoard fiscalYear × selectedMonth → "YYYY-MM" */
+function formatYyyyMm(fiscalYear: number | undefined, month: number, fyStartMonth: number): string {
   if (fiscalYear == null) return `?-${String(month).padStart(2, "0")}`;
-  // 期首4月以降 → 同年、期首より前 → 翌年。fyStartMonth を持たない場合は同年で近似
-  return `${fiscalYear}-${String(month).padStart(2, "0")}`;
+  const year = month >= fyStartMonth ? fiscalYear : fiscalYear + 1;
+  return `${year}-${String(month).padStart(2, "0")}`;
 }
 
 // ============================================================
