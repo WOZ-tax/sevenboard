@@ -110,16 +110,31 @@ function PreviewView({ orgId, fiscalYear, month }: Props) {
   }
 
   return (
-    <ChoshoTable
-      data={data}
-      headerSlot={
-        <SaveDraftButton
-          orgId={orgId}
-          fiscalYear={data.fiscalYear}
-          month={data.selectedMonth}
-        />
-      }
-    />
+    <div className="space-y-2">
+      <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+        <span className="font-semibold">📝 プレビュー表示中</span>
+        <span className="text-amber-800">
+          セル単位でレビューメモを残すには、 右上の「下書き保存」を押して保存済 version モードに入ってください。
+          プレビュー上ではセルクリックは反応しません。
+        </span>
+      </div>
+      <ChoshoTable
+        data={data}
+        headerSlot={
+          <SaveDraftButton
+            orgId={orgId}
+            fiscalYear={data.fiscalYear}
+            month={data.selectedMonth}
+          />
+        }
+        previewCellHint={() =>
+          toast.warning("先に「下書き保存」を押してください", {
+            description: "保存済 version に入るとセル単位でメモを残せます",
+            duration: 4000,
+          })
+        }
+      />
+    </div>
   );
 }
 
@@ -322,6 +337,11 @@ interface ChoshoTableProps {
   isUpsertingCellComment?: boolean;
   isDeletingCellComment?: boolean;
   isUpdatingRowRule?: boolean;
+  /**
+   * preview モード (commentsEnabled=false) でセルクリック時の hint コールバック。
+   * 「下書き保存後にメモを残せます」と知らせる用。
+   */
+  previewCellHint?: () => void;
 }
 
 function ChoshoTable({
@@ -341,6 +361,7 @@ function ChoshoTable({
   isUpsertingCellComment = false,
   isDeletingCellComment = false,
   isUpdatingRowRule = false,
+  previewCellHint,
 }: ChoshoTableProps) {
   const router = useRouter();
   // 残高調書 → 仕訳タブへのドリルダウン。
@@ -535,6 +556,7 @@ function ChoshoTable({
                   }
                   onOpenRowRule={() => setOpenRowRule(r)}
                   onDrilldownToJournal={drilldownToJournal}
+                  previewCellHint={previewCellHint}
                 />
               );
             })}
@@ -629,6 +651,7 @@ function ChoshoRow({
   onOpenCellComment,
   onOpenRowRule,
   onDrilldownToJournal,
+  previewCellHint,
 }: {
   row: ChoshoPreviewRow;
   monthOrder: number[];
@@ -645,6 +668,8 @@ function ChoshoRow({
   onOpenCellComment: (month: number, anomaly: ChoshoAnomaly | null) => void;
   onOpenRowRule: () => void;
   onDrilldownToJournal: (row: ChoshoPreviewRow) => void;
+  /** preview モードでセルクリック時の hint コールバック (toast.warning 等) */
+  previewCellHint?: () => void;
 }) {
   // 大区分 (level 0) は太字背景、勘定 (level 1) は通常太字、補助以降 (level 2+) は通常文字。
   const isHeader = row.level === 0;
@@ -743,13 +768,17 @@ function ChoshoRow({
         // saved version では mfType が空文字になるため、 level ベースで判定する
         // (preview の mfType==='account' を level > 0 で代用、 中区分含めセル単位でメモ可能に)。
         const isCommentable = commentsEnabled && row.level > 0 && !outOfRange;
+        // preview モード (commentsEnabled=false) でも level > 0 の数値セルは
+        // クリックで「下書き保存してください」と toast 通知する hint モードに。
+        const isPreviewHintable =
+          !commentsEnabled && !!previewCellHint && row.level > 0 && !outOfRange && v != null;
         const cellClass = cn(
           "px-2 py-1.5 text-right tabular-nums",
           v != null && v < 0 && "text-[var(--color-negative)]",
           outOfRange && "bg-muted/20 text-muted-foreground/50",
           hasAnomaly && "border-l-2 border-red-500 bg-red-50 font-semibold text-red-700",
           hasCellComment && !hasAnomaly && "bg-blue-50/40",
-          isCommentable && "cursor-pointer hover:bg-muted/40",
+          (isCommentable || isPreviewHintable) && "cursor-pointer hover:bg-muted/40",
         );
         const content = v != null ? formatYen(v) : "";
         if (isCommentable) {
@@ -790,6 +819,20 @@ function ChoshoRow({
               {hasCellComment && (
                 <span className="ml-0.5 text-[9px]" title="コメントあり">💬</span>
               )}
+            </td>
+          );
+        }
+        if (isPreviewHintable) {
+          return (
+            <td
+              key={m}
+              className={cellClass}
+              onClick={previewCellHint}
+              role="button"
+              tabIndex={0}
+              title="下書き保存後にメモを残せます"
+            >
+              {content}
             </td>
           );
         }
