@@ -703,6 +703,25 @@ function ChoshoRow({
               {row.name}
             </span>
           )}
+          {/* 滞留判定が activity 抑制で発火しなかった場合の説明バッジ */}
+          {row.agingSuppressedBy && (
+            <Tooltip>
+              <TooltipTrigger
+                type="button"
+                className="ml-1 inline-flex items-center gap-0.5 rounded bg-emerald-50 px-1 py-0 text-[9px] font-medium text-emerald-700 hover:bg-emerald-100"
+              >
+                動きあり
+              </TooltipTrigger>
+              <TooltipContent side="right" className="max-w-xs">
+                <div className="space-y-0.5 text-xs">
+                  <div className="font-semibold">滞留判定を抑制</div>
+                  <div className="text-muted-foreground">
+                    残高は3ヶ月同額ですが、直近3ヶ月で借方 ¥{Math.round(row.agingSuppressedBy.debit).toLocaleString()} / 貸方 ¥{Math.round(row.agingSuppressedBy.credit).toLocaleString()} の発生があるため正常 (相殺パターン)。
+                  </div>
+                </div>
+              </TooltipContent>
+            </Tooltip>
+          )}
         </div>
       </td>
       {monthOrder.map((m, i) => {

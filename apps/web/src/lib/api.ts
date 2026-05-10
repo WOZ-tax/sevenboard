@@ -274,6 +274,11 @@ export interface ChoshoPreviewRow {
   agingCheckEnabled: boolean;
   /** 検知された異常。空配列 = 異常なし。 */
   anomalies: ChoshoAnomaly[];
+  /**
+   * 「同額条件は満たしたが直近3ヶ月で debit/credit 発生があるため AGING_3M を抑制した」
+   * 場合の活動量。null = 抑制発火なし。tooltip で「動きあり」表示用。
+   */
+  agingSuppressedBy: { debit: number; credit: number } | null;
 }
 
 export interface ChoshoPreviewResult {

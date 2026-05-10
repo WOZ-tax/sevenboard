@@ -231,6 +231,7 @@ function flattenMfRows(
       expectedValue: null,
       agingCheckEnabled: false,
       anomalies: [],
+      agingSuppressedBy: null,
     });
 
     if (hasChildren && row.rows) {
@@ -286,7 +287,9 @@ function applyRulesAndDetectAnomalies(
       const path = recentActivityByPath ? buildNamePath(row, byKey) : null;
       const activity =
         path != null ? (recentActivityByPath?.get(path) ?? null) : null;
-      row.anomalies = detectAnomalies(row, monthOrder, selectedMonth, activity);
+      const result = detectAnomalies(row, monthOrder, selectedMonth, activity);
+      row.anomalies = result.anomalies;
+      row.agingSuppressedBy = result.agingSuppressedBy;
     }
   }
 }
@@ -338,13 +341,20 @@ function isReceivableDescendant(
  *
  * @param activity 直近3ヶ月の借方/貸方発生額。AGING_3M 抑制判定に使う。null なら抑制なし。
  */
+interface DetectResult {
+  anomalies: ChoshoAnomaly[];
+  /** 同額条件は満たしたが activity 抑制で aging が発火しなかった場合の活動量。 */
+  agingSuppressedBy: { debit: number; credit: number } | null;
+}
+
 function detectAnomalies(
   row: ChoshoPreviewRow,
   monthOrder: number[],
   selectedMonth: number,
   activity: { debit: number; credit: number } | null,
-): ChoshoAnomaly[] {
+): DetectResult {
   const anomalies: ChoshoAnomaly[] = [];
+  let agingSuppressedBy: { debit: number; credit: number } | null = null;
 
   // 期待残高違反: expectedRule === EXPECTED_VALUE で対象月残高が expected_value と一致しない
   if (row.expectedRule === 'EXPECTED_VALUE' && row.expectedValue !== null) {
@@ -379,11 +389,14 @@ function detectAnomalies(
             monthsChecked: aging.monthsChecked,
           },
         });
+      } else {
+        // UI tooltip で「動きあり」と理由を見せるため、抑制元の数値を出力に残す
+        agingSuppressedBy = activity;
       }
     }
   }
 
-  return anomalies;
+  return { anomalies, agingSuppressedBy };
 }
 
 interface AgingResult {

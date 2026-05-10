@@ -60,6 +60,12 @@ export interface ChoshoPreviewRow {
   agingCheckEnabled: boolean;
   /** 検知された異常。空配列 = 異常なし。 */
   anomalies: ChoshoAnomaly[];
+  /**
+   * 滞留判定が「同額条件は満たしたが debit/credit activity ありで抑制された」場合に
+   * UI の tooltip 等で理由を示すための情報。null = 抑制発火なし (= aging 検知発火 or
+   * そもそも同額条件未達)。Phase 1 Unit 2B-5c の補助情報。
+   */
+  agingSuppressedBy: { debit: number; credit: number } | null;
 }
 
 /**

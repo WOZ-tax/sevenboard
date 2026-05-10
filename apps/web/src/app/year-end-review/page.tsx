@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { CalendarClock, Lock } from "lucide-react";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
@@ -11,7 +11,7 @@ import { useIndustryCode } from "@/hooks/use-industry-code";
 import { getIndustryOptions } from "@/lib/industry-knowledge";
 import type { IndustryCode } from "@/lib/industry-knowledge";
 import { usePeriodStore, getPeriodLabel } from "@/lib/period-store";
-import { useMfOffice } from "@/hooks/use-mf-data";
+import { useMfBS } from "@/hooks/use-mf-data";
 
 import { LandingPlSection } from "./_sections/01-landing-pl";
 import { CashflowLandingSection } from "./_sections/02-cashflow-landing";
@@ -53,11 +53,20 @@ export default function YearEndReviewPage() {
   const { elapsedMonths, remainingMonths, isReady } = useFyElapsed();
   const { fiscalYear, month, periods } = usePeriodStore();
   const periodLabel = getPeriodLabel(fiscalYear, month, periods);
-  // 資本金1億円超の判定は MF office の資本金フィールド連携時に有効化。
-  // それまでは全セクション表示（localhost 詰め込み中）。
-  const office = useMfOffice();
-  void office;
-  const visibleSections = SECTIONS;
+  // 資本金1億円超の判定は BS の「資本金」勘定残高で行う (MfOffice には資本金フィールドが
+  // 無いため)。1億円以下なら largeCapOnly セクション (⑨減資の提案) を hide。
+  // BS 未取得時は安全側に倒して hide (largeCapOnly セクションは表示しない)。
+  const bs = useMfBS();
+  const isLargeCap = useMemo(() => {
+    if (!bs.data) return false;
+    const all = [...bs.data.assets, ...bs.data.liabilitiesEquity];
+    const row = all.find((r) => r.category.includes("資本金"));
+    return (row?.current ?? 0) > 100_000_000;
+  }, [bs.data]);
+  const visibleSections = useMemo(
+    () => (isLargeCap ? SECTIONS : SECTIONS.filter((s) => !s.largeCapOnly)),
+    [isLargeCap],
+  );
 
   const [activeId, setActiveId] = useState<string>(visibleSections[0]?.id ?? "");
   useEffect(() => {

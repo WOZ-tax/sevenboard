@@ -227,6 +227,17 @@ export class ChoshoService {
         selectedMonth: version.selectedMonth,
         recentActivity,
       });
+      // 同額条件は満たしたが activity 抑制で aging を発火させなかった場合のみ、
+      // tooltip 表示のため activity を残す。saved 経路では simplified に「直近3ヶ月で
+      // 同額 & activity あり」のときだけ set。
+      const agingSuppressedBy =
+        recentActivity != null &&
+        (r.agingCheckEnabled || r.expectedRule === 'AGING_3M') &&
+        anomalies.every((a) => a.type !== 'AGING_3M') &&
+        wasMonthlyAmountSameForLast3(monthlyBalances, version.selectedMonth) &&
+        (recentActivity.debit > 0 || recentActivity.credit > 0)
+          ? recentActivity
+          : null;
       return {
         rowKey: r.id,
         parentRowKey: r.parentRowId,
@@ -244,6 +255,7 @@ export class ChoshoService {
         expectedValue,
         agingCheckEnabled: r.agingCheckEnabled,
         anomalies,
+        agingSuppressedBy,
       };
     });
 
@@ -748,6 +760,24 @@ export interface CellCommentRow {
 // ============================================================
 // pure helpers (test 用に export)
 // ============================================================
+
+/**
+ * saved row の monthlyBalances で「対象月含む直近3ヶ月の非ゼロ残高が同額」かを判定する小ヘルパー。
+ * computeAnomaliesFromSaved の判定式と揃えてある (selectedMonth から月またぎで遡る形)。
+ */
+function wasMonthlyAmountSameForLast3(
+  monthlyBalances: Record<number, number>,
+  selectedMonth: number,
+): boolean {
+  const m2 = selectedMonth;
+  const m1 = m2 === 1 ? 12 : m2 - 1;
+  const m0 = m1 === 1 ? 12 : m1 - 1;
+  const v0 = monthlyBalances[m0];
+  const v1 = monthlyBalances[m1];
+  const v2 = monthlyBalances[m2];
+  if (typeof v0 !== 'number' || typeof v1 !== 'number' || typeof v2 !== 'number') return false;
+  return v2 !== 0 && v0 === v1 && v1 === v2;
+}
 
 /**
  * saved chosho_rows の id -> '/' 区切り name path を再帰計算した Map を返す。
