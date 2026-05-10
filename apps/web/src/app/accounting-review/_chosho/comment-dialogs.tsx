@@ -27,7 +27,7 @@ import { cn } from "@/lib/utils";
 // 共通: URL chips エディタ
 // ============================================================
 
-function UrlChipsEditor({
+export function UrlChipsEditor({
   urls,
   onChange,
 }: {

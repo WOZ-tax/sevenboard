@@ -18,7 +18,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Calendar, ExternalLink, Flag, Loader2, Search } from "lucide-react";
+import { AlertTriangle, Calendar, Flag, Loader2, Search } from "lucide-react";
 import { toast } from "sonner";
 import { api, type JournalReviewFlagItem } from "@/lib/api";
 import type { MfJournal } from "@/lib/api-types";
@@ -26,11 +26,13 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useFyElapsed } from "@/hooks/use-fy-elapsed";
+import { useAuthStore } from "@/lib/auth";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { JournalCommentDialog } from "../_journal/journal-comment-dialog";
 
 interface Props {
   orgId: string;
@@ -285,6 +287,15 @@ export function JournalReviewTab({ orgId, fiscalYear, month }: Props) {
     upsertFlag.mutate({ journalId, resolved: isUnresolved });
   };
 
+  // 行クリック → Dialog で 1 ステップ完結 (memo タブへ飛ばさない)
+  const [openComment, setOpenComment] = useState<{
+    id: string;
+    number: string | null;
+    issueDate: string | null;
+    description: string | null;
+  } | null>(null);
+  const currentUserId = useAuthStore((s) => s.user?.id ?? null);
+
   // risk-findings: 検知済 journal_id を背景色でハイライトするための Set を組み立て
   const riskQuery = useQuery({
     queryKey: ["risk-findings", orgId, fiscalYear, month],
@@ -445,9 +456,15 @@ export function JournalReviewTab({ orgId, fiscalYear, month }: Props) {
                 const userFlagOpen = userFlag != null && userFlag.resolvedAt == null;
                 const isFlagPending = upsertFlag.isPending && upsertFlag.variables?.journalId === r.id;
                 // クリック対象: 行全体 (取引Noカラム以外)。フラグ列は別ハンドラ。
+                // 行クリック → コメント Dialog 起動 (Dialog 内で保存時に自動でフラグ立つ)
                 const handleRowClick = () => {
                   if (r.id == null) return;
-                  handleToggleFlag(r.id);
+                  setOpenComment({
+                    id: r.id,
+                    number: r.number ?? null,
+                    issueDate: r.issueDate ?? null,
+                    description: r.description ?? null,
+                  });
                 };
                 return (
                   <tr
@@ -492,31 +509,12 @@ export function JournalReviewTab({ orgId, fiscalYear, month }: Props) {
                       {r.description ?? "—"}
                     </td>
                     <td className="px-1 py-1.5 text-center" onClick={(e) => e.stopPropagation()}>
-                      <div className="flex items-center justify-center gap-0.5">
-                        <FlagCell
-                          flag={userFlag}
-                          loading={isFlagPending}
-                          disabled={r.id == null}
-                          onToggle={() => r.id && handleToggleFlag(r.id)}
-                        />
-                        {userFlag != null && r.id != null && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const params = new URLSearchParams();
-                              params.set("tab", "memo");
-                              params.set("focusJournal", r.id!);
-                              params.set("compose", "1");
-                              router.push(`/accounting-review?${params.toString()}`);
-                            }}
-                            className="rounded p-0.5 text-muted-foreground hover:bg-muted/60 hover:text-[var(--color-primary)]"
-                            title="レビューメモを開いてコメント"
-                            aria-label="レビューメモへ"
-                          >
-                            <ExternalLink className="h-3 w-3" />
-                          </button>
-                        )}
-                      </div>
+                      <FlagCell
+                        flag={userFlag}
+                        loading={isFlagPending}
+                        disabled={r.id == null}
+                        onToggle={() => r.id && handleToggleFlag(r.id)}
+                      />
                     </td>
                   </tr>
                 );
@@ -527,9 +525,20 @@ export function JournalReviewTab({ orgId, fiscalYear, month }: Props) {
       )}
 
       <p className="text-[10px] italic text-muted-foreground">
-        行クリックで「要確認」フラグ ON/OFF。✓ で解決済 (赤ハイライト解除)。
-        コメント機能は次の Unit で追加予定。
+        行クリックでコメント Dialog (保存すると自動でフラグ ON)。 フラグ列の旗アイコンはフラグ単独トグル
+        (✓ で解決済)。
       </p>
+
+      <JournalCommentDialog
+        open={openComment != null}
+        onOpenChange={(v) => { if (!v) setOpenComment(null); }}
+        orgId={orgId}
+        fiscalYear={fiscalYear}
+        month={month}
+        journal={openComment}
+        flag={openComment ? flagByJournalId.get(openComment.id) ?? null : null}
+        currentUserId={currentUserId}
+      />
     </div>
   );
 }
