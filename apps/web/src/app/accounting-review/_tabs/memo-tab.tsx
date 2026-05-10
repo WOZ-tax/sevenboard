@@ -27,6 +27,7 @@ import {
 import { toast } from "sonner";
 import {
   api,
+  type ChoshoRecentCellComment,
   type JournalReviewCommentItem,
   type JournalReviewFlagItem,
 } from "@/lib/api";
@@ -109,11 +110,12 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
     onSuccess: () => invalidate(),
     onError: () => toast.error("コメント追加に失敗しました"),
   });
-  const deleteComment = useMutation({
+  const deleteCommentMutation = useMutation({
     mutationFn: (commentId: string) => api.journalReview.deleteComment(orgId, commentId),
     onSuccess: () => invalidate(),
     onError: () => toast.error("コメント削除に失敗しました"),
   });
+  const deleteComment = (commentId: string) => deleteCommentMutation.mutate(commentId);
   const upsertFlag = useMutation({
     mutationFn: (input: { journalId: string; resolved: boolean }) =>
       api.journalReview.upsertFlag(orgId, input.journalId, {
@@ -241,7 +243,7 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
                   onStartCompose={() => handleStartCompose(flag.journalId)}
                   onEndCompose={() => handleEndCompose(flag.journalId)}
                   onAdd={(input) => addComment.mutate(input)}
-                  onDelete={(id) => deleteComment.mutate(id)}
+                  onDelete={(id) => deleteComment(id)}
                   onToggleResolve={() =>
                     upsertFlag.mutate({ journalId: flag.journalId, resolved: !isResolved })
                   }
@@ -254,9 +256,16 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
         </table>
       </div>
 
+      <ChoshoCellMemoSection
+        orgId={orgId}
+        fiscalYear={fiscalYear}
+        month={month}
+        currentUserId={currentUserId}
+      />
+
       <p className="text-[10px] italic text-muted-foreground">
-        ▶ をクリックでスレッド展開。「コメント追加」で root コメント、各 root の「返信」で reply。
-        URL は貼ると chip 化。「解決」でフラグを解決済にし、仕訳レビューの赤ハイライトが解除される。
+        ▶ をクリックでスレッド展開。「コメント追加」で root、各 root の「返信」で reply。
+        URL は貼ると chip 化。削除は本人のみ + 確認ポップアップあり。
       </p>
     </div>
   );
@@ -530,18 +539,32 @@ function RootComment({
   );
 }
 
+/** 共通: 削除確認ポップアップ。OK で onConfirm 実行。 */
+function confirmAndDelete(onConfirm: () => void) {
+  if (typeof window !== "undefined" && window.confirm("本当に削除しますか?")) {
+    onConfirm();
+  }
+}
+
 function CommentBubble({
   comment,
   currentUserId,
   onDelete,
 }: {
-  comment: JournalReviewCommentItem;
+  comment: { id: string; body: string; urls: string[]; authorId: string | null; authorName: string | null; createdAt: string };
   currentUserId: string | null;
   onDelete: () => void;
 }) {
   const isMine = !!currentUserId && comment.authorId === currentUserId;
   return (
     <div>
+      <div className="mb-0.5 flex items-center gap-1.5 text-[10px] text-muted-foreground">
+        <span className="font-semibold text-[var(--color-text-primary)]">
+          {comment.authorName ?? "(不明なユーザー)"}
+        </span>
+        <span>·</span>
+        <span>{new Date(comment.createdAt).toLocaleString("ja-JP")}</span>
+      </div>
       <div className="whitespace-pre-wrap break-words text-xs">{comment.body}</div>
       {comment.urls.length > 0 && (
         <div className="mt-1 flex flex-wrap gap-1">
@@ -559,20 +582,19 @@ function CommentBubble({
           ))}
         </div>
       )}
-      <div className="mt-0.5 flex items-center justify-between">
-        <span className="text-[9px] text-muted-foreground">
-          {new Date(comment.createdAt).toLocaleString("ja-JP")}
-        </span>
-        {isMine && (
+      {isMine && (
+        <div className="mt-0.5 flex justify-end">
           <button
             type="button"
-            onClick={onDelete}
-            className="text-[9px] text-muted-foreground hover:text-red-600"
+            onClick={() => confirmAndDelete(onDelete)}
+            className="inline-flex items-center gap-0.5 text-[9px] text-muted-foreground hover:text-red-600"
+            title="このコメントを削除"
           >
-            <Trash2 className="inline h-2.5 w-2.5" />
+            <Trash2 className="h-2.5 w-2.5" />
+            削除
           </button>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -681,6 +703,380 @@ function ShortAccountSummary({ journal }: { journal: MfJournalRefItem }) {
       <span className="ml-2 tabular-nums text-muted-foreground">¥{Math.round(journal.totalAmount).toLocaleString()}</span>
     </span>
   );
+}
+
+// ============================================================
+// chosho セルコメントセクション (Phase 2-3)
+// 期間内最新 saved version のセルコメントを journal と並列で表示
+// ============================================================
+
+function ChoshoCellMemoSection({
+  orgId,
+  fiscalYear,
+  month,
+  currentUserId,
+}: {
+  orgId: string;
+  fiscalYear: number | undefined;
+  month: number | undefined;
+  currentUserId: string | null;
+}) {
+  const qc = useQueryClient();
+  const queryKey = ["chosho-recent-cell-comments", orgId, fiscalYear, month];
+  const cellQuery = useQuery({
+    queryKey,
+    queryFn: () => api.chosho.listRecentCellComments(orgId, fiscalYear!, month!),
+    enabled: !!orgId && fiscalYear != null && month != null,
+    staleTime: 30_000,
+  });
+  const items = cellQuery.data ?? [];
+
+  const addCell = useMutation({
+    mutationFn: (input: {
+      versionId: string;
+      rowId: string;
+      month: number;
+      body: string;
+      urls: string[];
+      anomalyType: "EXPECTED_VALUE_VIOLATION" | "AGING_3M";
+      parentCommentId?: string;
+    }) =>
+      api.chosho.addCellComment(orgId, input.versionId, input.rowId, {
+        month: input.month,
+        body: input.body,
+        urls: input.urls,
+        anomalyType: input.anomalyType,
+        parentCommentId: input.parentCommentId,
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey }),
+    onError: () => toast.error("セルコメント追加に失敗しました"),
+  });
+  const resolveCell = useMutation({
+    mutationFn: (input: { commentId: string; resolved: boolean }) =>
+      api.chosho.resolveCellComment(orgId, input.commentId, input.resolved),
+    onSuccess: () => qc.invalidateQueries({ queryKey }),
+    onError: () => toast.error("解決状態の更新に失敗しました"),
+  });
+  const deleteCell = useMutation({
+    mutationFn: (commentId: string) =>
+      api.chosho.deleteCellCommentById(orgId, commentId),
+    onSuccess: () => qc.invalidateQueries({ queryKey }),
+    onError: () => toast.error("削除に失敗しました"),
+  });
+
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  // (rowId, month) 単位でグルーピング (1セル = 1グループ)
+  const cellsGroup = useMemo(() => {
+    type Group = {
+      key: string;
+      rowId: string;
+      versionId: string;
+      rowName: string;
+      month: number;
+      anomalyType: "EXPECTED_VALUE_VIOLATION" | "AGING_3M";
+      roots: ChoshoRecentCellComment[];
+      replies: ChoshoRecentCellComment[];
+    };
+    const map = new Map<string, Group>();
+    for (const c of items) {
+      const key = `${c.rowId}:${c.month}`;
+      let g = map.get(key);
+      if (!g) {
+        g = {
+          key,
+          rowId: c.rowId,
+          versionId: c.versionId,
+          rowName: c.rowName,
+          month: c.month,
+          anomalyType: c.anomalyType,
+          roots: [],
+          replies: [],
+        };
+        map.set(key, g);
+      }
+      if (c.parentCommentId) g.replies.push(c);
+      else g.roots.push(c);
+    }
+    return Array.from(map.values()).sort((a, b) => {
+      if (a.rowName === b.rowName) return a.month - b.month;
+      return a.rowName.localeCompare(b.rowName);
+    });
+  }, [items]);
+
+  if (cellQuery.isLoading) return null;
+  if (cellsGroup.length === 0) return null; // セルコメントが無い期間は section 自体非表示
+
+  const handleToggleExpand = (key: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <span className="font-semibold text-[var(--color-text-primary)]">残高調書セル</span>
+        <span>{fiscalYear}年{month}月度時点で {cellsGroup.length} 件のセルにコメント</span>
+      </div>
+      <div className="overflow-x-auto rounded-md border bg-card">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="border-b-2 border-[var(--color-border)] bg-[var(--color-background)]">
+              <th className="w-6 px-1 py-2"></th>
+              <th className="w-24 px-2 py-2 text-left font-semibold text-[var(--color-text-primary)]">YYYY-MM</th>
+              <th className="px-2 py-2 text-left font-semibold text-[var(--color-text-primary)]">勘定科目</th>
+              <th className="w-16 px-2 py-2 text-left font-semibold text-[var(--color-text-primary)]">取引No</th>
+              <th className="w-16 px-2 py-2 text-left font-semibold text-[var(--color-text-primary)]">摘要</th>
+              <th className="w-20 px-2 py-2 text-center font-semibold text-[var(--color-text-primary)]">コメント</th>
+              <th className="w-20 px-2 py-2 text-center font-semibold text-[var(--color-text-primary)]">返信</th>
+              <th className="w-24 px-2 py-2 text-center font-semibold text-[var(--color-text-primary)]">ステータス</th>
+            </tr>
+          </thead>
+          <tbody>
+            {cellsGroup.map((g) => {
+              const isExpanded = expanded.has(g.key);
+              const allResolved =
+                g.roots.length > 0 && g.roots.every((r) => r.resolvedAt != null);
+              // YYYY-MM ラベル: fiscalYear と month から calendar year を導出するのが理想だが、
+              // ここでは selectedMonth (=memoタブの month) と一致するため fiscalYear ベースで近似
+              const yyyymm = formatYyyyMm(fiscalYear, g.month);
+              return (
+                <CellMemoRow
+                  key={g.key}
+                  group={g}
+                  yyyymm={yyyymm}
+                  isExpanded={isExpanded}
+                  isResolved={allResolved}
+                  currentUserId={currentUserId}
+                  onToggleExpand={() => handleToggleExpand(g.key)}
+                  onAdd={(input) => addCell.mutate({ versionId: g.versionId, rowId: g.rowId, ...input })}
+                  onDelete={(id) => deleteCell.mutate(id)}
+                  onResolveRoot={(rootId, resolved) =>
+                    resolveCell.mutate({ commentId: rootId, resolved })
+                  }
+                  isAdding={addCell.isPending}
+                  isResolving={resolveCell.isPending}
+                />
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function CellMemoRow({
+  group,
+  yyyymm,
+  isExpanded,
+  isResolved,
+  currentUserId,
+  onToggleExpand,
+  onAdd,
+  onDelete,
+  onResolveRoot,
+  isAdding,
+  isResolving,
+}: {
+  group: {
+    key: string;
+    rowId: string;
+    rowName: string;
+    month: number;
+    anomalyType: "EXPECTED_VALUE_VIOLATION" | "AGING_3M";
+    roots: ChoshoRecentCellComment[];
+    replies: ChoshoRecentCellComment[];
+  };
+  yyyymm: string;
+  isExpanded: boolean;
+  isResolved: boolean;
+  currentUserId: string | null;
+  onToggleExpand: () => void;
+  onAdd: (input: {
+    month: number;
+    body: string;
+    urls: string[];
+    anomalyType: "EXPECTED_VALUE_VIOLATION" | "AGING_3M";
+    parentCommentId?: string;
+  }) => void;
+  onDelete: (commentId: string) => void;
+  onResolveRoot: (rootId: string, resolved: boolean) => void;
+  isAdding: boolean;
+  isResolving: boolean;
+}) {
+  const repliesByRoot = useMemo(() => {
+    const m = new Map<string, ChoshoRecentCellComment[]>();
+    for (const r of group.replies) {
+      if (!r.parentCommentId) continue;
+      const arr = m.get(r.parentCommentId);
+      if (arr) arr.push(r);
+      else m.set(r.parentCommentId, [r]);
+    }
+    return m;
+  }, [group.replies]);
+
+  const [composing, setComposing] = useState(false);
+  const [replyingTo, setReplyingTo] = useState<string | null>(null);
+  const rootCount = group.roots.length;
+  const replyCount = group.replies.length;
+
+  return (
+    <>
+      <tr className={cn("border-b border-muted/50", !isResolved && "bg-red-50/40 hover:bg-red-50/70", isResolved && "hover:bg-muted/30")}>
+        <td className="px-1 py-1.5 text-center">
+          <button
+            type="button"
+            onClick={onToggleExpand}
+            className="flex h-4 w-4 items-center justify-center rounded text-muted-foreground hover:bg-muted/60"
+          >
+            {isExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+          </button>
+        </td>
+        <td className="px-2 py-1.5 font-mono text-[10px] text-muted-foreground tabular-nums">{yyyymm}</td>
+        <td className="px-2 py-1.5 text-[var(--color-text-primary)]">{group.rowName}</td>
+        <td className="px-2 py-1.5 text-muted-foreground">—</td>
+        <td className="px-2 py-1.5 text-muted-foreground">—</td>
+        <td className="px-2 py-1.5 text-center">
+          <Badge variant={rootCount > 0 ? "secondary" : "outline"} className="text-[10px]">{rootCount}</Badge>
+        </td>
+        <td className="px-2 py-1.5 text-center">
+          <Badge variant={replyCount > 0 ? "secondary" : "outline"} className="text-[10px]">{replyCount}</Badge>
+        </td>
+        <td className="px-2 py-1.5 text-center">
+          <span
+            className={cn(
+              "rounded border px-1.5 py-0.5 text-[10px] font-medium",
+              isResolved ? "border-emerald-300 bg-emerald-50 text-emerald-700" : "border-red-300 bg-red-50 text-red-700",
+            )}
+          >
+            {isResolved ? "✓ 解決済" : "未解決"}
+          </span>
+        </td>
+      </tr>
+      {isExpanded && (
+        <tr className="border-b border-muted/50">
+          <td></td>
+          <td colSpan={7} className="px-2 py-2">
+            <div className="space-y-2 rounded bg-muted/20 p-2">
+              {group.roots.length === 0 && !composing && (
+                <p className="py-2 text-center text-[11px] text-muted-foreground">まだコメントはありません</p>
+              )}
+              {group.roots.map((root) => {
+                const replies = repliesByRoot.get(root.id) ?? [];
+                return (
+                  <div key={root.id} className="rounded border bg-card p-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <CommentBubble
+                        comment={root}
+                        currentUserId={currentUserId}
+                        onDelete={() => onDelete(root.id)}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => onResolveRoot(root.id, root.resolvedAt == null)}
+                        disabled={isResolving}
+                        className={cn(
+                          "shrink-0 rounded border px-1.5 py-0.5 text-[10px]",
+                          root.resolvedAt
+                            ? "border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                            : "border-red-300 bg-red-50 text-red-700 hover:bg-red-100",
+                        )}
+                        title={root.resolvedAt ? "クリックで再 open" : "クリックで解決済"}
+                      >
+                        {root.resolvedAt ? "✓ 解決" : "未解決"}
+                      </button>
+                    </div>
+                    {replies.length > 0 && (
+                      <div className="mt-1.5 space-y-1.5 border-l-2 border-muted pl-2">
+                        {replies.map((rep) => (
+                          <CommentBubble
+                            key={rep.id}
+                            comment={rep}
+                            currentUserId={currentUserId}
+                            onDelete={() => onDelete(rep.id)}
+                          />
+                        ))}
+                      </div>
+                    )}
+                    <div className="mt-1.5">
+                      {replyingTo === root.id ? (
+                        <CommentComposer
+                          placeholder="返信を入力…"
+                          onSubmit={(body, urls) => {
+                            onAdd({
+                              month: group.month,
+                              body,
+                              urls,
+                              anomalyType: group.anomalyType,
+                              parentCommentId: root.id,
+                            });
+                            setReplyingTo(null);
+                          }}
+                          onCancel={() => setReplyingTo(null)}
+                          isSubmitting={isAdding}
+                          autoFocus
+                          small
+                        />
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setReplyingTo(root.id)}
+                          className="inline-flex items-center gap-0.5 rounded text-[10px] text-muted-foreground hover:text-[var(--color-primary)]"
+                        >
+                          <Reply className="h-2.5 w-2.5" />
+                          返信
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+              {composing ? (
+                <CommentComposer
+                  placeholder="新規コメントを入力…"
+                  onSubmit={(body, urls) => {
+                    onAdd({
+                      month: group.month,
+                      body,
+                      urls,
+                      anomalyType: group.anomalyType,
+                    });
+                    setComposing(false);
+                  }}
+                  onCancel={() => setComposing(false)}
+                  isSubmitting={isAdding}
+                  autoFocus
+                />
+              ) : (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-xs"
+                  onClick={() => setComposing(true)}
+                >
+                  <Plus className="mr-1 h-3 w-3" />
+                  コメント追加
+                </Button>
+              )}
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+/** SevenBoard fiscalYear × selectedMonth → "YYYY-MM" を近似 (期跨ぎは fiscalYear+1 補正) */
+function formatYyyyMm(fiscalYear: number | undefined, month: number): string {
+  if (fiscalYear == null) return `?-${String(month).padStart(2, "0")}`;
+  // 期首4月以降 → 同年、期首より前 → 翌年。fyStartMonth を持たない場合は同年で近似
+  return `${fiscalYear}-${String(month).padStart(2, "0")}`;
 }
 
 // ============================================================

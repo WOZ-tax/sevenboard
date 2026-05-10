@@ -167,6 +167,7 @@ export function RowCommentDialog({
                 body={c.body}
                 urls={c.urls}
                 createdAt={c.createdAt}
+                authorName={c.authorName}
                 isMine={editable && !!currentUserId && c.authorId === currentUserId}
                 onDelete={() => onDelete(c.id)}
               />
@@ -301,6 +302,13 @@ export function CellCommentDialog({
           </div>
         ) : existing ? (
           <div className="space-y-2">
+            {existing.authorName && (
+              <div className="text-[10px] text-muted-foreground">
+                <span className="font-semibold text-[var(--color-text-primary)]">{existing.authorName}</span>
+                <span className="mx-1">·</span>
+                <span>{new Date(existing.createdAt).toLocaleString("ja-JP")}</span>
+              </div>
+            )}
             <div className="whitespace-pre-wrap rounded border bg-card p-2 text-xs">{existing.body}</div>
             {existing.urls.length > 0 && (
               <div className="flex flex-wrap gap-1">
@@ -334,7 +342,11 @@ export function CellCommentDialog({
               variant="outline"
               size="sm"
               className="h-7 text-xs text-red-600 hover:text-red-700"
-              onClick={() => onDelete({ rowId, month })}
+              onClick={() => {
+                if (typeof window !== "undefined" && window.confirm("本当に削除しますか?")) {
+                  onDelete({ rowId, month });
+                }
+              }}
               disabled={isDeleting}
             >
               {isDeleting ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" /> : <Trash2 className="mr-1.5 h-3 w-3" />}
@@ -367,18 +379,27 @@ function CommentItem({
   body,
   urls,
   createdAt,
+  authorName,
   isMine,
   onDelete,
 }: {
   body: string;
   urls: string[];
   createdAt: string;
+  authorName?: string | null;
   isMine: boolean;
   onDelete: () => void;
 }) {
   const date = useMemo(() => new Date(createdAt).toLocaleString("ja-JP"), [createdAt]);
   return (
     <div className="rounded border bg-card p-2 text-xs">
+      <div className="mb-0.5 flex items-center gap-1.5 text-[10px] text-muted-foreground">
+        <span className="font-semibold text-[var(--color-text-primary)]">
+          {authorName ?? "(不明なユーザー)"}
+        </span>
+        <span>·</span>
+        <span>{date}</span>
+      </div>
       <div className="whitespace-pre-wrap break-words">{body}</div>
       {urls.length > 0 && (
         <div className="mt-1.5 flex flex-wrap gap-1">
@@ -396,18 +417,21 @@ function CommentItem({
           ))}
         </div>
       )}
-      <div className="mt-1.5 flex items-center justify-between">
-        <span className="text-[10px] text-muted-foreground">{date}</span>
-        {isMine && (
+      {isMine && (
+        <div className="mt-1.5 flex justify-end">
           <button
             type="button"
-            onClick={onDelete}
+            onClick={() => {
+              if (typeof window !== "undefined" && window.confirm("本当に削除しますか?")) {
+                onDelete();
+              }
+            }}
             className="text-[10px] text-muted-foreground hover:text-red-600"
           >
             削除
           </button>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

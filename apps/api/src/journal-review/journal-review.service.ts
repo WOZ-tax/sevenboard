@@ -140,6 +140,7 @@ export class JournalReviewService {
     const items = await this.prisma.journalReviewComment.findMany({
       where,
       orderBy: { createdAt: 'asc' },
+      include: { author: { select: { name: true } } },
     });
     return items.map(toCommentItem);
   }
@@ -179,6 +180,7 @@ export class JournalReviewService {
         urls: urls as Prisma.InputJsonValue,
         authorId,
       },
+      include: { author: { select: { name: true } } },
     });
     return toCommentItem(created);
   }
@@ -229,6 +231,7 @@ export interface JournalReviewCommentItem {
   body: string;
   urls: string[];
   authorId: string | null;
+  authorName: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -242,6 +245,7 @@ function toCommentItem(c: {
   authorId: string | null;
   createdAt: Date;
   updatedAt: Date;
+  author?: { name: string } | null;
 }): JournalReviewCommentItem {
   const urls = Array.isArray(c.urls)
     ? c.urls.filter((v): v is string => typeof v === 'string')
@@ -253,6 +257,7 @@ function toCommentItem(c: {
     body: c.body,
     urls,
     authorId: c.authorId,
+    authorName: c.author?.name ?? null,
     createdAt: c.createdAt.toISOString(),
     updatedAt: c.updatedAt.toISOString(),
   };

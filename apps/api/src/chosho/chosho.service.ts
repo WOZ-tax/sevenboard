@@ -424,15 +424,7 @@ export class ChoshoService {
     const items = await this.prisma.choshoRowComment.findMany({
       where: { tenantId, orgId, row: { versionId } },
       orderBy: { createdAt: 'asc' },
-      select: {
-        id: true,
-        rowId: true,
-        body: true,
-        urls: true,
-        authorId: true,
-        createdAt: true,
-        updatedAt: true,
-      },
+      include: { author: { select: { name: true } } },
     });
     return items.map((c) => ({
       id: c.id,
@@ -440,6 +432,7 @@ export class ChoshoService {
       body: c.body,
       urls: parseStringArray(c.urls),
       authorId: c.authorId,
+      authorName: c.author?.name ?? null,
       createdAt: c.createdAt.toISOString(),
       updatedAt: c.updatedAt.toISOString(),
     }));
@@ -466,6 +459,7 @@ export class ChoshoService {
         urls: urls as Prisma.InputJsonValue,
         authorId,
       },
+      include: { author: { select: { name: true } } },
     });
     return {
       id: created.id,
@@ -473,6 +467,7 @@ export class ChoshoService {
       body: created.body,
       urls: parseStringArray(created.urls),
       authorId: created.authorId,
+      authorName: created.author?.name ?? null,
       createdAt: created.createdAt.toISOString(),
       updatedAt: created.updatedAt.toISOString(),
     };
@@ -516,21 +511,16 @@ export class ChoshoService {
     await this.assertVersionBelongsToOrg(versionId, orgId, tenantId);
     const items = await this.prisma.choshoCellComment.findMany({
       where: { tenantId, orgId, row: { versionId } },
-      orderBy: [{ rowId: 'asc' }, { month: 'asc' }],
+      orderBy: [{ rowId: 'asc' }, { month: 'asc' }, { createdAt: 'asc' }],
+      include: { author: { select: { name: true } } },
     });
-    return items.map((c) => ({
-      id: c.id,
-      rowId: c.rowId,
-      month: c.month,
-      body: c.body,
-      urls: parseStringArray(c.urls),
-      anomalyType: c.anomalyType,
-      authorId: c.authorId,
-      createdAt: c.createdAt.toISOString(),
-      updatedAt: c.updatedAt.toISOString(),
-    }));
+    return items.map(toCellCommentRow);
   }
 
+  /**
+   * 旧 upsert (1:1) は Phase 2-3 で deprecated。互換のため最初の root コメントを upsert する形で残置。
+   * 新規 UI は addCellComment / resolveCellComment / deleteCellCommentById を使う。
+   */
   async upsertCellComment(
     orgId: string,
     versionId: string,
@@ -547,9 +537,66 @@ export class ChoshoService {
     if (month < 1 || month > 12) {
       throw new ForbiddenException('month must be 1..12');
     }
-    const upserted = await this.prisma.choshoCellComment.upsert({
-      where: { rowId_month: { rowId, month } },
-      create: {
+    // 既存 root (parent_comment_id IS NULL) があれば update、なければ create
+    const existing = await this.prisma.choshoCellComment.findFirst({
+      where: { rowId, month, parentCommentId: null },
+      orderBy: { createdAt: 'asc' },
+    });
+    let saved;
+    if (existing) {
+      saved = await this.prisma.choshoCellComment.update({
+        where: { id: existing.id },
+        data: { body, urls: urls as Prisma.InputJsonValue, anomalyType },
+      });
+    } else {
+      saved = await this.prisma.choshoCellComment.create({
+        data: {
+          rowId,
+          tenantId,
+          orgId,
+          month,
+          body,
+          urls: urls as Prisma.InputJsonValue,
+          anomalyType,
+          authorId,
+        },
+      });
+    }
+    return toCellCommentRow(saved);
+  }
+
+  /**
+   * 新 API (Phase 2-3): 1セルに複数 root + 返信を許容する add。
+   * parentCommentId NULL = root、UUID = 返信。
+   */
+  async addCellComment(
+    orgId: string,
+    versionId: string,
+    rowId: string,
+    month: number,
+    body: string,
+    urls: string[],
+    anomalyType: ChoshoAnomalyType,
+    parentCommentId: string | null,
+    authorId: string,
+  ): Promise<CellCommentRow> {
+    const { tenantId } = await this.resolveOrg(orgId);
+    await this.assertVersionIsDraft(versionId, orgId, tenantId);
+    await this.assertRowBelongsToVersion(rowId, versionId, orgId, tenantId);
+    if (month < 1 || month > 12) {
+      throw new ForbiddenException('month must be 1..12');
+    }
+    if (parentCommentId) {
+      const parent = await this.prisma.choshoCellComment.findFirst({
+        where: { id: parentCommentId, rowId, month, tenantId, orgId },
+        select: { id: true, parentCommentId: true },
+      });
+      if (!parent) throw new NotFoundException('Parent comment not found');
+      // 返信の返信は root に flatten
+      if (parent.parentCommentId) parentCommentId = parent.parentCommentId;
+    }
+    const created = await this.prisma.choshoCellComment.create({
+      data: {
         rowId,
         tenantId,
         orgId,
@@ -557,28 +604,39 @@ export class ChoshoService {
         body,
         urls: urls as Prisma.InputJsonValue,
         anomalyType,
+        parentCommentId,
         authorId,
       },
-      update: {
-        body,
-        urls: urls as Prisma.InputJsonValue,
-        anomalyType,
-        // authorId は最初の作成者を保持。上書き者は updatedAt で識別。
-      },
     });
-    return {
-      id: upserted.id,
-      rowId: upserted.rowId,
-      month: upserted.month,
-      body: upserted.body,
-      urls: parseStringArray(upserted.urls),
-      anomalyType: upserted.anomalyType,
-      authorId: upserted.authorId,
-      createdAt: upserted.createdAt.toISOString(),
-      updatedAt: upserted.updatedAt.toISOString(),
-    };
+    return toCellCommentRow(created);
   }
 
+  /**
+   * 解決状態の toggle。 root コメントに対して使う。
+   * resolved=true → resolved_at セット、false → クリア。
+   */
+  async resolveCellComment(
+    orgId: string,
+    commentId: string,
+    resolved: boolean,
+    userId: string,
+  ): Promise<CellCommentRow> {
+    const { tenantId } = await this.resolveOrg(orgId);
+    const target = await this.prisma.choshoCellComment.findFirst({
+      where: { id: commentId, tenantId, orgId },
+    });
+    if (!target) throw new NotFoundException('Cell comment not found');
+    const updated = await this.prisma.choshoCellComment.update({
+      where: { id: commentId },
+      data: {
+        resolvedAt: resolved ? new Date() : null,
+        resolvedById: resolved ? userId : null,
+      },
+    });
+    return toCellCommentRow(updated);
+  }
+
+  /** 旧 (rowId, month) ベースの delete (1:1 想定の chosho-tab UI 互換)。最初の root を削除。 */
   async deleteCellComment(
     orgId: string,
     versionId: string,
@@ -588,15 +646,84 @@ export class ChoshoService {
     const { tenantId } = await this.resolveOrg(orgId);
     await this.assertVersionIsDraft(versionId, orgId, tenantId);
     await this.assertRowBelongsToVersion(rowId, versionId, orgId, tenantId);
-    // 存在しない (row, month) でも 404 で返す
     const target = await this.prisma.choshoCellComment.findFirst({
-      where: { rowId, month, tenantId, orgId },
+      where: { rowId, month, tenantId, orgId, parentCommentId: null },
+      orderBy: { createdAt: 'asc' },
       select: { id: true },
     });
     if (!target) {
       throw new NotFoundException('Cell comment not found');
     }
     await this.prisma.choshoCellComment.delete({ where: { id: target.id } });
+  }
+
+  /** 新 API: commentId 指定で削除 (root → 返信もカスケード)。本人のみ可。 */
+  async deleteCellCommentById(
+    orgId: string,
+    commentId: string,
+    requesterId: string,
+  ): Promise<void> {
+    const { tenantId } = await this.resolveOrg(orgId);
+    const target = await this.prisma.choshoCellComment.findFirst({
+      where: { id: commentId, tenantId, orgId },
+      select: { id: true, authorId: true },
+    });
+    if (!target) throw new NotFoundException('Cell comment not found');
+    if (target.authorId && target.authorId !== requesterId) {
+      throw new ForbiddenException('You can delete only your own comment');
+    }
+    await this.prisma.choshoCellComment.delete({ where: { id: commentId } });
+  }
+
+  // ============================================================
+  // memo タブ用: 期間内の最新 saved version の cell コメントを集約
+  // ============================================================
+
+  /**
+   * 指定 (org, fy, month) における「最新 saved version」の cell コメント全件を返す。
+   * memo タブで journal flag コメントと並列に表示するため、 row の name を含めて返す。
+   *
+   * 該当 version が無い場合は空配列。
+   */
+  async listRecentCellCommentsForPeriod(
+    orgId: string,
+    fiscalYear: number,
+    selectedMonth: number,
+  ): Promise<RecentCellCommentItem[]> {
+    const { tenantId } = await this.resolveOrg(orgId);
+    // 同 (fy, month) の最新 version (DRAFT/APPROVED/ARCHIVED 全て対象。最新を見せる)
+    const latest = await this.prisma.choshoVersion.findFirst({
+      where: { tenantId, orgId, fiscalYear, selectedMonth },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true },
+    });
+    if (!latest) return [];
+
+    const items = await this.prisma.choshoCellComment.findMany({
+      where: { tenantId, orgId, row: { versionId: latest.id } },
+      orderBy: { createdAt: 'asc' },
+      include: {
+        row: { select: { id: true, accountName: true } },
+        author: { select: { name: true } },
+      },
+    });
+    return items.map((c) => ({
+      id: c.id,
+      versionId: latest.id,
+      rowId: c.rowId,
+      rowName: c.row.accountName,
+      month: c.month,
+      parentCommentId: c.parentCommentId,
+      body: c.body,
+      urls: parseStringArray(c.urls),
+      anomalyType: c.anomalyType,
+      authorId: c.authorId,
+      authorName: c.author?.name ?? null,
+      resolvedAt: c.resolvedAt?.toISOString() ?? null,
+      resolvedById: c.resolvedById,
+      createdAt: c.createdAt.toISOString(),
+      updatedAt: c.updatedAt.toISOString(),
+    }));
   }
 
   // ============================================================
@@ -740,21 +867,71 @@ export interface RowCommentRow {
   body: string;
   urls: string[];
   authorId: string | null;
+  authorName: string | null;
   createdAt: string;
   updatedAt: string;
 }
 
-/** GET /chosho/versions/:id/cell-comments の戻り値要素 */
+/** GET /chosho/versions/:id/cell-comments の戻り値要素 (Phase 2-3: スレッド対応) */
 export interface CellCommentRow {
   id: string;
   rowId: string;
   month: number;
+  /** NULL = root コメント、UUID = 返信 */
+  parentCommentId: string | null;
   body: string;
   urls: string[];
   anomalyType: ChoshoAnomalyType;
   authorId: string | null;
+  /** 表示用ユーザー名 (現状 lookup 不要箇所では null) */
+  authorName: string | null;
+  /** 解決状態 (root に意味あり)。null = 未解決 */
+  resolvedAt: string | null;
+  resolvedById: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+/** memo タブ用: 期間内最新 version の cell コメント (row.accountName 込み) */
+export interface RecentCellCommentItem extends CellCommentRow {
+  versionId: string;
+  rowName: string;
+}
+
+// ============================================================
+// 共通変換: Prisma row → CellCommentRow
+// ============================================================
+
+function toCellCommentRow(c: {
+  id: string;
+  rowId: string;
+  month: number;
+  parentCommentId: string | null;
+  body: string;
+  urls: Prisma.JsonValue;
+  anomalyType: ChoshoAnomalyType;
+  authorId: string | null;
+  resolvedAt: Date | null;
+  resolvedById: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+  author?: { name: string } | null;
+}): CellCommentRow {
+  return {
+    id: c.id,
+    rowId: c.rowId,
+    month: c.month,
+    parentCommentId: c.parentCommentId,
+    body: c.body,
+    urls: parseStringArray(c.urls),
+    anomalyType: c.anomalyType,
+    authorId: c.authorId,
+    authorName: c.author?.name ?? null,
+    resolvedAt: c.resolvedAt?.toISOString() ?? null,
+    resolvedById: c.resolvedById,
+    createdAt: c.createdAt.toISOString(),
+    updatedAt: c.updatedAt.toISOString(),
+  };
 }
 
 // ============================================================

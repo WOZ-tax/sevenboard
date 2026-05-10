@@ -156,6 +156,7 @@ model User {
   confirmedChoshoRows      ChoshoRow[]        @relation("ChoshoRowConfirmer")
   authoredChoshoRowComments  ChoshoRowComment[]  @relation("ChoshoRowCommentAuthor")
   authoredChoshoCellComments ChoshoCellComment[] @relation("ChoshoCellCommentAuthor")
+  resolvedChoshoCellComments ChoshoCellComment[] @relation("ChoshoCellCommentResolver")
   flaggedJournalReviews      JournalReviewFlag[] @relation("JournalReviewFlagged")
   resolvedJournalReviews     JournalReviewFlag[] @relation("JournalReviewResolved")
   authoredJournalReviewComments JournalReviewComment[] @relation("JournalReviewCommentAuthor")
@@ -1384,27 +1385,37 @@ model ChoshoRowComment {
   @@map("chosho_row_comments")
 }
 
-/// 赤セル (異常検知された月セル) クリックでのコメント。1セル1コメント。
+/// 赤セルコメントスレッド (Phase 2-3 で 1:1 → 1:N + 返信に拡張)。
+/// 1 (rowId, month) に複数 root コメントを許容、各 root に返信 (parent_comment_id) 可。
+/// resolved_at は root コメント単位で「解決済」状態を持つ。
 model ChoshoCellComment {
-  id           String            @id @default(uuid()) @db.Uuid
-  rowId        String            @map("row_id") @db.Uuid
-  tenantId     String            @map("tenant_id") @db.Uuid
-  orgId        String            @map("org_id") @db.Uuid
+  id              String            @id @default(uuid()) @db.Uuid
+  rowId           String            @map("row_id") @db.Uuid
+  tenantId        String            @map("tenant_id") @db.Uuid
+  orgId           String            @map("org_id") @db.Uuid
   /// 1-12 のカレンダー月。どのセルへのコメントか。
-  month        Int
-  body         String
-  urls         Json              @default("[]")
-  anomalyType  ChoshoAnomalyType @map("anomaly_type")
-  authorId     String?           @map("author_id") @db.Uuid
-  createdAt    DateTime          @default(now()) @map("created_at")
-  updatedAt    DateTime          @updatedAt @map("updated_at")
+  month           Int
+  /// NULL = root コメント、UUID = 返信
+  parentCommentId String?           @map("parent_comment_id") @db.Uuid
+  body            String
+  urls            Json              @default("[]")
+  anomalyType     ChoshoAnomalyType @map("anomaly_type")
+  authorId        String?           @map("author_id") @db.Uuid
+  resolvedAt      DateTime?         @map("resolved_at")
+  resolvedById    String?           @map("resolved_by_id") @db.Uuid
+  createdAt       DateTime          @default(now()) @map("created_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
 
   /// 同一 (rowId, tenantId, orgId) でないと FK が成立しない複合参照。別テナント/別組織の row を指せない。
-  row          ChoshoRow    @relation(fields: [rowId, tenantId, orgId], references: [id, tenantId, orgId], onDelete: Cascade)
-  organization Organization @relation(fields: [orgId, tenantId], references: [id, tenantId])
-  author       User?        @relation("ChoshoCellCommentAuthor", fields: [authorId], references: [id])
+  row          ChoshoRow             @relation(fields: [rowId, tenantId, orgId], references: [id, tenantId, orgId], onDelete: Cascade)
+  organization Organization          @relation(fields: [orgId, tenantId], references: [id, tenantId])
+  author       User?                 @relation("ChoshoCellCommentAuthor", fields: [authorId], references: [id])
+  resolvedBy   User?                 @relation("ChoshoCellCommentResolver", fields: [resolvedById], references: [id])
+  parent       ChoshoCellComment?    @relation("ChoshoCellCommentReplies", fields: [parentCommentId], references: [id], onDelete: Cascade)
+  replies      ChoshoCellComment[]   @relation("ChoshoCellCommentReplies")
 
-  @@unique([rowId, month])
+  @@index([rowId, month])
+  @@index([parentCommentId])
   @@index([tenantId, orgId])
   @@map("chosho_cell_comments")
 }

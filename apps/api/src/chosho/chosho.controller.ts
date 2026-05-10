@@ -213,4 +213,73 @@ export class ChoshoController {
   ): Promise<void> {
     await this.service.deleteCellComment(orgId, versionId, rowId, month);
   }
+
+  // ============================================================
+  // セルコメント (Phase 2-3 拡張: 複数 root + 返信 + 解決管理)
+  // ============================================================
+
+  /** 1セル (rowId, month) に複数 root + 返信を許容する add API。 */
+  @Post('versions/:versionId/rows/:rowId/cell-comments')
+  @RequirePermission('org:chosho:manage')
+  async addCellComment(
+    @Request() req: { user: { id: string } },
+    @Param('orgId', ParseUUIDPipe) orgId: string,
+    @Param('versionId', ParseUUIDPipe) versionId: string,
+    @Param('rowId', ParseUUIDPipe) rowId: string,
+    @Body()
+    dto: {
+      month: number;
+      body: string;
+      urls?: string[];
+      anomalyType: 'EXPECTED_VALUE_VIOLATION' | 'AGING_3M';
+      parentCommentId?: string;
+    },
+  ) {
+    return this.service.addCellComment(
+      orgId,
+      versionId,
+      rowId,
+      dto.month,
+      dto.body,
+      dto.urls ?? [],
+      dto.anomalyType,
+      dto.parentCommentId ?? null,
+      req.user.id,
+    );
+  }
+
+  /** 解決状態 toggle (root コメント単位)。 */
+  @Put('cell-comments/:commentId/resolve')
+  @RequirePermission('org:chosho:manage')
+  async resolveCellComment(
+    @Request() req: { user: { id: string } },
+    @Param('orgId', ParseUUIDPipe) orgId: string,
+    @Param('commentId', ParseUUIDPipe) commentId: string,
+    @Body() dto: { resolved: boolean },
+  ) {
+    return this.service.resolveCellComment(orgId, commentId, dto.resolved, req.user.id);
+  }
+
+  /** commentId 指定での delete (本人のみ)。返信もカスケード削除。 */
+  @Delete('cell-comments/:commentId')
+  @HttpCode(204)
+  @RequirePermission('org:chosho:manage')
+  async deleteCellCommentById(
+    @Request() req: { user: { id: string } },
+    @Param('orgId', ParseUUIDPipe) orgId: string,
+    @Param('commentId', ParseUUIDPipe) commentId: string,
+  ): Promise<void> {
+    await this.service.deleteCellCommentById(orgId, commentId, req.user.id);
+  }
+
+  /** memo タブ用: 期間内最新 saved version の cell コメント全件を返す。 */
+  @Get('recent-cell-comments')
+  @RequirePermission('org:chosho:read')
+  async listRecentCellComments(
+    @Param('orgId', ParseUUIDPipe) orgId: string,
+    @Query('fiscalYear', ParseIntPipe) fiscalYear: number,
+    @Query('month', ParseIntPipe) month: number,
+  ) {
+    return this.service.listRecentCellCommentsForPeriod(orgId, fiscalYear, month);
+  }
 }

@@ -313,6 +313,7 @@ export interface JournalReviewCommentItem {
   body: string;
   urls: string[];
   authorId: string | null;
+  authorName: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -327,21 +328,34 @@ export interface ChoshoRowComment {
   body: string;
   urls: string[];
   authorId: string | null;
+  authorName: string | null;
   createdAt: string;
   updatedAt: string;
 }
 
-/** セルコメント (1:1, UNIQUE(rowId, month)) */
+/** セルコメント (Phase 2-3: 1:N スレッド対応) */
 export interface ChoshoCellComment {
   id: string;
   rowId: string;
   month: number;
+  /** NULL = root コメント、UUID = 返信 */
+  parentCommentId: string | null;
   body: string;
   urls: string[];
   anomalyType: 'EXPECTED_VALUE_VIOLATION' | 'AGING_3M';
   authorId: string | null;
+  authorName: string | null;
+  /** root の解決状態 */
+  resolvedAt: string | null;
+  resolvedById: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+/** memo タブ用: chosho 最新 version の cell コメント (rowName + versionId 込み) */
+export interface ChoshoRecentCellComment extends ChoshoCellComment {
+  versionId: string;
+  rowName: string;
 }
 
 /**
@@ -1308,6 +1322,42 @@ export const api = {
       apiFetch<void>(
         `/organizations/${orgId}/chosho/versions/${versionId}/rows/${rowId}/cell-comments/${month}`,
         { method: 'DELETE' },
+      ),
+
+    // === セルコメント Phase 2-3 拡張 (複数 root + 返信 + 解決) ===
+    /** 1セルに新規 root or 返信を追加 */
+    addCellComment: (
+      orgId: string,
+      versionId: string,
+      rowId: string,
+      input: {
+        month: number;
+        body: string;
+        urls?: string[];
+        anomalyType: 'EXPECTED_VALUE_VIOLATION' | 'AGING_3M';
+        parentCommentId?: string;
+      },
+    ) =>
+      apiFetch<ChoshoCellComment>(
+        `/organizations/${orgId}/chosho/versions/${versionId}/rows/${rowId}/cell-comments`,
+        { method: 'POST', body: JSON.stringify(input) },
+      ),
+    /** 解決 toggle (root のみ意味あり) */
+    resolveCellComment: (orgId: string, commentId: string, resolved: boolean) =>
+      apiFetch<ChoshoCellComment>(
+        `/organizations/${orgId}/chosho/cell-comments/${commentId}/resolve`,
+        { method: 'PUT', body: JSON.stringify({ resolved }) },
+      ),
+    /** commentId 指定の delete (本人のみ、返信はカスケード) */
+    deleteCellCommentById: (orgId: string, commentId: string) =>
+      apiFetch<void>(
+        `/organizations/${orgId}/chosho/cell-comments/${commentId}`,
+        { method: 'DELETE' },
+      ),
+    /** memo タブ用: 期間内最新 version の cell コメント全件 */
+    listRecentCellComments: (orgId: string, fiscalYear: number, month: number) =>
+      apiFetch<ChoshoRecentCellComment[]>(
+        `/organizations/${orgId}/chosho/recent-cell-comments?fiscalYear=${fiscalYear}&month=${month}`,
       ),
   },
 
