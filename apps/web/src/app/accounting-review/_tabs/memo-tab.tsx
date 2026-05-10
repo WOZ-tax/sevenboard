@@ -963,7 +963,7 @@ function ShortAccountSummary({ journal }: { journal: MfJournalRefItem }) {
 
 // ============================================================
 // chosho セルコメントセクション (Phase 2-3)
-// 期間内最新 saved version のセルコメントを journal と並列で表示
+// saved rowId / preview rowKey のセルコメントを journal と並列で表示
 // ============================================================
 
 function ChoshoCellMemoSection({
@@ -992,21 +992,37 @@ function ChoshoCellMemoSection({
 
   const addCell = useMutation({
     mutationFn: (input: {
-      versionId: string;
-      rowId: string;
+      versionId: string | null;
+      rowId: string | null;
+      rowKey: string | null;
       month: number;
       body: string;
       urls: string[];
       anomalyType: "EXPECTED_VALUE_VIOLATION" | "AGING_3M" | null;
       parentCommentId?: string;
-    }) =>
-      api.chosho.addCellComment(orgId, input.versionId, input.rowId, {
-        month: input.month,
-        body: input.body,
-        urls: input.urls,
-        anomalyType: input.anomalyType,
-        parentCommentId: input.parentCommentId,
-      }),
+    }) => {
+      if (input.rowId && input.versionId) {
+        return api.chosho.addCellComment(orgId, input.versionId, input.rowId, {
+          month: input.month,
+          body: input.body,
+          urls: input.urls,
+          anomalyType: input.anomalyType,
+          parentCommentId: input.parentCommentId,
+        });
+      }
+      if (fiscalYear != null && input.rowKey) {
+        return api.chosho.addPreviewCellComment(orgId, {
+          fiscalYear,
+          month: input.month,
+          rowKey: input.rowKey,
+          body: input.body,
+          urls: input.urls,
+          anomalyType: input.anomalyType,
+          parentCommentId: input.parentCommentId,
+        });
+      }
+      throw new Error("セルコメントの紐付け情報が不足しています");
+    },
     onSuccess: () => qc.invalidateQueries({ queryKey }),
     onError: () => toast.error("セルコメント追加に失敗しました"),
   });
@@ -1035,13 +1051,13 @@ function ChoshoCellMemoSection({
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   // (rowId or rowKey, month) 単位でグルーピング (1セル = 1グループ)
-  // listRecentCellComments は saved version 経由なので row.rowId は確実に非 NULL。
-  // preview 経由の (rowId=NULL, rowKey only) コメントは現在 memo タブ未表示。
+  // saved 旧経路は rowId、preview/saved 共通の新経路は rowKey で紐付く。
   const cellsGroup = useMemo(() => {
     type Group = {
       key: string;
-      rowId: string;
-      versionId: string;
+      rowId: string | null;
+      rowKey: string | null;
+      versionId: string | null;
       rowName: string;
       month: number;
       anomalyType: "EXPECTED_VALUE_VIOLATION" | "AGING_3M" | null;
@@ -1050,15 +1066,17 @@ function ChoshoCellMemoSection({
     };
     const map = new Map<string, Group>();
     for (const c of items) {
-      if (!c.rowId) continue; // saved 経由のコメントのみ memo タブに出す
-      const key = `${c.rowId}:${c.month}`;
+      const targetKey = c.rowId ?? c.rowKey;
+      if (!targetKey) continue;
+      const key = `${targetKey}:${c.month}`;
       let g: Group | undefined = map.get(key);
       if (!g) {
         const created: Group = {
           key,
           rowId: c.rowId,
-          versionId: c.versionId,
-          rowName: c.rowName,
+          rowKey: c.rowKey,
+          versionId: c.versionId || null,
+          rowName: c.rowName || displayNameFromRowKey(c.rowKey) || targetKey,
           month: c.month,
           anomalyType: c.anomalyType,
           roots: [],
@@ -1128,7 +1146,12 @@ function ChoshoCellMemoSection({
                   isResolved={allResolved}
                   currentUserId={currentUserId}
                   onToggleExpand={() => handleToggleExpand(g.key)}
-                  onAdd={(input) => addCell.mutate({ versionId: g.versionId, rowId: g.rowId, ...input })}
+                  onAdd={(input) => addCell.mutate({
+                    versionId: g.versionId,
+                    rowId: g.rowId,
+                    rowKey: g.rowKey,
+                    ...input,
+                  })}
                   onDelete={(id) => deleteCell.mutate(id)}
                   onUpdate={(commentId, body, urls) => updateCell.mutate({ commentId, body, urls })}
                   isUpdating={updateCell.isPending}
@@ -1164,7 +1187,7 @@ function CellMemoRow({
 }: {
   group: {
     key: string;
-    rowId: string;
+    rowId: string | null;
     rowName: string;
     month: number;
     anomalyType: "EXPECTED_VALUE_VIOLATION" | "AGING_3M" | null;
@@ -1362,4 +1385,10 @@ function formatYyyyMm(fiscalYear: number | undefined, month: number, fyStartMont
   if (fiscalYear == null) return `?-${String(month).padStart(2, "0")}`;
   const year = month >= fyStartMonth ? fiscalYear : fiscalYear + 1;
   return `${year}-${String(month).padStart(2, "0")}`;
+}
+
+function displayNameFromRowKey(rowKey: string | null): string {
+  if (!rowKey) return "";
+  const tail = rowKey.split("/").filter(Boolean).at(-1) ?? rowKey;
+  return tail.replace(/^\d+-/, "").replace(/_/g, " ");
 }

@@ -779,17 +779,15 @@ export class ChoshoService {
   }
 
   // ============================================================
-  // memo タブ用: 期間内の最新 saved version の cell コメントを集約
+  // memo タブ用: 期間内の cell コメントを集約
   // ============================================================
 
   /**
    * 指定会計年度の cell コメントを集約して返す。
    *
-   * - selectedMonth 指定時: 同 (fy, month) の最新 version の cell コメントのみ
-   * - selectedMonth 省略時: fy 内の全 selectedMonth × 各月の最新 version の cell コメントを集約
-   *   (会計年度全体ビューを memo タブの「全期間」モードで使う)
-   *
-   * 該当 version が無い月は無視 (空配列)。
+   * - 旧 saved 経路: 各月の最新 version に紐づく rowId コメント
+   * - 新 preview 共通経路: (org, fiscalYear, month, rowKey) に紐づくコメント
+   *   rowKey 経路は version を持たないため、saved version の有無に関係なく返す。
    */
   async listRecentCellCommentsForPeriod(
     orgId: string,
@@ -798,7 +796,9 @@ export class ChoshoService {
   ): Promise<RecentCellCommentItem[]> {
     const { tenantId } = await this.resolveOrg(orgId);
 
-    // 各月の最新 version を引く (selectedMonth 省略時は全月)
+    const savedItems: RecentCellCommentItem[] = [];
+
+    // 各月の最新 saved version を引く (selectedMonth 省略時は全月)
     const versionWhere: Prisma.ChoshoVersionWhereInput = {
       tenantId,
       orgId,
@@ -810,33 +810,67 @@ export class ChoshoService {
       orderBy: [{ selectedMonth: 'asc' }, { createdAt: 'desc' }],
       select: { id: true, selectedMonth: true },
     });
-    if (versions.length === 0) return [];
-
-    // selectedMonth ごとに最新 (createdAt desc 順で最初に出てきたもの) を採用
-    const latestByMonth = new Map<number, string>();
-    for (const v of versions) {
-      if (!latestByMonth.has(v.selectedMonth)) {
-        latestByMonth.set(v.selectedMonth, v.id);
+    if (versions.length > 0) {
+      // selectedMonth ごとに最新 (createdAt desc 順で最初に出てきたもの) を採用
+      const latestByMonth = new Map<number, string>();
+      for (const v of versions) {
+        if (!latestByMonth.has(v.selectedMonth)) {
+          latestByMonth.set(v.selectedMonth, v.id);
+        }
       }
-    }
-    const versionIds = Array.from(latestByMonth.values());
+      const versionIds = Array.from(latestByMonth.values());
 
-    const items = await this.prisma.choshoCellComment.findMany({
-      where: { tenantId, orgId, row: { versionId: { in: versionIds } } },
-      orderBy: [{ createdAt: 'asc' }],
-      include: {
-        row: { select: { id: true, accountName: true, versionId: true } },
-        author: { select: { name: true } },
+      const items = await this.prisma.choshoCellComment.findMany({
+        where: { tenantId, orgId, row: { versionId: { in: versionIds } } },
+        orderBy: [{ createdAt: 'asc' }],
+        include: {
+          row: { select: { id: true, accountName: true, versionId: true } },
+          author: { select: { name: true } },
+        },
+      });
+      savedItems.push(
+        ...items.map((c) => ({
+          id: c.id,
+          versionId: c.row?.versionId ?? '',
+          rowId: c.rowId,
+          fiscalYear: c.fiscalYear ?? null,
+          rowKey: c.rowKey ?? null,
+          rowName: c.row?.accountName ?? '',
+          month: c.month,
+          parentCommentId: c.parentCommentId,
+          body: c.body,
+          urls: parseStringArray(c.urls),
+          anomalyType: c.anomalyType,
+          authorId: c.authorId,
+          authorName: c.author?.name ?? null,
+          resolvedAt: c.resolvedAt?.toISOString() ?? null,
+          resolvedById: c.resolvedById,
+          createdAt: c.createdAt.toISOString(),
+          updatedAt: c.updatedAt.toISOString(),
+        })),
+      );
+    }
+
+    const rowKeyItems = await this.prisma.choshoCellComment.findMany({
+      where: {
+        tenantId,
+        orgId,
+        fiscalYear,
+        rowId: null,
+        rowKey: { not: null },
+        ...(selectedMonth != null ? { month: selectedMonth } : {}),
       },
+      orderBy: [{ createdAt: 'asc' }],
+      include: { author: { select: { name: true } } },
     });
-    // versionId ごとに row の versionId を埋め戻す (memo UI が必要に応じて使う)
-    return items.map((c) => ({
+
+    const previewItems = rowKeyItems.map((c) => ({
       id: c.id,
-      versionId: c.row?.versionId ?? '',
+      versionId: '',
       rowId: c.rowId,
       fiscalYear: c.fiscalYear ?? null,
       rowKey: c.rowKey ?? null,
-      rowName: c.row?.accountName ?? '',
+      rowName: rowNameFromRowKey(c.rowKey),
       month: c.month,
       parentCommentId: c.parentCommentId,
       body: c.body,
@@ -849,6 +883,10 @@ export class ChoshoService {
       createdAt: c.createdAt.toISOString(),
       updatedAt: c.updatedAt.toISOString(),
     }));
+
+    return [...savedItems, ...previewItems].sort(
+      (a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt),
+    );
   }
 
   // ============================================================
@@ -1147,6 +1185,12 @@ export function flattenTrialForActivity(
 export function parseStringArray(value: Prisma.JsonValue | unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.filter((v): v is string => typeof v === 'string');
+}
+
+function rowNameFromRowKey(rowKey: string | null): string {
+  if (!rowKey) return '';
+  const tail = rowKey.split('/').filter(Boolean).at(-1) ?? rowKey;
+  return tail.replace(/^\d+-/, '').replace(/_/g, ' ') || rowKey;
 }
 
 export function parseMonthlyBalances(value: Prisma.JsonValue | unknown): Record<number, number> {

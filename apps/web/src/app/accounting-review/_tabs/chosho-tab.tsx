@@ -825,8 +825,12 @@ function ChoshoRow({
           v != null && v < 0 && "text-[var(--color-negative)]",
           outOfRange && "bg-muted/20 text-muted-foreground/50",
           hasAnomaly && "border-l-2 border-red-500 bg-red-50 font-semibold text-red-700",
-          hasCellComment && !hasAnomaly && "bg-blue-50/40",
-          (isCommentable || isPreviewHintable) && "cursor-pointer hover:bg-muted/40",
+          hasCellComment && !hasAnomaly && "border-l-2 border-blue-500 bg-blue-100/80 font-semibold ring-1 ring-inset ring-blue-200",
+          hasCellComment && hasAnomaly && "ring-2 ring-inset ring-blue-300",
+          (isCommentable || isPreviewHintable) && "cursor-pointer",
+          (isCommentable || isPreviewHintable) && !hasCellComment && "hover:bg-muted/40",
+          (isCommentable || isPreviewHintable) && hasCellComment && !hasAnomaly && "hover:bg-blue-100",
+          (isCommentable || isPreviewHintable) && hasCellComment && hasAnomaly && "hover:bg-red-100",
         );
         const content = v != null ? formatYen(v) : "";
         if (isCommentable) {
@@ -843,7 +847,7 @@ function ChoshoRow({
                   >
                     {content}
                     {hasCellComment && (
-                      <span className="ml-0.5 text-[9px]" title="コメントあり">💬</span>
+                      <CommentCellBadge />
                     )}
                   </TooltipTrigger>
                   <TooltipContent side="top" className="max-w-xs">
@@ -865,7 +869,7 @@ function ChoshoRow({
             >
               {content}
               {hasCellComment && (
-                <span className="ml-0.5 text-[9px]" title="コメントあり">💬</span>
+                <CommentCellBadge />
               )}
             </td>
           );
@@ -931,6 +935,17 @@ function ChoshoRow({
         </>
       )}
     </tr>
+  );
+}
+
+function CommentCellBadge() {
+  return (
+    <span
+      className="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-blue-600 px-1 text-[9px] font-semibold leading-none text-white shadow-sm"
+      title="コメントあり"
+    >
+      メモ
+    </span>
   );
 }
 

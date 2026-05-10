@@ -375,7 +375,7 @@ export interface ChoshoCellComment {
   updatedAt: string;
 }
 
-/** memo タブ用: chosho 最新 version の cell コメント (rowName + versionId 込み) */
+/** memo タブ用: chosho cell コメント (saved rowId / preview rowKey 対応、rowName 込み) */
 export interface ChoshoRecentCellComment extends ChoshoCellComment {
   versionId: string;
   rowName: string;

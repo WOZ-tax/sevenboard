@@ -338,7 +338,7 @@ export class ChoshoController {
     );
   }
 
-  /** memo タブ用: 期間内最新 saved version の cell コメント全件を返す。 */
+  /** memo タブ用: 期間内の saved rowId / preview rowKey の cell コメント全件を返す。 */
   @Get('recent-cell-comments')
   @RequirePermission('org:chosho:read')
   async listRecentCellComments(
