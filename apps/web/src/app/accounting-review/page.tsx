@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { Suspense, useCallback, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
@@ -82,7 +82,18 @@ function getNextStatus(current: string): string | null {
   return STATUS_STEPS[idx + 1].value;
 }
 
+// Next.js 16 + Turbopack の static prerender では useSearchParams() を持つ component は
+// Suspense boundary で包む必要がある (CSR bailout エラー回避)。
+// 既存の page 本体は Inner に rename し、default export で Suspense でラップする。
 export default function AccountingReviewPage() {
+  return (
+    <Suspense fallback={null}>
+      <AccountingReviewPageInner />
+    </Suspense>
+  );
+}
+
+function AccountingReviewPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   // ?tab=chosho|journal|... で初期タブを決定。未指定なら "review"。
