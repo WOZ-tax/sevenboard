@@ -18,12 +18,14 @@ import {
   ChevronDown,
   ChevronRight,
   Loader2,
+  Pencil,
   Plus,
   Reply,
   Trash2,
   Link as LinkIcon,
   X,
 } from "lucide-react";
+import { UrlChipsEditor } from "../_chosho/comment-dialogs";
 import { toast } from "sonner";
 import {
   api,
@@ -159,6 +161,17 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
     onError: () => toast.error("コメント削除に失敗しました"),
   });
   const deleteComment = (commentId: string) => deleteCommentMutation.mutate(commentId);
+  const updateCommentMutation = useMutation({
+    mutationFn: (input: { commentId: string; body: string; urls: string[] }) =>
+      api.journalReview.updateComment(orgId, input.commentId, {
+        body: input.body,
+        urls: input.urls,
+      }),
+    onSuccess: () => invalidate(),
+    onError: () => toast.error("コメント編集に失敗しました"),
+  });
+  const updateComment = (commentId: string, body: string, urls: string[]) =>
+    updateCommentMutation.mutate({ commentId, body, urls });
   const upsertFlag = useMutation({
     mutationFn: (input: { journalId: string; fiscalYear: number; month: number; resolved: boolean }) =>
       api.journalReview.upsertFlag(orgId, input.journalId, {
@@ -320,6 +333,8 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
                   onEndCompose={() => handleEndCompose(flag.journalId)}
                   onAdd={(input) => addComment.mutate(input)}
                   onDelete={(id) => deleteComment(id)}
+                  onUpdate={updateComment}
+                  isUpdating={updateCommentMutation.isPending}
                   onToggleResolve={() =>
                     upsertFlag.mutate({
                       journalId: flag.journalId,
@@ -384,6 +399,8 @@ function FlaggedJournalRow({
   onEndCompose,
   onAdd,
   onDelete,
+  onUpdate,
+  isUpdating,
   onToggleResolve,
   onDeleteFlag,
   isAdding,
@@ -405,6 +422,8 @@ function FlaggedJournalRow({
   onEndCompose: () => void;
   onAdd: (input: { journalId: string; body: string; urls: string[]; parentCommentId?: string }) => void;
   onDelete: (commentId: string) => void;
+  onUpdate: (commentId: string, body: string, urls: string[]) => void;
+  isUpdating: boolean;
   onToggleResolve: () => void;
   onDeleteFlag: () => void;
   isAdding: boolean;
@@ -491,6 +510,8 @@ function FlaggedJournalRow({
               onEndCompose={onEndCompose}
               onAdd={onAdd}
               onDelete={onDelete}
+              onUpdate={onUpdate}
+              isUpdating={isUpdating}
             />
           </td>
         </tr>
@@ -514,6 +535,8 @@ function CommentThread({
   onEndCompose,
   onAdd,
   onDelete,
+  onUpdate,
+  isUpdating,
 }: {
   journalId: string;
   roots: JournalReviewCommentItem[];
@@ -525,6 +548,8 @@ function CommentThread({
   onEndCompose: () => void;
   onAdd: (input: { journalId: string; body: string; urls: string[]; parentCommentId?: string }) => void;
   onDelete: (commentId: string) => void;
+  onUpdate: (commentId: string, body: string, urls: string[]) => void;
+  isUpdating: boolean;
 }) {
   const repliesByRoot = useMemo(() => {
     const m = new Map<string, JournalReviewCommentItem[]>();
@@ -553,7 +578,9 @@ function CommentThread({
           currentUserId={currentUserId}
           onAdd={onAdd}
           onDelete={onDelete}
+          onUpdate={onUpdate}
           isAdding={isAdding}
+          isUpdating={isUpdating}
         />
       ))}
       {isComposing ? (
@@ -590,7 +617,9 @@ function RootComment({
   currentUserId,
   onAdd,
   onDelete,
+  onUpdate,
   isAdding,
+  isUpdating,
 }: {
   journalId: string;
   root: JournalReviewCommentItem;
@@ -598,7 +627,9 @@ function RootComment({
   currentUserId: string | null;
   onAdd: (input: { journalId: string; body: string; urls: string[]; parentCommentId?: string }) => void;
   onDelete: (commentId: string) => void;
+  onUpdate: (commentId: string, body: string, urls: string[]) => void;
   isAdding: boolean;
+  isUpdating: boolean;
 }) {
   const [replying, setReplying] = useState(false);
   return (
@@ -607,6 +638,8 @@ function RootComment({
         comment={root}
         currentUserId={currentUserId}
         onDelete={() => onDelete(root.id)}
+        onUpdate={(body, urls) => onUpdate(root.id, body, urls)}
+        isUpdating={isUpdating}
       />
       {replies.length > 0 && (
         <div className="mt-1.5 space-y-1.5 border-l-2 border-muted pl-2">
@@ -616,6 +649,8 @@ function RootComment({
               comment={rep}
               currentUserId={currentUserId}
               onDelete={() => onDelete(rep.id)}
+              onUpdate={(body, urls) => onUpdate(rep.id, body, urls)}
+              isUpdating={isUpdating}
             />
           ))}
         </div>
@@ -659,12 +694,36 @@ function CommentBubble({
   comment,
   currentUserId,
   onDelete,
+  onUpdate,
+  isUpdating,
 }: {
   comment: { id: string; body: string; urls: string[]; authorId: string | null; authorName: string | null; createdAt: string };
   currentUserId: string | null;
   onDelete: () => void;
+  /** 本人のみ編集可。 渡されない時は編集ボタン非表示 (legacy 互換)。 */
+  onUpdate?: (body: string, urls: string[]) => void;
+  isUpdating?: boolean;
 }) {
   const isMine = !!currentUserId && comment.authorId === currentUserId;
+  const [editing, setEditing] = useState(false);
+  const [draftBody, setDraftBody] = useState(comment.body);
+  const [draftUrls, setDraftUrls] = useState<string[]>(comment.urls);
+  const startEdit = () => {
+    setDraftBody(comment.body);
+    setDraftUrls(comment.urls);
+    setEditing(true);
+  };
+  const cancelEdit = () => {
+    setEditing(false);
+    setDraftBody(comment.body);
+    setDraftUrls(comment.urls);
+  };
+  const saveEdit = () => {
+    const trimmed = draftBody.trim();
+    if (!trimmed || !onUpdate) return;
+    onUpdate(trimmed, draftUrls);
+    setEditing(false);
+  };
   return (
     <div>
       <div className="mb-0.5 flex items-center gap-1.5 text-[10px] text-muted-foreground">
@@ -674,35 +733,70 @@ function CommentBubble({
         <span>·</span>
         <span>{new Date(comment.createdAt).toLocaleString("ja-JP")}</span>
       </div>
-      <div className="whitespace-pre-wrap break-words text-xs">{comment.body}</div>
-      {comment.urls.length > 0 && (
-        <div className="mt-1 flex flex-wrap gap-1">
-          {comment.urls.map((u) => (
-            <a
-              key={u}
-              href={u}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex max-w-full items-center gap-0.5 truncate rounded bg-muted/60 px-1.5 py-0.5 text-[10px] text-[var(--color-primary)] hover:underline"
-            >
-              <LinkIcon className="h-2.5 w-2.5 shrink-0" />
-              <span className="truncate">{u}</span>
-            </a>
-          ))}
+      {editing ? (
+        <div className="space-y-1.5">
+          <textarea
+            value={draftBody}
+            onChange={(e) => setDraftBody(e.target.value)}
+            rows={3}
+            className="w-full rounded border px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)]"
+            autoFocus
+          />
+          <UrlChipsEditor urls={draftUrls} onChange={setDraftUrls} />
+          <div className="flex justify-end gap-1">
+            <Button type="button" size="sm" variant="ghost" className="h-6 px-2 text-[10px]" onClick={cancelEdit} disabled={isUpdating}>
+              キャンセル
+            </Button>
+            <Button type="button" size="sm" className="h-6 px-2 text-[10px]" onClick={saveEdit} disabled={isUpdating || !draftBody.trim()}>
+              {isUpdating ? <Loader2 className="mr-1 h-2.5 w-2.5 animate-spin" /> : null}
+              保存
+            </Button>
+          </div>
         </div>
-      )}
-      {isMine && (
-        <div className="mt-0.5 flex justify-end">
-          <button
-            type="button"
-            onClick={() => confirmAndDelete(onDelete)}
-            className="inline-flex items-center gap-0.5 text-[9px] text-muted-foreground hover:text-red-600"
-            title="このコメントを削除"
-          >
-            <Trash2 className="h-2.5 w-2.5" />
-            削除
-          </button>
-        </div>
+      ) : (
+        <>
+          <div className="whitespace-pre-wrap break-words text-xs">{comment.body}</div>
+          {comment.urls.length > 0 && (
+            <div className="mt-1 flex flex-wrap gap-1">
+              {comment.urls.map((u) => (
+                <a
+                  key={u}
+                  href={u}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex max-w-full items-center gap-0.5 truncate rounded bg-muted/60 px-1.5 py-0.5 text-[10px] text-[var(--color-primary)] hover:underline"
+                >
+                  <LinkIcon className="h-2.5 w-2.5 shrink-0" />
+                  <span className="truncate">{u}</span>
+                </a>
+              ))}
+            </div>
+          )}
+          {isMine && (
+            <div className="mt-0.5 flex justify-end gap-2">
+              {onUpdate && (
+                <button
+                  type="button"
+                  onClick={startEdit}
+                  className="inline-flex items-center gap-0.5 text-[9px] text-muted-foreground hover:text-[var(--color-primary)]"
+                  title="このコメントを編集"
+                >
+                  <Pencil className="h-2.5 w-2.5" />
+                  編集
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => confirmAndDelete(onDelete)}
+                className="inline-flex items-center gap-0.5 text-[9px] text-muted-foreground hover:text-red-600"
+                title="このコメントを削除"
+              >
+                <Trash2 className="h-2.5 w-2.5" />
+                削除
+              </button>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
@@ -875,6 +969,15 @@ function ChoshoCellMemoSection({
     onSuccess: () => qc.invalidateQueries({ queryKey }),
     onError: () => toast.error("削除に失敗しました"),
   });
+  const updateCell = useMutation({
+    mutationFn: (input: { commentId: string; body: string; urls: string[] }) =>
+      api.chosho.updateCellCommentById(orgId, input.commentId, {
+        body: input.body,
+        urls: input.urls,
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey }),
+    onError: () => toast.error("コメント編集に失敗しました"),
+  });
 
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
@@ -974,6 +1077,8 @@ function ChoshoCellMemoSection({
                   onToggleExpand={() => handleToggleExpand(g.key)}
                   onAdd={(input) => addCell.mutate({ versionId: g.versionId, rowId: g.rowId, ...input })}
                   onDelete={(id) => deleteCell.mutate(id)}
+                  onUpdate={(commentId, body, urls) => updateCell.mutate({ commentId, body, urls })}
+                  isUpdating={updateCell.isPending}
                   onResolveRoot={(rootId, resolved) =>
                     resolveCell.mutate({ commentId: rootId, resolved })
                   }
@@ -998,9 +1103,11 @@ function CellMemoRow({
   onToggleExpand,
   onAdd,
   onDelete,
+  onUpdate,
   onResolveRoot,
   isAdding,
   isResolving,
+  isUpdating,
 }: {
   group: {
     key: string;
@@ -1024,9 +1131,11 @@ function CellMemoRow({
     parentCommentId?: string;
   }) => void;
   onDelete: (commentId: string) => void;
+  onUpdate: (commentId: string, body: string, urls: string[]) => void;
   onResolveRoot: (rootId: string, resolved: boolean) => void;
   isAdding: boolean;
   isResolving: boolean;
+  isUpdating: boolean;
 }) {
   const repliesByRoot = useMemo(() => {
     const m = new Map<string, ChoshoRecentCellComment[]>();
@@ -1094,6 +1203,8 @@ function CellMemoRow({
                         comment={root}
                         currentUserId={currentUserId}
                         onDelete={() => onDelete(root.id)}
+                        onUpdate={(body, urls) => onUpdate(root.id, body, urls)}
+                        isUpdating={isUpdating}
                       />
                       <button
                         type="button"
@@ -1118,6 +1229,8 @@ function CellMemoRow({
                             comment={rep}
                             currentUserId={currentUserId}
                             onDelete={() => onDelete(rep.id)}
+                            onUpdate={(body, urls) => onUpdate(rep.id, body, urls)}
+                            isUpdating={isUpdating}
                           />
                         ))}
                       </div>

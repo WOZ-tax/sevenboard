@@ -7,6 +7,7 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Put,
   Query,
   Request,
   UseGuards,
@@ -57,6 +58,23 @@ export class JournalReviewCommentsController {
       dto.body,
       dto.urls ?? [],
       dto.parentCommentId ?? null,
+      req.user.id,
+    );
+  }
+
+  @Put(':commentId')
+  @RequirePermission('org:journal_review:manage')
+  async update(
+    @Request() req: { user: { id: string } },
+    @Param('orgId', ParseUUIDPipe) orgId: string,
+    @Param('commentId', ParseUUIDPipe) commentId: string,
+    @Body() dto: { body: string; urls?: string[] },
+  ) {
+    return this.service.updateComment(
+      orgId,
+      commentId,
+      dto.body,
+      dto.urls ?? [],
       req.user.id,
     );
   }

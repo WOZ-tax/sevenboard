@@ -1357,6 +1357,16 @@ export const api = {
         `/organizations/${orgId}/chosho/cell-comments/${commentId}/resolve`,
         { method: 'PUT', body: JSON.stringify({ resolved }) },
       ),
+    /** commentId 指定の編集 (本人のみ、本文+URLを上書き) */
+    updateCellCommentById: (
+      orgId: string,
+      commentId: string,
+      input: { body: string; urls?: string[] },
+    ) =>
+      apiFetch<ChoshoCellComment>(
+        `/organizations/${orgId}/chosho/cell-comments/${commentId}`,
+        { method: 'PUT', body: JSON.stringify(input) },
+      ),
     /** commentId 指定の delete (本人のみ、返信はカスケード) */
     deleteCellCommentById: (orgId: string, commentId: string) =>
       apiFetch<void>(
@@ -1451,6 +1461,16 @@ export const api = {
       apiFetch<JournalReviewCommentItem>(
         `/organizations/${orgId}/journal-comments`,
         { method: 'POST', body: JSON.stringify(input) },
+      ),
+    /** 本人のみ編集可。 本文+URLを上書き、 author/createdAt は不変。 */
+    updateComment: (
+      orgId: string,
+      commentId: string,
+      input: { body: string; urls?: string[] },
+    ) =>
+      apiFetch<JournalReviewCommentItem>(
+        `/organizations/${orgId}/journal-comments/${commentId}`,
+        { method: 'PUT', body: JSON.stringify(input) },
       ),
     deleteComment: (orgId: string, commentId: string) =>
       apiFetch<void>(

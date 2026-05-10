@@ -657,6 +657,31 @@ export class ChoshoService {
     await this.prisma.choshoCellComment.delete({ where: { id: target.id } });
   }
 
+  /** 新 API: commentId 指定で本文+URL を編集。本人のみ可。 */
+  async updateCellCommentById(
+    orgId: string,
+    commentId: string,
+    body: string,
+    urls: string[],
+    requesterId: string,
+  ): Promise<CellCommentRow> {
+    const { tenantId } = await this.resolveOrg(orgId);
+    const target = await this.prisma.choshoCellComment.findFirst({
+      where: { id: commentId, tenantId, orgId },
+      select: { id: true, authorId: true },
+    });
+    if (!target) throw new NotFoundException('Cell comment not found');
+    if (target.authorId && target.authorId !== requesterId) {
+      throw new ForbiddenException('You can edit only your own comment');
+    }
+    const updated = await this.prisma.choshoCellComment.update({
+      where: { id: commentId },
+      data: { body, urls: urls as Prisma.InputJsonValue },
+      include: { author: { select: { name: true } } },
+    });
+    return toCellCommentRow(updated);
+  }
+
   /** 新 API: commentId 指定で削除 (root → 返信もカスケード)。本人のみ可。 */
   async deleteCellCommentById(
     orgId: string,

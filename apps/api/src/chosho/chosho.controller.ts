@@ -261,6 +261,24 @@ export class ChoshoController {
     return this.service.resolveCellComment(orgId, commentId, dto.resolved, req.user.id);
   }
 
+  /** commentId 指定での編集 (本人のみ)。本文+URL を上書き、 author/createdAt は不変。 */
+  @Put('cell-comments/:commentId')
+  @RequirePermission('org:chosho:manage')
+  async updateCellCommentById(
+    @Request() req: { user: { id: string } },
+    @Param('orgId', ParseUUIDPipe) orgId: string,
+    @Param('commentId', ParseUUIDPipe) commentId: string,
+    @Body() dto: { body: string; urls?: string[] },
+  ) {
+    return this.service.updateCellCommentById(
+      orgId,
+      commentId,
+      dto.body,
+      dto.urls ?? [],
+      req.user.id,
+    );
+  }
+
   /** commentId 指定での delete (本人のみ)。返信もカスケード削除。 */
   @Delete('cell-comments/:commentId')
   @HttpCode(204)

@@ -12,7 +12,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Plus, Reply, Trash2, Link as LinkIcon } from "lucide-react";
+import { Loader2, Pencil, Plus, Reply, Trash2, Link as LinkIcon } from "lucide-react";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -102,6 +102,19 @@ export function JournalCommentDialog({
       qc.invalidateQueries({ queryKey: ["journal-comments", orgId] });
     },
     onError: () => toast.error("コメント削除に失敗しました"),
+  });
+
+  const updateComment = useMutation({
+    mutationFn: (input: { commentId: string; body: string; urls: string[] }) =>
+      api.journalReview.updateComment(orgId, input.commentId, {
+        body: input.body,
+        urls: input.urls,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: commentsKey });
+      qc.invalidateQueries({ queryKey: ["journal-comments", orgId] });
+    },
+    onError: () => toast.error("コメント編集に失敗しました"),
   });
 
   // 入力 state
@@ -215,6 +228,8 @@ export function JournalCommentDialog({
                     deleteComment.mutate(id);
                   }
                 }}
+                onUpdate={(commentId, b, u) => updateComment.mutate({ commentId, body: b, urls: u })}
+                isUpdating={updateComment.isPending}
                 onStartReply={() => setReplyTarget(root.id)}
                 replyActive={replyTarget === root.id}
               />
@@ -270,6 +285,8 @@ function CommentRoot({
   replies,
   currentUserId,
   onDelete,
+  onUpdate,
+  isUpdating,
   onStartReply,
   replyActive,
 }: {
@@ -277,12 +294,20 @@ function CommentRoot({
   replies: JournalReviewCommentItem[];
   currentUserId: string | null;
   onDelete: (commentId: string) => void;
+  onUpdate: (commentId: string, body: string, urls: string[]) => void;
+  isUpdating: boolean;
   onStartReply: () => void;
   replyActive: boolean;
 }) {
   return (
     <div className="rounded border bg-card p-2">
-      <CommentBubble comment={root} currentUserId={currentUserId} onDelete={onDelete} />
+      <CommentBubble
+        comment={root}
+        currentUserId={currentUserId}
+        onDelete={onDelete}
+        onUpdate={onUpdate}
+        isUpdating={isUpdating}
+      />
       {replies.length > 0 && (
         <div className="mt-1.5 space-y-1.5 border-l-2 border-muted/60 pl-2">
           {replies.map((rep) => (
@@ -291,6 +316,8 @@ function CommentRoot({
               comment={rep}
               currentUserId={currentUserId}
               onDelete={onDelete}
+              onUpdate={onUpdate}
+              isUpdating={isUpdating}
             />
           ))}
         </div>
@@ -316,12 +343,33 @@ function CommentBubble({
   comment,
   currentUserId,
   onDelete,
+  onUpdate,
+  isUpdating,
 }: {
   comment: JournalReviewCommentItem;
   currentUserId: string | null;
   onDelete: (commentId: string) => void;
+  onUpdate?: (commentId: string, body: string, urls: string[]) => void;
+  isUpdating?: boolean;
 }) {
   const isMine = !!currentUserId && comment.authorId === currentUserId;
+  const [editing, setEditing] = useState(false);
+  const [draftBody, setDraftBody] = useState(comment.body);
+  const [draftUrls, setDraftUrls] = useState<string[]>(comment.urls);
+  const startEdit = () => {
+    setDraftBody(comment.body);
+    setDraftUrls(comment.urls);
+    setEditing(true);
+  };
+  const cancelEdit = () => {
+    setEditing(false);
+  };
+  const saveEdit = () => {
+    const trimmed = draftBody.trim();
+    if (!trimmed || !onUpdate) return;
+    onUpdate(comment.id, trimmed, draftUrls);
+    setEditing(false);
+  };
   return (
     <div>
       <div className="mb-0.5 flex items-center gap-1.5 text-[10px] text-muted-foreground">
@@ -331,34 +379,69 @@ function CommentBubble({
         <span>·</span>
         <span>{new Date(comment.createdAt).toLocaleString("ja-JP")}</span>
       </div>
-      <div className="whitespace-pre-wrap break-words text-xs">{comment.body}</div>
-      {comment.urls.length > 0 && (
-        <div className="mt-1 flex flex-wrap gap-1">
-          {comment.urls.map((u) => (
-            <a
-              key={u}
-              href={u}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex max-w-full items-center gap-0.5 truncate rounded bg-muted/60 px-1.5 py-0.5 text-[10px] text-[var(--color-primary)] hover:underline"
-            >
-              <LinkIcon className="h-2.5 w-2.5 shrink-0" />
-              <span className="truncate">{u}</span>
-            </a>
-          ))}
+      {editing ? (
+        <div className="space-y-1.5">
+          <textarea
+            value={draftBody}
+            onChange={(e) => setDraftBody(e.target.value)}
+            rows={3}
+            className="w-full rounded border px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)]"
+            autoFocus
+          />
+          <UrlChipsEditor urls={draftUrls} onChange={setDraftUrls} />
+          <div className="flex justify-end gap-1">
+            <Button type="button" size="sm" variant="ghost" className="h-6 px-2 text-[10px]" onClick={cancelEdit} disabled={isUpdating}>
+              キャンセル
+            </Button>
+            <Button type="button" size="sm" className="h-6 px-2 text-[10px]" onClick={saveEdit} disabled={isUpdating || !draftBody.trim()}>
+              {isUpdating ? <Loader2 className="mr-1 h-2.5 w-2.5 animate-spin" /> : null}
+              保存
+            </Button>
+          </div>
         </div>
-      )}
-      {isMine && (
-        <div className="mt-0.5 flex justify-end">
-          <button
-            type="button"
-            onClick={() => onDelete(comment.id)}
-            className="inline-flex items-center gap-0.5 text-[9px] text-muted-foreground hover:text-red-600"
-          >
-            <Trash2 className="h-2.5 w-2.5" />
-            削除
-          </button>
-        </div>
+      ) : (
+        <>
+          <div className="whitespace-pre-wrap break-words text-xs">{comment.body}</div>
+          {comment.urls.length > 0 && (
+            <div className="mt-1 flex flex-wrap gap-1">
+              {comment.urls.map((u) => (
+                <a
+                  key={u}
+                  href={u}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex max-w-full items-center gap-0.5 truncate rounded bg-muted/60 px-1.5 py-0.5 text-[10px] text-[var(--color-primary)] hover:underline"
+                >
+                  <LinkIcon className="h-2.5 w-2.5 shrink-0" />
+                  <span className="truncate">{u}</span>
+                </a>
+              ))}
+            </div>
+          )}
+          {isMine && (
+            <div className="mt-0.5 flex justify-end gap-2">
+              {onUpdate && (
+                <button
+                  type="button"
+                  onClick={startEdit}
+                  className="inline-flex items-center gap-0.5 text-[9px] text-muted-foreground hover:text-[var(--color-primary)]"
+                  title="このコメントを編集"
+                >
+                  <Pencil className="h-2.5 w-2.5" />
+                  編集
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => onDelete(comment.id)}
+                className="inline-flex items-center gap-0.5 text-[9px] text-muted-foreground hover:text-red-600"
+              >
+                <Trash2 className="h-2.5 w-2.5" />
+                削除
+              </button>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

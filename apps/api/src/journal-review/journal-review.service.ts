@@ -196,6 +196,32 @@ export class JournalReviewService {
     return toCommentItem(created);
   }
 
+  async updateComment(
+    orgId: string,
+    commentId: string,
+    body: string,
+    urls: string[],
+    requesterId: string,
+  ): Promise<JournalReviewCommentItem> {
+    const { tenantId } = await this.resolveOrg(orgId);
+    const target = await this.prisma.journalReviewComment.findFirst({
+      where: { id: commentId, tenantId, orgId },
+      select: { id: true, authorId: true },
+    });
+    if (!target) {
+      throw new NotFoundException('Comment not found');
+    }
+    if (target.authorId && target.authorId !== requesterId) {
+      throw new ForbiddenException('You can edit only your own comment');
+    }
+    const updated = await this.prisma.journalReviewComment.update({
+      where: { id: commentId },
+      data: { body, urls: urls as Prisma.InputJsonValue },
+      include: { author: { select: { name: true } } },
+    });
+    return toCommentItem(updated);
+  }
+
   async deleteComment(
     orgId: string,
     commentId: string,
