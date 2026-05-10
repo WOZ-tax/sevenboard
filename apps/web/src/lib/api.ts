@@ -305,6 +305,18 @@ export interface JournalReviewFlagItem {
   resolvedById: string | null;
 }
 
+export interface JournalReviewCommentItem {
+  id: string;
+  journalId: string;
+  /** null = root コメント、UUID = 返信 */
+  parentCommentId: string | null;
+  body: string;
+  urls: string[];
+  authorId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 /** 保存済 chosho_versions の status (DB enum と一致)。 */
 export type ChoshoVersionStatus = 'DRAFT' | 'APPROVED' | 'ARCHIVED';
 
@@ -1317,6 +1329,32 @@ export const api = {
     deleteFlag: (orgId: string, journalId: string) =>
       apiFetch<void>(
         `/organizations/${orgId}/journal-flags/${encodeURIComponent(journalId)}`,
+        { method: 'DELETE' },
+      ),
+    listComments: (orgId: string, journalIds?: string[]) => {
+      const qs = journalIds && journalIds.length > 0
+        ? `?journalIds=${encodeURIComponent(journalIds.join(','))}`
+        : '';
+      return apiFetch<JournalReviewCommentItem[]>(
+        `/organizations/${orgId}/journal-comments${qs}`,
+      );
+    },
+    addComment: (
+      orgId: string,
+      input: {
+        journalId: string;
+        body: string;
+        urls?: string[];
+        parentCommentId?: string;
+      },
+    ) =>
+      apiFetch<JournalReviewCommentItem>(
+        `/organizations/${orgId}/journal-comments`,
+        { method: 'POST', body: JSON.stringify(input) },
+      ),
+    deleteComment: (orgId: string, commentId: string) =>
+      apiFetch<void>(
+        `/organizations/${orgId}/journal-comments/${commentId}`,
         { method: 'DELETE' },
       ),
   },

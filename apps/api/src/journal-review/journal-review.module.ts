@@ -2,6 +2,7 @@ import { Module, forwardRef } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { JournalReviewController } from './journal-review.controller';
+import { JournalReviewCommentsController } from './journal-review.comments.controller';
 import { JournalReviewService } from './journal-review.service';
 
 /**
@@ -12,7 +13,7 @@ import { JournalReviewService } from './journal-review.service';
  */
 @Module({
   imports: [forwardRef(() => AuthModule), PrismaModule],
-  controllers: [JournalReviewController],
+  controllers: [JournalReviewController, JournalReviewCommentsController],
   providers: [JournalReviewService],
   exports: [JournalReviewService],
 })

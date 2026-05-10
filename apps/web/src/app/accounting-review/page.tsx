@@ -24,9 +24,11 @@ import {
   Printer,
   ClipboardList,
   BookText,
+  StickyNote,
 } from "lucide-react";
 import { ChoshoTab } from "./_tabs/chosho-tab";
 import { JournalReviewTab } from "./_tabs/journal-tab";
+import { MemoTab } from "./_tabs/memo-tab";
 import { AgentBanner } from "@/components/agent/agent-banner";
 import { AGENTS } from "@/lib/agent-voice";
 import { CopilotOpenButton } from "@/components/copilot/copilot-open-button";
@@ -53,13 +55,14 @@ import type {
   ReviewTaxMismatch,
 } from "@/lib/mf-types";
 
-type TabKey = "checklist" | "review" | "chosho" | "journal";
+type TabKey = "checklist" | "review" | "chosho" | "journal" | "memo";
 
 const tabs: { key: TabKey; label: string; icon: typeof FileText }[] = [
   { key: "review", label: "経理レビュー", icon: AlertTriangle },
   { key: "checklist", label: "チェックリスト", icon: ClipboardCheck },
   { key: "chosho", label: "残高調書", icon: ClipboardList },
   { key: "journal", label: "仕訳レビュー", icon: BookText },
+  { key: "memo", label: "レビューメモ", icon: StickyNote },
 ];
 
 const STATUS_STEPS = [
@@ -99,7 +102,7 @@ function AccountingReviewPageInner() {
   // ?tab=chosho|journal|... で初期タブを決定。未指定なら "review"。
   const tabFromQuery = searchParams.get("tab") as TabKey | null;
   const isValidTab = (v: string | null): v is TabKey =>
-    v === "review" || v === "checklist" || v === "chosho" || v === "journal";
+    v === "review" || v === "checklist" || v === "chosho" || v === "journal" || v === "memo";
   const [activeTab, setActiveTabState] = useState<TabKey>(
     isValidTab(tabFromQuery) ? tabFromQuery : "review",
   );
@@ -356,6 +359,12 @@ function AccountingReviewPageInner() {
         {activeTab === "journal" && (
           <div role="tabpanel" id="monthly-panel-journal" aria-labelledby="monthly-tab-journal">
             <JournalReviewTab orgId={orgId} fiscalYear={fiscalYear} month={month} />
+          </div>
+        )}
+
+        {activeTab === "memo" && (
+          <div role="tabpanel" id="monthly-panel-memo" aria-labelledby="monthly-tab-memo">
+            <MemoTab orgId={orgId} fiscalYear={fiscalYear} month={month} />
           </div>
         )}
       </div>

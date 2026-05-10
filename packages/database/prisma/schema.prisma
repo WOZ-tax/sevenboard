@@ -80,6 +80,7 @@ model Organization {
   choshoRowComments      ChoshoRowComment[]
   choshoCellComments     ChoshoCellComment[]
   journalReviewFlags     JournalReviewFlag[]
+  journalReviewComments  JournalReviewComment[]
 
   @@unique([id, tenantId])
   @@unique([tenantId, code])
@@ -157,6 +158,7 @@ model User {
   authoredChoshoCellComments ChoshoCellComment[] @relation("ChoshoCellCommentAuthor")
   flaggedJournalReviews      JournalReviewFlag[] @relation("JournalReviewFlagged")
   resolvedJournalReviews     JournalReviewFlag[] @relation("JournalReviewResolved")
+  authoredJournalReviewComments JournalReviewComment[] @relation("JournalReviewCommentAuthor")
 
   @@map("users")
 }
@@ -1437,4 +1439,30 @@ model JournalReviewFlag {
   @@unique([tenantId, orgId, journalId])
   @@index([tenantId, orgId, fiscalYear, month])
   @@map("journal_review_flags")
+}
+
+/// 仕訳レビュー: 1 仕訳に対するコメントスレッド (Phase 2 / Unit 2-2)。
+/// parent_comment_id NULL = root コメント、UUID = 返信。
+model JournalReviewComment {
+  id              String    @id @default(uuid()) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+  orgId           String    @map("org_id") @db.Uuid
+  /// MF 仕訳の id (UUID 形式)。FK なし (MF が正本)
+  journalId       String    @map("journal_id")
+  parentCommentId String?   @map("parent_comment_id") @db.Uuid
+  body            String
+  /// 添付 URL の配列 (string[])
+  urls            Json      @default("[]")
+  authorId        String?   @map("author_id") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [orgId, tenantId], references: [id, tenantId])
+  parent       JournalReviewComment?  @relation("JournalReviewCommentReplies", fields: [parentCommentId], references: [id], onDelete: Cascade)
+  replies      JournalReviewComment[] @relation("JournalReviewCommentReplies")
+  author       User?        @relation("JournalReviewCommentAuthor", fields: [authorId], references: [id])
+
+  @@index([tenantId, orgId, journalId, createdAt])
+  @@index([parentCommentId])
+  @@map("journal_review_comments")
 }

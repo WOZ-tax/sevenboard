@@ -16,9 +16,9 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Calendar, Flag, Loader2, Search } from "lucide-react";
+import { AlertTriangle, Calendar, ExternalLink, Flag, Loader2, Search } from "lucide-react";
 import { toast } from "sonner";
 import { api, type JournalReviewFlagItem } from "@/lib/api";
 import type { MfJournal } from "@/lib/api-types";
@@ -58,7 +58,10 @@ interface MfJournalSide {
 }
 
 interface MfJournalRow {
+  /** 内部ID (MF の j.id 、UUID)。flag/comment 紐付けに使う。 */
   id: string | null;
+  /** 取引No (MF の j.number、表示用の数値)。null なら id を fallback 表示。 */
+  number: string | null;
   issueDate: string | null;
   description: string | null;
   partnerName: string | null;
@@ -112,8 +115,16 @@ function normalizeJournal(j: MfJournal): MfJournalRow {
     }
   }
 
+  // 取引No は j.number (数値型もある) を優先表示。 j.id (UUID) は内部識別用に保持。
+  const numberRaw = obj.number;
+  const numberStr =
+    typeof numberRaw === "number" && Number.isFinite(numberRaw)
+      ? String(numberRaw)
+      : pickString(numberRaw);
+
   return {
-    id: pickString(obj.id) ?? pickString(obj.number) ?? null,
+    id: pickString(obj.id) ?? null,
+    number: numberStr ?? null,
     issueDate:
       pickString(obj.transaction_date) ??
       pickString(obj.date) ??
@@ -206,6 +217,7 @@ function toISODate(d: Date): string {
 // ============================================================
 
 export function JournalReviewTab({ orgId, fiscalYear, month }: Props) {
+  const router = useRouter();
   const searchParams = useSearchParams();
   // 残高調書からのドリルダウン: `?focusAccount=売掛金` で初期 search にセット
   const focusAccount = searchParams.get("focusAccount");
@@ -451,8 +463,8 @@ export function JournalReviewTab({ orgId, fiscalYear, month }: Props) {
                           : "hover:bg-muted/30",
                     )}
                   >
-                    <td className="px-2 py-1.5 font-mono text-[10px] text-muted-foreground" onClick={(e) => e.stopPropagation()}>
-                      {r.id ?? "—"}
+                    <td className="px-2 py-1.5 font-mono text-[10px] text-muted-foreground tabular-nums" onClick={(e) => e.stopPropagation()}>
+                      {r.number ?? r.id ?? "—"}
                     </td>
                     <td className="px-2 py-1.5 text-muted-foreground tabular-nums">
                       <span className="inline-flex items-center gap-1">
@@ -480,12 +492,31 @@ export function JournalReviewTab({ orgId, fiscalYear, month }: Props) {
                       {r.description ?? "—"}
                     </td>
                     <td className="px-1 py-1.5 text-center" onClick={(e) => e.stopPropagation()}>
-                      <FlagCell
-                        flag={userFlag}
-                        loading={isFlagPending}
-                        disabled={r.id == null}
-                        onToggle={() => r.id && handleToggleFlag(r.id)}
-                      />
+                      <div className="flex items-center justify-center gap-0.5">
+                        <FlagCell
+                          flag={userFlag}
+                          loading={isFlagPending}
+                          disabled={r.id == null}
+                          onToggle={() => r.id && handleToggleFlag(r.id)}
+                        />
+                        {userFlag != null && r.id != null && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const params = new URLSearchParams();
+                              params.set("tab", "memo");
+                              params.set("focusJournal", r.id!);
+                              params.set("compose", "1");
+                              router.push(`/accounting-review?${params.toString()}`);
+                            }}
+                            className="rounded p-0.5 text-muted-foreground hover:bg-muted/60 hover:text-[var(--color-primary)]"
+                            title="レビューメモを開いてコメント"
+                            aria-label="レビューメモへ"
+                          >
+                            <ExternalLink className="h-3 w-3" />
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 );
