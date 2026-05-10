@@ -34,6 +34,13 @@ import {
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useAuthStore } from "@/lib/auth";
 import { useFyElapsed } from "@/hooks/use-fy-elapsed";
 
@@ -251,29 +258,24 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
       </div>
 
       {/* 月別フィルタ */}
-      <div className="flex flex-wrap items-center gap-1 rounded-md border bg-card p-2 text-xs">
-        <span className="mr-1 text-muted-foreground">期間</span>
-        <Button
-          type="button"
-          variant={filterMonth === "all" ? "default" : "outline"}
-          size="sm"
-          className="h-6 px-2 text-[11px]"
-          onClick={() => handleSetFilterMonth("all")}
+      <div className="flex items-center gap-2 text-xs">
+        <span className="text-muted-foreground">期間</span>
+        <Select
+          value={filterMonth === "all" ? "all" : String(filterMonth)}
+          onValueChange={(v) => handleSetFilterMonth(v === "all" ? "all" : Number(v))}
         >
-          全期間
-        </Button>
-        {monthsInFy.map((m) => (
-          <Button
-            key={m}
-            type="button"
-            variant={filterMonth === m ? "default" : "outline"}
-            size="sm"
-            className="h-6 px-2 text-[11px] tabular-nums"
-            onClick={() => handleSetFilterMonth(m)}
-          >
-            {m}月
-          </Button>
-        ))}
+          <SelectTrigger className="h-7 w-32 text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">全期間</SelectItem>
+            {monthsInFy.map((m) => (
+              <SelectItem key={m} value={String(m)} className="tabular-nums">
+                {m}月度
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       <div className="overflow-x-auto rounded-md border bg-card">
