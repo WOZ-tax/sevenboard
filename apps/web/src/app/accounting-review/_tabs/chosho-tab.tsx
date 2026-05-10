@@ -342,6 +342,36 @@ function ChoshoTable({
   isDeletingCellComment = false,
   isUpdatingRowRule = false,
 }: ChoshoTableProps) {
+  const router = useRouter();
+  // 残高調書 → 仕訳タブへのドリルダウン。
+  // 親勘定 (mfType==='account' で account 祖先なし) なら focusAccount のみ、
+  // 補助/取引先なら親勘定 + 自身 (取引先名) を partner として渡す。
+  const drilldownToJournal = (row: ChoshoPreviewRow) => {
+    const byKey = new Map(data.rows.map((r) => [r.rowKey, r]));
+    // 自身の祖先 chain で最初に当たる account を「親勘定」とする
+    let parentAccount: ChoshoPreviewRow | null = null;
+    let cur: ChoshoPreviewRow | undefined = row.parentRowKey
+      ? byKey.get(row.parentRowKey)
+      : undefined;
+    while (cur) {
+      if (cur.mfType === "account") {
+        parentAccount = cur;
+        break;
+      }
+      cur = cur.parentRowKey ? byKey.get(cur.parentRowKey) : undefined;
+    }
+    const params = new URLSearchParams();
+    params.set("tab", "journal");
+    if (parentAccount) {
+      // 自身は補助 or 取引先 → 親勘定で focus、自分の name を partner として渡す
+      params.set("focusAccount", parentAccount.name);
+      params.set("partner", row.name);
+    } else {
+      // 自身が親勘定 → focusAccount のみ
+      params.set("focusAccount", row.name);
+    }
+    router.push(`/accounting-review?${params.toString()}`);
+  };
   // 親 rowKey の Set。closed なら子は描画しない。
   // 初期展開ルール:
   //   - 大区分・中区分・中間集計 (mfType !== 'account'): デフォルト開く
@@ -501,6 +531,7 @@ function ChoshoTable({
                     setOpenCellComment({ rowId: r.rowKey, month, anomaly, rowName: r.name })
                   }
                   onOpenRowRule={() => setOpenRowRule(r)}
+                  onDrilldownToJournal={drilldownToJournal}
                 />
               );
             })}
@@ -594,6 +625,7 @@ function ChoshoRow({
   cellCommentLookup,
   onOpenCellComment,
   onOpenRowRule,
+  onDrilldownToJournal,
 }: {
   row: ChoshoPreviewRow;
   monthOrder: number[];
@@ -608,6 +640,7 @@ function ChoshoRow({
   cellCommentLookup: (month: number) => ChoshoCellComment | null;
   onOpenCellComment: (month: number, anomaly: ChoshoAnomaly) => void;
   onOpenRowRule: () => void;
+  onDrilldownToJournal: (row: ChoshoPreviewRow) => void;
 }) {
   // 大区分 (level 0) は太字背景、勘定 (level 1) は通常太字、補助以降 (level 2+) は通常文字。
   const isHeader = row.level === 0;
@@ -643,17 +676,33 @@ function ChoshoRow({
           ) : (
             <span className="inline-block h-4 w-4 shrink-0" />
           )}
-          <span
-            className={cn(
-              isHeader
-                ? "text-[var(--color-text-primary)]"
-                : isAccountRow
+          {row.mfType === "account" ? (
+            <button
+              type="button"
+              onClick={() => onDrilldownToJournal(row)}
+              className={cn(
+                "rounded text-left underline decoration-dotted decoration-muted-foreground/40 underline-offset-2 hover:decoration-[var(--color-primary)] hover:text-[var(--color-primary)]",
+                isHeader || isAccountRow
                   ? "text-[var(--color-text-primary)]"
                   : "text-muted-foreground",
-            )}
-          >
-            {row.name}
-          </span>
+              )}
+              title="この科目の仕訳を見る"
+            >
+              {row.name}
+            </button>
+          ) : (
+            <span
+              className={cn(
+                isHeader
+                  ? "text-[var(--color-text-primary)]"
+                  : isAccountRow
+                    ? "text-[var(--color-text-primary)]"
+                    : "text-muted-foreground",
+              )}
+            >
+              {row.name}
+            </span>
+          )}
         </div>
       </td>
       {monthOrder.map((m, i) => {

@@ -15,14 +15,21 @@
  *   - 行コメント / 差戻し / 修正履歴
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { Loader2, Search, Calendar } from "lucide-react";
+import { AlertTriangle, Calendar, Loader2, Search } from "lucide-react";
 import { api } from "@/lib/api";
 import type { MfJournal } from "@/lib/api-types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { usePeriodStore } from "@/lib/period-store";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface Props {
   orgId: string;
@@ -112,12 +119,21 @@ function toISODate(d: Date): string {
 // ============================================================
 
 export function JournalReviewTab({ orgId, fiscalYear, month }: Props) {
-  void fiscalYear;
-  void month;
+  const searchParams = useSearchParams();
+  // 残高調書からのドリルダウン: `?focusAccount=売掛金` で初期 search にセット
+  const focusAccount = searchParams.get("focusAccount");
+  const focusPartner = searchParams.get("partner");
+
   const [preset, setPreset] = useState<RangePreset>("thisMonth");
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
   const [searchText, setSearchText] = useState("");
+
+  // ドリルダウン経由で来た時に search を自動セット (取引先名があれば優先、なければ勘定名)
+  useEffect(() => {
+    const next = focusPartner || focusAccount || "";
+    if (next) setSearchText(next);
+  }, [focusAccount, focusPartner]);
 
   const range = useMemo(() => defaultRangeFor(preset, customStart, customEnd), [preset, customStart, customEnd]);
   const queryReady = !!orgId && !!range.start && !!range.end;
@@ -128,6 +144,34 @@ export function JournalReviewTab({ orgId, fiscalYear, month }: Props) {
     enabled: queryReady,
     staleTime: 60 * 1000,
   });
+
+  // risk-findings: 検知済 journal_id を背景色でハイライトするための Set を組み立て
+  const riskQuery = useQuery({
+    queryKey: ["risk-findings", orgId, fiscalYear, month],
+    queryFn: () =>
+      api.riskFindings.list(orgId, fiscalYear!, month!, "OPEN,CONFIRMED"),
+    enabled: !!orgId && fiscalYear != null && month != null,
+    staleTime: 60 * 1000,
+  });
+  // 各 finding の evidence から journal_id を抽出。
+  // 現在の rule 群では LLM journal-anomaly 系が evidence.candidateJournal.id を持つ。
+  // 他の rule で evidence.journalId / journalIds が後付けされても拾えるよう defensive に書く。
+  const flaggedJournalIds = useMemo(() => {
+    const set = new Set<string>();
+    for (const f of riskQuery.data ?? []) {
+      const ev = f.evidence as Record<string, unknown> | undefined;
+      if (!ev) continue;
+      const single = (ev as { journalId?: unknown }).journalId;
+      if (typeof single === "string") set.add(single);
+      const list = (ev as { journalIds?: unknown }).journalIds;
+      if (Array.isArray(list)) {
+        for (const v of list) if (typeof v === "string") set.add(v);
+      }
+      const candidate = (ev as { candidateJournal?: { id?: unknown } }).candidateJournal;
+      if (candidate && typeof candidate.id === "string") set.add(candidate.id);
+    }
+    return set;
+  }, [riskQuery.data]);
 
   const rows = useMemo(() => {
     const all = (query.data?.journals ?? []).map(normalizeJournal);
@@ -200,6 +244,12 @@ export function JournalReviewTab({ orgId, fiscalYear, month }: Props) {
               {rows.length} / {query.data.journals.length} 件
             </Badge>
           )}
+          {flaggedJournalIds.size > 0 && (
+            <span className="flex items-center gap-1 text-[10px] text-red-700">
+              <span className="inline-block h-2.5 w-2.5 rounded-sm border-l-2 border-red-500 bg-red-50" />
+              異常検知 {flaggedJournalIds.size} 件
+            </span>
+          )}
         </div>
       </div>
 
@@ -231,28 +281,54 @@ export function JournalReviewTab({ orgId, fiscalYear, month }: Props) {
               </tr>
             </thead>
             <tbody>
-              {rows.map((r, i) => (
-                <tr key={r.id ?? i} className="border-b border-muted/50 hover:bg-muted/30">
-                  <td className="px-2 py-1.5 text-muted-foreground tabular-nums">
-                    {r.issueDate ?? "—"}
-                  </td>
-                  <td className="px-2 py-1.5">
-                    <SideCell sides={r.debits} />
-                  </td>
-                  <td className="px-2 py-1.5">
-                    <SideCell sides={r.credits} />
-                  </td>
-                  <td className="px-2 py-1.5 text-right tabular-nums">
-                    {formatYen(r.totalAmount)}
-                  </td>
-                  <td className="max-w-[280px] truncate px-2 py-1.5 text-muted-foreground" title={r.description ?? ""}>
-                    {r.description ?? "—"}
-                  </td>
-                  <td className="px-2 py-1.5 text-muted-foreground">
-                    {r.partnerName ?? "—"}
-                  </td>
-                </tr>
-              ))}
+              {rows.map((r, i) => {
+                const flagged = r.id != null && flaggedJournalIds.has(r.id);
+                return (
+                  <tr
+                    key={r.id ?? i}
+                    className={cn(
+                      "border-b border-muted/50",
+                      flagged
+                        ? "border-l-2 border-l-red-500 bg-red-50 hover:bg-red-100"
+                        : "hover:bg-muted/30",
+                    )}
+                  >
+                    <td className="px-2 py-1.5 text-muted-foreground tabular-nums">
+                      {flagged ? (
+                        <Tooltip>
+                          <TooltipTrigger
+                            type="button"
+                            className="inline-flex items-center gap-1 bg-transparent p-0 text-inherit"
+                          >
+                            <AlertTriangle className="h-3 w-3 text-red-600" />
+                            {r.issueDate ?? "—"}
+                          </TooltipTrigger>
+                          <TooltipContent side="right">
+                            AI CFO が異常を検知した仕訳
+                          </TooltipContent>
+                        </Tooltip>
+                      ) : (
+                        r.issueDate ?? "—"
+                      )}
+                    </td>
+                    <td className="px-2 py-1.5">
+                      <SideCell sides={r.debits} />
+                    </td>
+                    <td className="px-2 py-1.5">
+                      <SideCell sides={r.credits} />
+                    </td>
+                    <td className="px-2 py-1.5 text-right tabular-nums">
+                      {formatYen(r.totalAmount)}
+                    </td>
+                    <td className="max-w-[280px] truncate px-2 py-1.5 text-muted-foreground" title={r.description ?? ""}>
+                      {r.description ?? "—"}
+                    </td>
+                    <td className="px-2 py-1.5 text-muted-foreground">
+                      {r.partnerName ?? "—"}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

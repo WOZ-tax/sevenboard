@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -82,7 +83,25 @@ function getNextStatus(current: string): string | null {
 }
 
 export default function AccountingReviewPage() {
-  const [activeTab, setActiveTab] = useState<TabKey>("review");
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  // ?tab=chosho|journal|... で初期タブを決定。未指定なら "review"。
+  const tabFromQuery = searchParams.get("tab") as TabKey | null;
+  const isValidTab = (v: string | null): v is TabKey =>
+    v === "review" || v === "checklist" || v === "chosho" || v === "journal";
+  const [activeTab, setActiveTabState] = useState<TabKey>(
+    isValidTab(tabFromQuery) ? tabFromQuery : "review",
+  );
+  // タブ切替時に URL も同期 (ドリルダウン経路から ?tab=journal で来た時に履歴を維持)
+  const setActiveTab = useCallback(
+    (next: TabKey) => {
+      setActiveTabState(next);
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("tab", next);
+      router.replace(`/accounting-review?${params.toString()}`, { scroll: false });
+    },
+    [router, searchParams],
+  );
   const orgId = useScopedOrgId();
   // kintone 月次進捗の「納品済」最新月を期間デフォルトに自動適用 (旧 DashboardShell から移設)
   usePeriodDefaultFromKintone();
