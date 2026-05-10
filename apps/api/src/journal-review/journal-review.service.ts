@@ -23,11 +23,16 @@ export class JournalReviewService {
   async listFlags(
     orgId: string,
     fiscalYear: number,
-    month: number,
+    month?: number,
   ): Promise<JournalReviewFlagItem[]> {
     const { tenantId } = await this.resolveOrg(orgId);
     const items = await this.prisma.journalReviewFlag.findMany({
-      where: { tenantId, orgId, fiscalYear, month },
+      where: {
+        tenantId,
+        orgId,
+        fiscalYear,
+        ...(month != null ? { month } : {}),
+      },
       orderBy: { flaggedAt: 'desc' },
     });
     return items.map((f) => ({

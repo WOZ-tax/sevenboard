@@ -680,36 +680,56 @@ export class ChoshoService {
   // ============================================================
 
   /**
-   * 指定 (org, fy, month) における「最新 saved version」の cell コメント全件を返す。
-   * memo タブで journal flag コメントと並列に表示するため、 row の name を含めて返す。
+   * 指定会計年度の cell コメントを集約して返す。
    *
-   * 該当 version が無い場合は空配列。
+   * - selectedMonth 指定時: 同 (fy, month) の最新 version の cell コメントのみ
+   * - selectedMonth 省略時: fy 内の全 selectedMonth × 各月の最新 version の cell コメントを集約
+   *   (会計年度全体ビューを memo タブの「全期間」モードで使う)
+   *
+   * 該当 version が無い月は無視 (空配列)。
    */
   async listRecentCellCommentsForPeriod(
     orgId: string,
     fiscalYear: number,
-    selectedMonth: number,
+    selectedMonth?: number,
   ): Promise<RecentCellCommentItem[]> {
     const { tenantId } = await this.resolveOrg(orgId);
-    // 同 (fy, month) の最新 version (DRAFT/APPROVED/ARCHIVED 全て対象。最新を見せる)
-    const latest = await this.prisma.choshoVersion.findFirst({
-      where: { tenantId, orgId, fiscalYear, selectedMonth },
-      orderBy: { createdAt: 'desc' },
-      select: { id: true },
+
+    // 各月の最新 version を引く (selectedMonth 省略時は全月)
+    const versionWhere: Prisma.ChoshoVersionWhereInput = {
+      tenantId,
+      orgId,
+      fiscalYear,
+      ...(selectedMonth != null ? { selectedMonth } : {}),
+    };
+    const versions = await this.prisma.choshoVersion.findMany({
+      where: versionWhere,
+      orderBy: [{ selectedMonth: 'asc' }, { createdAt: 'desc' }],
+      select: { id: true, selectedMonth: true },
     });
-    if (!latest) return [];
+    if (versions.length === 0) return [];
+
+    // selectedMonth ごとに最新 (createdAt desc 順で最初に出てきたもの) を採用
+    const latestByMonth = new Map<number, string>();
+    for (const v of versions) {
+      if (!latestByMonth.has(v.selectedMonth)) {
+        latestByMonth.set(v.selectedMonth, v.id);
+      }
+    }
+    const versionIds = Array.from(latestByMonth.values());
 
     const items = await this.prisma.choshoCellComment.findMany({
-      where: { tenantId, orgId, row: { versionId: latest.id } },
-      orderBy: { createdAt: 'asc' },
+      where: { tenantId, orgId, row: { versionId: { in: versionIds } } },
+      orderBy: [{ createdAt: 'asc' }],
       include: {
-        row: { select: { id: true, accountName: true } },
+        row: { select: { id: true, accountName: true, versionId: true } },
         author: { select: { name: true } },
       },
     });
+    // versionId ごとに row の versionId を埋め戻す (memo UI が必要に応じて使う)
     return items.map((c) => ({
       id: c.id,
-      versionId: latest.id,
+      versionId: c.row.versionId,
       rowId: c.rowId,
       rowName: c.row.accountName,
       month: c.month,

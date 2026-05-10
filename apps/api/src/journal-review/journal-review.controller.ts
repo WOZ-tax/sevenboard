@@ -36,8 +36,10 @@ export class JournalReviewController {
   async list(
     @Param('orgId', ParseUUIDPipe) orgId: string,
     @Query('fiscalYear', ParseIntPipe) fiscalYear: number,
-    @Query('month', ParseIntPipe) month: number,
+    @Query('month') monthRaw?: string,
   ) {
+    // month 省略時は fiscalYear 全期間 (memo タブで「全期間」モード)
+    const month = monthRaw ? parseInt(monthRaw, 10) : undefined;
     return this.service.listFlags(orgId, fiscalYear, month);
   }
 

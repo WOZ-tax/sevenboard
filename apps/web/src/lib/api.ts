@@ -1354,19 +1354,25 @@ export const api = {
         `/organizations/${orgId}/chosho/cell-comments/${commentId}`,
         { method: 'DELETE' },
       ),
-    /** memo タブ用: 期間内最新 version の cell コメント全件 */
-    listRecentCellComments: (orgId: string, fiscalYear: number, month: number) =>
-      apiFetch<ChoshoRecentCellComment[]>(
-        `/organizations/${orgId}/chosho/recent-cell-comments?fiscalYear=${fiscalYear}&month=${month}`,
-      ),
+    /** memo タブ用: 期間内最新 version の cell コメント全件。 month 省略時は会計年度全月。 */
+    listRecentCellComments: (orgId: string, fiscalYear: number, month?: number) => {
+      const qs = new URLSearchParams({ fiscalYear: String(fiscalYear) });
+      if (month != null) qs.set('month', String(month));
+      return apiFetch<ChoshoRecentCellComment[]>(
+        `/organizations/${orgId}/chosho/recent-cell-comments?${qs.toString()}`,
+      );
+    },
   },
 
   // === Journal Review (仕訳レビュー: 要確認フラグ + 解決管理) ===
   journalReview: {
-    listFlags: (orgId: string, fiscalYear: number, month: number) =>
-      apiFetch<JournalReviewFlagItem[]>(
-        `/organizations/${orgId}/journal-flags?fiscalYear=${fiscalYear}&month=${month}`,
-      ),
+    listFlags: (orgId: string, fiscalYear: number, month?: number) => {
+      const qs = new URLSearchParams({ fiscalYear: String(fiscalYear) });
+      if (month != null) qs.set('month', String(month));
+      return apiFetch<JournalReviewFlagItem[]>(
+        `/organizations/${orgId}/journal-flags?${qs.toString()}`,
+      );
+    },
     upsertFlag: (
       orgId: string,
       journalId: string,

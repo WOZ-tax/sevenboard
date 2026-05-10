@@ -35,6 +35,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useAuthStore } from "@/lib/auth";
+import { useFyElapsed } from "@/hooks/use-fy-elapsed";
 
 interface Props {
   orgId: string;
@@ -59,20 +60,47 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
   const composeOnLoad = searchParams.get("compose") === "1";
   const currentUserId = useAuthStore((s) => s.user?.id ?? null);
 
-  // フラグ立った journal 一覧 (期間内)
+  // 期間フィルタ: 「全期間 (会計年度全体)」or 「特定月度」
+  // - グローバル期間セレクターで月が選ばれていれば初期値はその月
+  // - "all" を選ぶと fiscalYear 内の全月分のメモを表示
+  const [filterMonth, setFilterMonth] = useState<number | "all">(
+    month != null ? month : "all",
+  );
+  // グローバル期間セレクターの月が変わったら追従 (ユーザーが all を明示選択した場合は維持)
+  const [userOverride, setUserOverride] = useState(false);
+  useEffect(() => {
+    if (!userOverride && month != null) setFilterMonth(month);
+  }, [month, userOverride]);
+  const handleSetFilterMonth = (next: number | "all") => {
+    setFilterMonth(next);
+    setUserOverride(true);
+  };
+
+  const monthFilterValue = filterMonth === "all" ? undefined : filterMonth;
+  const { fyStartMonth } = useFyElapsed();
+  const monthsInFy = useMemo(() => {
+    // 期首から12ヶ月分のカレンダー月を順に並べる (例: fyStart=4 → [4..12, 1..3])
+    const out: number[] = [];
+    for (let i = 0; i < 12; i++) out.push(((fyStartMonth - 1 + i) % 12) + 1);
+    return out;
+  }, [fyStartMonth]);
+
+  // フラグ立った journal 一覧 (フィルタ反映)
   const flagsQuery = useQuery({
-    queryKey: ["journal-flags", orgId, fiscalYear, month],
-    queryFn: () => api.journalReview.listFlags(orgId, fiscalYear!, month!),
-    enabled: !!orgId && fiscalYear != null && month != null,
+    queryKey: ["journal-flags", orgId, fiscalYear, monthFilterValue ?? "all"],
+    queryFn: () => api.journalReview.listFlags(orgId, fiscalYear!, monthFilterValue),
+    enabled: !!orgId && fiscalYear != null,
     staleTime: 30_000,
   });
   const flags = flagsQuery.data ?? [];
 
   // フラグ立った journal の MF 詳細を取得 (取引No / 日付 / 科目 / 摘要 用)
+  // 全期間フィルタ時は会計年度内の各月を順に取得する。
   const journalsQuery = useQuery({
-    queryKey: ["mf-journals-for-memo", orgId, fiscalYear, month],
-    queryFn: () => fetchMonthJournals(orgId, fiscalYear!, month!),
-    enabled: !!orgId && fiscalYear != null && month != null,
+    queryKey: ["mf-journals-for-memo", orgId, fiscalYear, monthFilterValue ?? "all", monthsInFy.join(",")],
+    queryFn: () =>
+      fetchJournalsForFilter(orgId, fiscalYear!, monthFilterValue, fyStartMonth, monthsInFy),
+    enabled: !!orgId && fiscalYear != null,
     staleTime: 60 * 1000,
   });
   const journalsById = useMemo(() => {
@@ -145,10 +173,10 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
     }
   }, [focusJournal, composeOnLoad, router, searchParams]);
 
-  if (!orgId || fiscalYear == null || month == null) {
+  if (!orgId || fiscalYear == null) {
     return (
       <div className="rounded-md border border-dashed bg-muted/20 p-8 text-center text-sm text-muted-foreground">
-        顧問先と対象月を選択してください
+        顧問先と会計年度を選択してください
       </div>
     );
   }
@@ -195,12 +223,40 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
         <div>
           <span className="font-semibold text-[var(--color-text-primary)]">レビューメモ</span>
-          <span className="ml-2">{fiscalYear}年{month}月度 ／ フラグ {flags.length} 件</span>
+          <span className="ml-2">
+            {fiscalYear}年度 ／ {filterMonth === "all" ? "全期間" : `${filterMonth}月度`} ／ フラグ {flags.length} 件
+          </span>
         </div>
         <div className="flex items-center gap-2">
           <Badge variant="secondary" className="text-[10px]">未解決 {flags.filter((f) => f.resolvedAt == null).length}</Badge>
           <Badge variant="outline" className="text-[10px]">解決済 {flags.filter((f) => f.resolvedAt != null).length}</Badge>
         </div>
+      </div>
+
+      {/* 月別フィルタ */}
+      <div className="flex flex-wrap items-center gap-1 rounded-md border bg-card p-2 text-xs">
+        <span className="mr-1 text-muted-foreground">期間</span>
+        <Button
+          type="button"
+          variant={filterMonth === "all" ? "default" : "outline"}
+          size="sm"
+          className="h-6 px-2 text-[11px]"
+          onClick={() => handleSetFilterMonth("all")}
+        >
+          全期間
+        </Button>
+        {monthsInFy.map((m) => (
+          <Button
+            key={m}
+            type="button"
+            variant={filterMonth === m ? "default" : "outline"}
+            size="sm"
+            className="h-6 px-2 text-[11px] tabular-nums"
+            onClick={() => handleSetFilterMonth(m)}
+          >
+            {m}月
+          </Button>
+        ))}
       </div>
 
       <div className="overflow-x-auto rounded-md border bg-card">
@@ -259,7 +315,7 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
       <ChoshoCellMemoSection
         orgId={orgId}
         fiscalYear={fiscalYear}
-        month={month}
+        month={monthFilterValue}
         currentUserId={currentUserId}
       />
 
@@ -718,15 +774,16 @@ function ChoshoCellMemoSection({
 }: {
   orgId: string;
   fiscalYear: number | undefined;
+  /** undefined = 会計年度全期間、 number = 該当月のみ */
   month: number | undefined;
   currentUserId: string | null;
 }) {
   const qc = useQueryClient();
-  const queryKey = ["chosho-recent-cell-comments", orgId, fiscalYear, month];
+  const queryKey = ["chosho-recent-cell-comments", orgId, fiscalYear, month ?? "all"];
   const cellQuery = useQuery({
     queryKey,
-    queryFn: () => api.chosho.listRecentCellComments(orgId, fiscalYear!, month!),
-    enabled: !!orgId && fiscalYear != null && month != null,
+    queryFn: () => api.chosho.listRecentCellComments(orgId, fiscalYear!, month),
+    enabled: !!orgId && fiscalYear != null,
     staleTime: 30_000,
   });
   const items = cellQuery.data ?? [];
@@ -1083,18 +1140,43 @@ function formatYyyyMm(fiscalYear: number | undefined, month: number): string {
 // MF 仕訳取得 (memo タブ専用、journal-tab と同じ shape)
 // ============================================================
 
-async function fetchMonthJournals(
+/**
+ * memo タブのフィルタ ("全期間" or 特定月) に応じて journals を取る。
+ * 全期間時: 会計年度の各月を順に並列取得して合算 (期首4月なら 4-3 月)。
+ */
+async function fetchJournalsForFilter(
   orgId: string,
   fiscalYear: number,
-  selectedMonth: number,
+  selectedMonth: number | undefined,
+  fyStartMonth: number,
+  monthsInFy: number[],
 ): Promise<MfJournalRefItem[]> {
-  // SevenBoard 期間セレクター = 会計年度 + 月度 → 実カレンダー year-month に変換
-  // (journal-tab.tsx の defaultRangeFor と揃えるため、ここでは period-store の fyStart は不要、
-  //  単純に「fiscalYear 年 month 月」と仮定。期跨ぎ補正はユーザー側で fiscalYear を選び直す前提)
-  const range = monthRange(fiscalYear, selectedMonth);
-  const data = await api.mf.getJournals(orgId, { startDate: range.start, endDate: range.end });
-  const arr = data?.journals ?? [];
-  return arr.map(normalizeForMemo).filter((j): j is MfJournalRefItem => j != null);
+  if (selectedMonth != null) {
+    const year = selectedMonth >= fyStartMonth ? fiscalYear : fiscalYear + 1;
+    const range = monthRange(year, selectedMonth);
+    const data = await api.mf.getJournals(orgId, { startDate: range.start, endDate: range.end });
+    return (data?.journals ?? [])
+      .map(normalizeForMemo)
+      .filter((j): j is MfJournalRefItem => j != null);
+  }
+  // 全期間: 各月を並列に取得して合算
+  const all: MfJournalRefItem[] = [];
+  await Promise.all(
+    monthsInFy.map(async (m) => {
+      const year = m >= fyStartMonth ? fiscalYear : fiscalYear + 1;
+      const range = monthRange(year, m);
+      try {
+        const data = await api.mf.getJournals(orgId, { startDate: range.start, endDate: range.end });
+        for (const j of data?.journals ?? []) {
+          const norm = normalizeForMemo(j);
+          if (norm) all.push(norm);
+        }
+      } catch {
+        // 一部月の MF 取得失敗は他月に伝播させない (memo タブの目的は overlay 表示なので best-effort)
+      }
+    }),
+  );
+  return all;
 }
 
 function monthRange(year: number, month: number): { start: string; end: string } {

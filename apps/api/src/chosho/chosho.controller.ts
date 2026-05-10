@@ -278,8 +278,10 @@ export class ChoshoController {
   async listRecentCellComments(
     @Param('orgId', ParseUUIDPipe) orgId: string,
     @Query('fiscalYear', ParseIntPipe) fiscalYear: number,
-    @Query('month', ParseIntPipe) month: number,
+    @Query('month') monthRaw?: string,
   ) {
+    // month 省略時は fiscalYear 内全月の最新 version cell comments を集約
+    const month = monthRaw ? parseInt(monthRaw, 10) : undefined;
     return this.service.listRecentCellCommentsForPeriod(orgId, fiscalYear, month);
   }
 }
