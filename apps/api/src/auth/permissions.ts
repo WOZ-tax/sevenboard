@@ -50,6 +50,8 @@ export const PERMISSIONS = [
   'org:risk_findings:scan',
   'org:chosho:read',
   'org:chosho:manage',
+  'org:journal_review:read',
+  'org:journal_review:manage',
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -107,6 +109,8 @@ export const TENANT_ROLE_PERMISSIONS: Record<string, Permission[]> = {
     'org:risk_findings:scan',
     'org:chosho:read',
     'org:chosho:manage',
+    'org:journal_review:read',
+    'org:journal_review:manage',
   ],
   firm_admin: [
     'tenant:organizations:create',
@@ -157,6 +161,8 @@ export const TENANT_ROLE_PERMISSIONS: Record<string, Permission[]> = {
     'org:risk_findings:scan',
     'org:chosho:read',
     'org:chosho:manage',
+    'org:journal_review:read',
+    'org:journal_review:manage',
   ],
   // Current SevenBoard behavior lets advisors create a new client and assigns
   // them to it. Keep that during the migration to scoped memberships.
@@ -167,6 +173,8 @@ export const TENANT_ROLE_PERMISSIONS: Record<string, Permission[]> = {
     'org:risk_findings:scan',
     'org:chosho:read',
     'org:chosho:manage',
+    'org:journal_review:read',
+    'org:journal_review:manage',
   ],
   // Team-scoped manager access needs Team/Assignment models. Keep it closed
   // until that scope exists instead of silently granting tenant-wide access.
@@ -196,6 +204,7 @@ export const TENANT_ROLE_PERMISSIONS: Record<string, Permission[]> = {
     'org:onboarding:read',
     'org:risk_findings:read',
     'org:chosho:read',
+    'org:journal_review:read',
   ],
 };
 

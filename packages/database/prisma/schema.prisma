@@ -79,6 +79,7 @@ model Organization {
   choshoRows             ChoshoRow[]
   choshoRowComments      ChoshoRowComment[]
   choshoCellComments     ChoshoCellComment[]
+  journalReviewFlags     JournalReviewFlag[]
 
   @@unique([id, tenantId])
   @@unique([tenantId, code])
@@ -154,6 +155,8 @@ model User {
   confirmedChoshoRows      ChoshoRow[]        @relation("ChoshoRowConfirmer")
   authoredChoshoRowComments  ChoshoRowComment[]  @relation("ChoshoRowCommentAuthor")
   authoredChoshoCellComments ChoshoCellComment[] @relation("ChoshoCellCommentAuthor")
+  flaggedJournalReviews      JournalReviewFlag[] @relation("JournalReviewFlagged")
+  resolvedJournalReviews     JournalReviewFlag[] @relation("JournalReviewResolved")
 
   @@map("users")
 }
@@ -1408,4 +1411,30 @@ enum ChoshoAnomalyType {
   /// 期待残高違反 (expected_value と一致しない)。旧 ZERO_VIOLATION の汎化版。
   EXPECTED_VALUE_VIOLATION
   AGING_3M
+}
+
+/// 仕訳レビュー: 「要確認」フラグ (Phase 2 / Unit 2-1)。
+/// 1 仕訳 (org × journal_id) に 1 行。resolved_at IS NULL なら未解決 (UI で赤ハイライト)。
+model JournalReviewFlag {
+  id           String    @id @default(uuid()) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  orgId        String    @map("org_id") @db.Uuid
+  fiscalYear   Int       @map("fiscal_year")
+  month        Int
+  /// MF 仕訳の id (UUID 形式の場合もあるが TEXT で受ける)
+  journalId    String    @map("journal_id")
+  flaggedAt    DateTime  @default(now()) @map("flagged_at")
+  flaggedById  String?   @map("flagged_by_id") @db.Uuid
+  resolvedAt   DateTime? @map("resolved_at")
+  resolvedById String?   @map("resolved_by_id") @db.Uuid
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [orgId, tenantId], references: [id, tenantId])
+  flaggedBy    User?        @relation("JournalReviewFlagged", fields: [flaggedById], references: [id])
+  resolvedBy   User?        @relation("JournalReviewResolved", fields: [resolvedById], references: [id])
+
+  @@unique([tenantId, orgId, journalId])
+  @@index([tenantId, orgId, fiscalYear, month])
+  @@map("journal_review_flags")
 }

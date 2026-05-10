@@ -17,9 +17,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, Calendar, Loader2, Search } from "lucide-react";
-import { api } from "@/lib/api";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { AlertTriangle, Calendar, Flag, Loader2, Search } from "lucide-react";
+import { toast } from "sonner";
+import { api, type JournalReviewFlagItem } from "@/lib/api";
 import type { MfJournal } from "@/lib/api-types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -239,6 +240,39 @@ export function JournalReviewTab({ orgId, fiscalYear, month }: Props) {
     staleTime: 60 * 1000,
   });
 
+  // 仕訳レビューフラグ (journal_review_flags) の lookup map
+  const qc = useQueryClient();
+  const flagsQueryKey = ["journal-flags", orgId, fiscalYear, month];
+  const flagsQuery = useQuery({
+    queryKey: flagsQueryKey,
+    queryFn: () => api.journalReview.listFlags(orgId, fiscalYear!, month!),
+    enabled: !!orgId && fiscalYear != null && month != null,
+    staleTime: 30_000,
+  });
+  const flagByJournalId = useMemo(() => {
+    const m = new Map<string, JournalReviewFlagItem>();
+    for (const f of flagsQuery.data ?? []) m.set(f.journalId, f);
+    return m;
+  }, [flagsQuery.data]);
+  const upsertFlag = useMutation({
+    mutationFn: (input: { journalId: string; resolved: boolean }) =>
+      api.journalReview.upsertFlag(orgId, input.journalId, {
+        resolved: input.resolved,
+        fiscalYear: fiscalYear ?? undefined,
+        month: month ?? undefined,
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: flagsQueryKey }),
+    onError: () => toast.error("フラグ更新に失敗しました"),
+  });
+  const handleToggleFlag = (journalId: string) => {
+    if (!orgId || fiscalYear == null || month == null) return;
+    const existing = flagByJournalId.get(journalId);
+    // 未フラグ or 解決済 → 立てる (resolved=false 送信、サーバー側で再 open)
+    // 未解決 → 解決 (resolved=true)
+    const isUnresolved = existing != null && existing.resolvedAt == null;
+    upsertFlag.mutate({ journalId, resolved: isUnresolved });
+  };
+
   // risk-findings: 検知済 journal_id を背景色でハイライトするための Set を組み立て
   const riskQuery = useQuery({
     queryKey: ["risk-findings", orgId, fiscalYear, month],
@@ -352,7 +386,13 @@ export function JournalReviewTab({ orgId, fiscalYear, month }: Props) {
           {flaggedJournalIds.size > 0 && (
             <span className="flex items-center gap-1 text-[10px] text-red-700">
               <span className="inline-block h-2.5 w-2.5 rounded-sm border-l-2 border-red-500 bg-red-50" />
-              異常検知 {flaggedJournalIds.size} 件
+              AI 検知 {flaggedJournalIds.size} 件
+            </span>
+          )}
+          {flagByJournalId.size > 0 && (
+            <span className="flex items-center gap-1 text-[10px] text-red-700">
+              <Flag className="h-3 w-3" />
+              要確認 {Array.from(flagByJournalId.values()).filter((f) => f.resolvedAt == null).length} 件 (未解決)
             </span>
           )}
         </div>
@@ -377,44 +417,55 @@ export function JournalReviewTab({ orgId, fiscalYear, month }: Props) {
           <table className="w-full text-xs">
             <thead>
               <tr className="border-b-2 border-[var(--color-border)] bg-[var(--color-background)]">
+                <th className="w-24 px-2 py-2 text-left font-semibold text-[var(--color-text-primary)]">取引No</th>
                 <th className="w-24 px-2 py-2 text-left font-semibold text-[var(--color-text-primary)]">日付</th>
                 <th className="px-2 py-2 text-left font-semibold text-[var(--color-text-primary)]">借方</th>
                 <th className="px-2 py-2 text-left font-semibold text-[var(--color-text-primary)]">貸方</th>
                 <th className="w-32 px-2 py-2 text-right font-semibold text-[var(--color-text-primary)]">金額</th>
                 <th className="px-2 py-2 text-left font-semibold text-[var(--color-text-primary)]">摘要</th>
-                <th className="w-32 px-2 py-2 text-left font-semibold text-[var(--color-text-primary)]">取引先</th>
+                <th className="w-12 px-1 py-2 text-center font-semibold text-[var(--color-text-primary)]">フラグ</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((r, i) => {
-                const flagged = r.id != null && flaggedJournalIds.has(r.id);
+                const aiFlagged = r.id != null && flaggedJournalIds.has(r.id);
+                const userFlag = r.id != null ? flagByJournalId.get(r.id) ?? null : null;
+                const userFlagOpen = userFlag != null && userFlag.resolvedAt == null;
+                const isFlagPending = upsertFlag.isPending && upsertFlag.variables?.journalId === r.id;
+                // クリック対象: 行全体 (取引Noカラム以外)。フラグ列は別ハンドラ。
+                const handleRowClick = () => {
+                  if (r.id == null) return;
+                  handleToggleFlag(r.id);
+                };
                 return (
                   <tr
                     key={r.id ?? i}
+                    onClick={handleRowClick}
                     className={cn(
-                      "border-b border-muted/50",
-                      flagged
+                      "cursor-pointer border-b border-muted/50",
+                      // user flag (未解決) を最優先で赤に。AI 検知は user flag が無い時に表示
+                      userFlagOpen
                         ? "border-l-2 border-l-red-500 bg-red-50 hover:bg-red-100"
-                        : "hover:bg-muted/30",
+                        : aiFlagged
+                          ? "border-l-2 border-l-red-300 bg-red-50/60 hover:bg-red-100/70"
+                          : "hover:bg-muted/30",
                     )}
                   >
+                    <td className="px-2 py-1.5 font-mono text-[10px] text-muted-foreground" onClick={(e) => e.stopPropagation()}>
+                      {r.id ?? "—"}
+                    </td>
                     <td className="px-2 py-1.5 text-muted-foreground tabular-nums">
-                      {flagged ? (
-                        <Tooltip>
-                          <TooltipTrigger
-                            type="button"
-                            className="inline-flex items-center gap-1 bg-transparent p-0 text-inherit"
-                          >
-                            <AlertTriangle className="h-3 w-3 text-red-600" />
-                            {r.issueDate ?? "—"}
-                          </TooltipTrigger>
-                          <TooltipContent side="right">
-                            AI CFO が異常を検知した仕訳
-                          </TooltipContent>
-                        </Tooltip>
-                      ) : (
-                        r.issueDate ?? "—"
-                      )}
+                      <span className="inline-flex items-center gap-1">
+                        {aiFlagged && (
+                          <Tooltip>
+                            <TooltipTrigger type="button" className="bg-transparent p-0" onClick={(e) => e.stopPropagation()}>
+                              <AlertTriangle className="h-3 w-3 text-red-600" />
+                            </TooltipTrigger>
+                            <TooltipContent side="right">AI CFO が異常を検知した仕訳</TooltipContent>
+                          </Tooltip>
+                        )}
+                        {r.issueDate ?? "—"}
+                      </span>
                     </td>
                     <td className="px-2 py-1.5">
                       <SideCell sides={r.debits} />
@@ -428,8 +479,13 @@ export function JournalReviewTab({ orgId, fiscalYear, month }: Props) {
                     <td className="max-w-[280px] truncate px-2 py-1.5 text-muted-foreground" title={r.description ?? ""}>
                       {r.description ?? "—"}
                     </td>
-                    <td className="px-2 py-1.5 text-muted-foreground">
-                      {r.partnerName ?? "—"}
+                    <td className="px-1 py-1.5 text-center" onClick={(e) => e.stopPropagation()}>
+                      <FlagCell
+                        flag={userFlag}
+                        loading={isFlagPending}
+                        disabled={r.id == null}
+                        onToggle={() => r.id && handleToggleFlag(r.id)}
+                      />
                     </td>
                   </tr>
                 );
@@ -440,7 +496,8 @@ export function JournalReviewTab({ orgId, fiscalYear, month }: Props) {
       )}
 
       <p className="text-[10px] italic text-muted-foreground">
-        異常検知マーク・コメント・差戻しは Phase 1 以降で実装予定です。
+        行クリックで「要確認」フラグ ON/OFF。✓ で解決済 (赤ハイライト解除)。
+        コメント機能は次の Unit で追加予定。
       </p>
     </div>
   );
@@ -514,6 +571,65 @@ function SideCell({
         );
       })}
     </div>
+  );
+}
+
+function FlagCell({
+  flag,
+  loading,
+  disabled,
+  onToggle,
+}: {
+  flag: JournalReviewFlagItem | null;
+  loading: boolean;
+  disabled: boolean;
+  onToggle: () => void;
+}) {
+  if (loading) {
+    return <Loader2 className="mx-auto h-3 w-3 animate-spin text-muted-foreground" />;
+  }
+  // 未フラグ: アウトライン Flag (薄)
+  if (!flag) {
+    return (
+      <button
+        type="button"
+        onClick={onToggle}
+        disabled={disabled}
+        className="rounded p-0.5 text-muted-foreground/40 hover:bg-muted/40 hover:text-muted-foreground"
+        title="クリックで「要確認」フラグを立てる"
+        aria-label="要確認フラグを立てる"
+      >
+        <Flag className="h-3 w-3" />
+      </button>
+    );
+  }
+  // 未解決: 赤
+  if (flag.resolvedAt == null) {
+    return (
+      <button
+        type="button"
+        onClick={onToggle}
+        disabled={disabled}
+        className="rounded p-0.5 text-red-600 hover:bg-red-100"
+        title={`要確認 (${new Date(flag.flaggedAt).toLocaleString("ja-JP")}) — クリックで解決`}
+        aria-label="解決済にする"
+      >
+        <Flag className="h-3 w-3 fill-current" />
+      </button>
+    );
+  }
+  // 解決済: 緑チェック
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      disabled={disabled}
+      className="rounded p-0.5 text-emerald-600 hover:bg-emerald-100"
+      title={`解決済 (${new Date(flag.resolvedAt).toLocaleString("ja-JP")}) — クリックで再 open`}
+      aria-label="フラグを再 open"
+    >
+      ✓
+    </button>
   );
 }
 

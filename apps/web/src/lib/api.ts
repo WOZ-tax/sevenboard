@@ -292,6 +292,19 @@ export interface ChoshoPreviewResult {
   rows: ChoshoPreviewRow[];
 }
 
+// === Journal Review ===
+export interface JournalReviewFlagItem {
+  id: string;
+  journalId: string;
+  fiscalYear: number;
+  month: number;
+  flaggedAt: string;
+  flaggedById: string | null;
+  /** null = 未解決 (赤ハイライト)、ISO string = 解決済 */
+  resolvedAt: string | null;
+  resolvedById: string | null;
+}
+
 /** 保存済 chosho_versions の status (DB enum と一致)。 */
 export type ChoshoVersionStatus = 'DRAFT' | 'APPROVED' | 'ARCHIVED';
 
@@ -1282,6 +1295,28 @@ export const api = {
     ) =>
       apiFetch<void>(
         `/organizations/${orgId}/chosho/versions/${versionId}/rows/${rowId}/cell-comments/${month}`,
+        { method: 'DELETE' },
+      ),
+  },
+
+  // === Journal Review (仕訳レビュー: 要確認フラグ + 解決管理) ===
+  journalReview: {
+    listFlags: (orgId: string, fiscalYear: number, month: number) =>
+      apiFetch<JournalReviewFlagItem[]>(
+        `/organizations/${orgId}/journal-flags?fiscalYear=${fiscalYear}&month=${month}`,
+      ),
+    upsertFlag: (
+      orgId: string,
+      journalId: string,
+      input: { resolved: boolean; fiscalYear?: number; month?: number },
+    ) =>
+      apiFetch<JournalReviewFlagItem>(
+        `/organizations/${orgId}/journal-flags/${encodeURIComponent(journalId)}`,
+        { method: 'PUT', body: JSON.stringify(input) },
+      ),
+    deleteFlag: (orgId: string, journalId: string) =>
+      apiFetch<void>(
+        `/organizations/${orgId}/journal-flags/${encodeURIComponent(journalId)}`,
         { method: 'DELETE' },
       ),
   },

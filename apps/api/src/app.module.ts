@@ -41,6 +41,7 @@ import { InternalUsersModule } from './internal-users/internal-users.module';
 import { RiskFindingsModule } from './risk-findings/risk-findings.module';
 import { HealthSnapshotsModule } from './health-snapshots/health-snapshots.module';
 import { ChoshoModule } from './chosho/chosho.module';
+import { JournalReviewModule } from './journal-review/journal-review.module';
 
 @Module({
   imports: [
@@ -84,6 +85,7 @@ import { ChoshoModule } from './chosho/chosho.module';
     RiskFindingsModule,
     HealthSnapshotsModule,
     ChoshoModule,
+    JournalReviewModule,
   ],
   providers: [
     {
