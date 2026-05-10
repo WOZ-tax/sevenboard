@@ -33,6 +33,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { JournalCommentDialog } from "../_journal/journal-comment-dialog";
+import { ThinkingIndicator } from "@/components/ai/thinking-indicator";
 
 interface Props {
   orgId: string;
@@ -423,10 +424,14 @@ export function JournalReviewTab({ orgId, fiscalYear, month }: Props) {
 
       {/* 一覧 */}
       {query.isLoading ? (
-        <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
-          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          仕訳を取得中…
-        </div>
+        <ThinkingIndicator
+          stages={[
+            "MF から期間内の仕訳を取得中",
+            "借方 / 貸方 / 税区分を整形中",
+            "要確認フラグと AI 検知を照合中",
+            "ハイライトを描画中",
+          ]}
+        />
       ) : query.isError ? (
         <div className="rounded-md border border-dashed bg-muted/20 p-6 text-center text-sm text-muted-foreground">
           仕訳の取得に失敗しました。MFクラウド会計の接続状態を確認してください。

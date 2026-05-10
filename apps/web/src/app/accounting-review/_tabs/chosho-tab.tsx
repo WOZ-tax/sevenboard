@@ -42,6 +42,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useAuthStore } from "@/lib/auth";
+import { ThinkingIndicator } from "@/components/ai/thinking-indicator";
 import {
   CellCommentDialog,
   RowCommentCountBadge,
@@ -86,10 +87,14 @@ function PreviewView({ orgId, fiscalYear, month }: Props) {
 
   if (query.isLoading) {
     return (
-      <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
-        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-        MF推移表を取得中…
-      </div>
+      <ThinkingIndicator
+        stages={[
+          "MF 推移表 (BS 12 ヶ月) を取得中",
+          "補助科目を展開中",
+          "期待残高ルールを適用中",
+          "選択月の異常を検知中",
+        ]}
+      />
     );
   }
 
