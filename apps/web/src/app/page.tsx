@@ -26,6 +26,7 @@ import { CopilotOpenButton } from "@/components/copilot/copilot-open-button";
 import { ActionizeButton } from "@/components/ui/actionize-button";
 import { BriefingCard } from "@/components/dashboard/briefing-card";
 import { AgentActivityCard } from "@/components/dashboard/agent-activity-card";
+import { HealthSummaryCard } from "@/components/dashboard/health-summary-card";
 import { ThinkingIndicator } from "@/components/ai/thinking-indicator";
 import { cn } from "@/lib/utils";
 import {
@@ -344,6 +345,11 @@ export default function DashboardPage() {
         ) : null}
 
         {canQueryDependents && <RevenueChart mfData={plTransition.data} />}
+
+        {/* 健康サマリー — 売上推移表の直下に配置 (ユーザー指示で経理レビューから移動) */}
+        {canQueryDependents && (
+          <HealthSummaryCard orgId={orgId} fiscalYear={fiscalYear} month={month} />
+        )}
 
         {/* AI 分析セクション。重いコール（aiSummary / Briefing）は自動 fetch せず、
             ユーザーが明示的にボタンを押した時だけ発火する。
