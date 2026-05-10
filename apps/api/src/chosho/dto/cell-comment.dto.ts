@@ -30,6 +30,7 @@ export class UpsertCellCommentDto {
   @IsUrl({}, { each: true })
   urls?: string[];
 
+  @IsOptional()
   @IsIn(['EXPECTED_VALUE_VIOLATION', 'AGING_3M'])
-  anomalyType!: 'EXPECTED_VALUE_VIOLATION' | 'AGING_3M';
+  anomalyType?: 'EXPECTED_VALUE_VIOLATION' | 'AGING_3M';
 }

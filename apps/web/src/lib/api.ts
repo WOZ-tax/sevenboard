@@ -342,7 +342,7 @@ export interface ChoshoCellComment {
   parentCommentId: string | null;
   body: string;
   urls: string[];
-  anomalyType: 'EXPECTED_VALUE_VIOLATION' | 'AGING_3M';
+  anomalyType: 'EXPECTED_VALUE_VIOLATION' | 'AGING_3M' | null;
   authorId: string | null;
   authorName: string | null;
   /** root の解決状態 */
@@ -1306,7 +1306,7 @@ export const api = {
       input: {
         body: string;
         urls?: string[];
-        anomalyType: 'EXPECTED_VALUE_VIOLATION' | 'AGING_3M';
+        anomalyType: 'EXPECTED_VALUE_VIOLATION' | 'AGING_3M' | null;
       },
     ) =>
       apiFetch<ChoshoCellComment>(
@@ -1334,7 +1334,7 @@ export const api = {
         month: number;
         body: string;
         urls?: string[];
-        anomalyType: 'EXPECTED_VALUE_VIOLATION' | 'AGING_3M';
+        anomalyType: 'EXPECTED_VALUE_VIOLATION' | 'AGING_3M' | null;
         parentCommentId?: string;
       },
     ) =>

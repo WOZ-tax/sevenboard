@@ -197,7 +197,7 @@ export class ChoshoController {
       month,
       dto.body,
       dto.urls ?? [],
-      dto.anomalyType,
+      dto.anomalyType ?? null,
       req.user.id,
     );
   }
@@ -231,7 +231,8 @@ export class ChoshoController {
       month: number;
       body: string;
       urls?: string[];
-      anomalyType: 'EXPECTED_VALUE_VIOLATION' | 'AGING_3M';
+      /** 省略可: 任意セル (異常検知なし) のコメントは null */
+      anomalyType?: 'EXPECTED_VALUE_VIOLATION' | 'AGING_3M' | null;
       parentCommentId?: string;
     },
   ) {
@@ -242,7 +243,7 @@ export class ChoshoController {
       dto.month,
       dto.body,
       dto.urls ?? [],
-      dto.anomalyType,
+      dto.anomalyType ?? null,
       dto.parentCommentId ?? null,
       req.user.id,
     );

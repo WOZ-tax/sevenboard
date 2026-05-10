@@ -1399,7 +1399,8 @@ model ChoshoCellComment {
   parentCommentId String?           @map("parent_comment_id") @db.Uuid
   body            String
   urls            Json              @default("[]")
-  anomalyType     ChoshoAnomalyType @map("anomaly_type")
+  /// 異常種別。 null = ユーザーが任意セルに付けたメモ (異常検知なし)。
+  anomalyType     ChoshoAnomalyType? @map("anomaly_type")
   authorId        String?           @map("author_id") @db.Uuid
   resolvedAt      DateTime?         @map("resolved_at")
   resolvedById    String?           @map("resolved_by_id") @db.Uuid

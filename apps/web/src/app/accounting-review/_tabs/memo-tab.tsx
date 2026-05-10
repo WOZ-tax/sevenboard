@@ -795,7 +795,7 @@ function ChoshoCellMemoSection({
       month: number;
       body: string;
       urls: string[];
-      anomalyType: "EXPECTED_VALUE_VIOLATION" | "AGING_3M";
+      anomalyType: "EXPECTED_VALUE_VIOLATION" | "AGING_3M" | null;
       parentCommentId?: string;
     }) =>
       api.chosho.addCellComment(orgId, input.versionId, input.rowId, {
@@ -831,16 +831,16 @@ function ChoshoCellMemoSection({
       versionId: string;
       rowName: string;
       month: number;
-      anomalyType: "EXPECTED_VALUE_VIOLATION" | "AGING_3M";
+      anomalyType: "EXPECTED_VALUE_VIOLATION" | "AGING_3M" | null;
       roots: ChoshoRecentCellComment[];
       replies: ChoshoRecentCellComment[];
     };
     const map = new Map<string, Group>();
     for (const c of items) {
       const key = `${c.rowId}:${c.month}`;
-      let g = map.get(key);
+      let g: Group | undefined = map.get(key);
       if (!g) {
-        g = {
+        const created: Group = {
           key,
           rowId: c.rowId,
           versionId: c.versionId,
@@ -850,7 +850,8 @@ function ChoshoCellMemoSection({
           roots: [],
           replies: [],
         };
-        map.set(key, g);
+        map.set(key, created);
+        g = created;
       }
       if (c.parentCommentId) g.replies.push(c);
       else g.roots.push(c);
@@ -945,7 +946,7 @@ function CellMemoRow({
     rowId: string;
     rowName: string;
     month: number;
-    anomalyType: "EXPECTED_VALUE_VIOLATION" | "AGING_3M";
+    anomalyType: "EXPECTED_VALUE_VIOLATION" | "AGING_3M" | null;
     roots: ChoshoRecentCellComment[];
     replies: ChoshoRecentCellComment[];
   };
@@ -958,7 +959,7 @@ function CellMemoRow({
     month: number;
     body: string;
     urls: string[];
-    anomalyType: "EXPECTED_VALUE_VIOLATION" | "AGING_3M";
+    anomalyType: "EXPECTED_VALUE_VIOLATION" | "AGING_3M" | null;
     parentCommentId?: string;
   }) => void;
   onDelete: (commentId: string) => void;

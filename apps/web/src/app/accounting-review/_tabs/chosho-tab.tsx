@@ -309,7 +309,7 @@ interface ChoshoTableProps {
     month: number;
     body: string;
     urls: string[];
-    anomalyType: "EXPECTED_VALUE_VIOLATION" | "AGING_3M";
+    anomalyType: "EXPECTED_VALUE_VIOLATION" | "AGING_3M" | null;
   }) => void;
   onDeleteCellComment?: (input: { rowId: string; month: number }) => void;
   onUpdateRowRule?: (input: {
@@ -440,7 +440,8 @@ function ChoshoTable({
   const [openCellComment, setOpenCellComment] = useState<{
     rowId: string;
     month: number;
-    anomaly: ChoshoAnomaly;
+    /** 異常検知あり = ChoshoAnomaly、 任意セル = null */
+    anomaly: ChoshoAnomaly | null;
     rowName: string;
   } | null>(null);
   // ルール編集 Dialog (Unit 2B-5b)。saved + DRAFT のみ開ける
@@ -528,6 +529,8 @@ function ChoshoTable({
                   onOpenRowComment={() => setOpenRowComment(r.rowKey)}
                   cellCommentLookup={cellCommentLookup}
                   onOpenCellComment={(month, anomaly) =>
+                    // anomaly null = 任意セルへのメモ。 mfType !== 'account' (大区分・中区分) は
+                    // ChoshoRow 側で suppress するので、ここではそのまま open する。
                     setOpenCellComment({ rowId: r.rowKey, month, anomaly, rowName: r.name })
                   }
                   onOpenRowRule={() => setOpenRowRule(r)}
@@ -588,8 +591,8 @@ function ChoshoTable({
           rowId={openCellComment.rowId}
           rowName={openCellComment.rowName}
           month={openCellComment.month}
-          anomalyType={openCellComment.anomaly.type}
-          anomalyMessage={openCellComment.anomaly.message}
+          anomalyType={openCellComment.anomaly?.type ?? null}
+          anomalyMessage={openCellComment.anomaly?.message ?? null}
           existing={
             cellCommentsByCell.get(
               `${openCellComment.rowId}:${openCellComment.month}`,
@@ -638,7 +641,8 @@ function ChoshoRow({
   rowCommentCount: number;
   onOpenRowComment: () => void;
   cellCommentLookup: (month: number) => ChoshoCellComment | null;
-  onOpenCellComment: (month: number, anomaly: ChoshoAnomaly) => void;
+  /** anomaly=null は「任意セルへのメモ」 (異常検知なし) */
+  onOpenCellComment: (month: number, anomaly: ChoshoAnomaly | null) => void;
   onOpenRowRule: () => void;
   onDrilldownToJournal: (row: ChoshoPreviewRow) => void;
 }) {
@@ -727,46 +731,63 @@ function ChoshoRow({
       {monthOrder.map((m, i) => {
         const outOfRange = selectedIdx >= 0 && i > selectedIdx;
         const v = row.monthlyBalances[m];
-        // 異常は selectedMonth セルにのみ付く (builder 側保証)。
-        // anomalies[0].month と m が一致するセルだけ赤表示。
+        // 異常検知 (赤セル) と「コメントあり」は別軸:
+        //   - hasAnomaly: 選択月で AGING/EXPECTED 検知 → 赤背景
+        //   - hasCellComment: そのセルに既にコメントあり → 💬 マーク
+        //   - 任意セル (両方なし) も commentsEnabled なら クリックで Dialog (新規メモ)
         const cellAnomalies = row.anomalies.filter((a) => a.month === m);
         const hasAnomaly = cellAnomalies.length > 0 && !outOfRange;
         const cellComment = commentsEnabled ? cellCommentLookup(m) : null;
         const hasCellComment = !!cellComment;
+        // 大区分・中区分は コメント対象外 (集計行)。 mfType==='account' のみクリッカブル。
+        const isCommentable = commentsEnabled && row.mfType === "account" && !outOfRange;
         const cellClass = cn(
           "px-2 py-1.5 text-right tabular-nums",
           v != null && v < 0 && "text-[var(--color-negative)]",
           outOfRange && "bg-muted/20 text-muted-foreground/50",
           hasAnomaly && "border-l-2 border-red-500 bg-red-50 font-semibold text-red-700",
+          hasCellComment && !hasAnomaly && "bg-blue-50/40",
+          isCommentable && "cursor-pointer hover:bg-muted/40",
         );
         const content = v != null ? formatYen(v) : "";
-        if (hasAnomaly) {
+        if (isCommentable) {
+          const handleClick = () =>
+            onOpenCellComment(m, hasAnomaly ? cellAnomalies[0] : null);
+          if (hasAnomaly) {
+            return (
+              <td key={m} className={cellClass}>
+                <Tooltip>
+                  <TooltipTrigger
+                    type="button"
+                    onClick={handleClick}
+                    className="bg-transparent p-0 text-inherit underline decoration-red-300 decoration-dotted underline-offset-2"
+                  >
+                    {content}
+                    {hasCellComment && (
+                      <span className="ml-0.5 text-[9px]" title="コメントあり">💬</span>
+                    )}
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="max-w-xs">
+                    <AnomalyTooltipBody anomalies={cellAnomalies} hint="クリックでコメント編集" />
+                  </TooltipContent>
+                </Tooltip>
+              </td>
+            );
+          }
+          // 異常なし / 任意セル
           return (
-            <td key={m} className={cellClass}>
-              <Tooltip>
-                <TooltipTrigger
-                  type="button"
-                  onClick={
-                    commentsEnabled
-                      ? () => onOpenCellComment(m, cellAnomalies[0])
-                      : undefined
-                  }
-                  className={cn(
-                    "bg-transparent p-0 text-inherit underline decoration-red-300 decoration-dotted underline-offset-2",
-                    commentsEnabled ? "cursor-pointer" : "cursor-help",
-                  )}
-                >
-                  {content}
-                  {hasCellComment && (
-                    <span className="ml-0.5 text-[9px]" title="コメントあり">
-                      💬
-                    </span>
-                  )}
-                </TooltipTrigger>
-                <TooltipContent side="top" className="max-w-xs">
-                  <AnomalyTooltipBody anomalies={cellAnomalies} hint={commentsEnabled ? "クリックでコメント編集" : undefined} />
-                </TooltipContent>
-              </Tooltip>
+            <td
+              key={m}
+              className={cellClass}
+              onClick={handleClick}
+              role="button"
+              tabIndex={0}
+              title={hasCellComment ? "コメントあり (クリックで編集)" : "クリックでコメント追加"}
+            >
+              {content}
+              {hasCellComment && (
+                <span className="ml-0.5 text-[9px]" title="コメントあり">💬</span>
+              )}
             </td>
           );
         }

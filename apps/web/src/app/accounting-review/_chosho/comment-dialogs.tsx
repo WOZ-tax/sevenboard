@@ -237,15 +237,16 @@ export function CellCommentDialog({
   rowName: string;
   rowId: string;
   month: number;
-  anomalyType: "EXPECTED_VALUE_VIOLATION" | "AGING_3M";
-  anomalyMessage: string;
+  /** null = 異常検知なし (任意セル) */
+  anomalyType: "EXPECTED_VALUE_VIOLATION" | "AGING_3M" | null;
+  anomalyMessage: string | null;
   existing: ChoshoCellComment | null;
   onUpsert: (input: {
     rowId: string;
     month: number;
     body: string;
     urls: string[];
-    anomalyType: "EXPECTED_VALUE_VIOLATION" | "AGING_3M";
+    anomalyType: "EXPECTED_VALUE_VIOLATION" | "AGING_3M" | null;
   }) => void;
   onDelete: (input: { rowId: string; month: number }) => void;
   isSaving: boolean;
@@ -278,16 +279,22 @@ export function CellCommentDialog({
             {rowName} <span className="text-muted-foreground">/ {month}月</span>
           </DialogTitle>
           <DialogDescription className="text-[11px]">
-            この異常への対応・根拠を記録します
+            {anomalyType ? "この異常への対応・根拠を記録します" : "このセルへのレビューメモを残します"}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="rounded bg-red-50 px-2 py-1.5 text-[11px] text-red-700">
-          <span className="mr-1.5 font-semibold">
-            {anomalyType === "EXPECTED_VALUE_VIOLATION" ? "期待残高ズレ" : "3ヶ月以上滞留"}
-          </span>
-          {anomalyMessage}
-        </div>
+        {anomalyType ? (
+          <div className="rounded bg-red-50 px-2 py-1.5 text-[11px] text-red-700">
+            <span className="mr-1.5 font-semibold">
+              {anomalyType === "EXPECTED_VALUE_VIOLATION" ? "期待残高ズレ" : "3ヶ月以上滞留"}
+            </span>
+            {anomalyMessage ?? ""}
+          </div>
+        ) : (
+          <div className="rounded bg-muted/30 px-2 py-1.5 text-[11px] text-muted-foreground">
+            異常検知なし — 任意セルへのレビューメモです
+          </div>
+        )}
 
         {editable ? (
           <div className="space-y-2">

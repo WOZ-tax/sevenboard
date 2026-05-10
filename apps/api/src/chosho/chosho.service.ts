@@ -528,7 +528,7 @@ export class ChoshoService {
     month: number,
     body: string,
     urls: string[],
-    anomalyType: ChoshoAnomalyType,
+    anomalyType: ChoshoAnomalyType | null,
     authorId: string,
   ): Promise<CellCommentRow> {
     const { tenantId } = await this.resolveOrg(orgId);
@@ -576,7 +576,7 @@ export class ChoshoService {
     month: number,
     body: string,
     urls: string[],
-    anomalyType: ChoshoAnomalyType,
+    anomalyType: ChoshoAnomalyType | null,
     parentCommentId: string | null,
     authorId: string,
   ): Promise<CellCommentRow> {
@@ -901,7 +901,8 @@ export interface CellCommentRow {
   parentCommentId: string | null;
   body: string;
   urls: string[];
-  anomalyType: ChoshoAnomalyType;
+  /** null = ユーザーが任意セルに付けたメモ (異常検知無し) */
+  anomalyType: ChoshoAnomalyType | null;
   authorId: string | null;
   /** 表示用ユーザー名 (現状 lookup 不要箇所では null) */
   authorName: string | null;
@@ -929,7 +930,7 @@ function toCellCommentRow(c: {
   parentCommentId: string | null;
   body: string;
   urls: Prisma.JsonValue;
-  anomalyType: ChoshoAnomalyType;
+  anomalyType: ChoshoAnomalyType | null;
   authorId: string | null;
   resolvedAt: Date | null;
   resolvedById: string | null;

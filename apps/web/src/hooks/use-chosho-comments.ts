@@ -64,7 +64,7 @@ export function useChoshoComments(args: {
       month: number;
       body: string;
       urls: string[];
-      anomalyType: "EXPECTED_VALUE_VIOLATION" | "AGING_3M";
+      anomalyType: "EXPECTED_VALUE_VIOLATION" | "AGING_3M" | null;
     }) =>
       api.chosho.upsertCellComment(orgId, versionId!, input.rowId, input.month, {
         body: input.body,
