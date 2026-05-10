@@ -24,7 +24,7 @@ import type { MfJournal } from "@/lib/api-types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { usePeriodStore } from "@/lib/period-store";
+import { useFyElapsed } from "@/hooks/use-fy-elapsed";
 import {
   Tooltip,
   TooltipContent,
@@ -90,9 +90,28 @@ function normalizeJournal(j: MfJournal): MfJournalRow {
 // 期間プリセット
 // ============================================================
 
-type RangePreset = "thisMonth" | "lastMonth" | "custom";
+type RangePreset = "selectedMonth" | "thisMonth" | "lastMonth" | "custom";
 
-function defaultRangeFor(preset: RangePreset, customStart: string, customEnd: string): { start: string; end: string } {
+function defaultRangeFor(
+  preset: RangePreset,
+  customStart: string,
+  customEnd: string,
+  selectedFy: number | undefined,
+  selectedMonth: number | undefined,
+  fyStartMonth: number,
+): { start: string; end: string } {
+  if (
+    preset === "selectedMonth" &&
+    selectedFy != null &&
+    selectedMonth != null
+  ) {
+    // SevenBoard 期間セレクターで選んだ「会計年度 × 月度」を実カレンダー year-month に変換。
+    // 期首月以降の月 → fiscalYear と同年。期首月より前の月 → fiscalYear + 1 (期跨ぎ)。
+    const year = selectedMonth >= fyStartMonth ? selectedFy : selectedFy + 1;
+    const start = new Date(year, selectedMonth - 1, 1);
+    const end = new Date(year, selectedMonth, 0); // 翌月の 0 日 = 当月末日
+    return { start: toISODate(start), end: toISODate(end) };
+  }
   const today = new Date();
   if (preset === "thisMonth") {
     const start = new Date(today.getFullYear(), today.getMonth(), 1);
@@ -124,10 +143,15 @@ export function JournalReviewTab({ orgId, fiscalYear, month }: Props) {
   const focusAccount = searchParams.get("focusAccount");
   const focusPartner = searchParams.get("partner");
 
-  const [preset, setPreset] = useState<RangePreset>("thisMonth");
+  // デフォルトは SevenBoard 期間セレクター (usePeriodStore) で選んだ月度に追従。
+  // 「今月」「先月」はカレンダー基準で残し、手動で切り替えたら上書き保持される。
+  const [preset, setPreset] = useState<RangePreset>("selectedMonth");
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
   const [searchText, setSearchText] = useState("");
+
+  // 会計年度の期首月を取得 (BS推移表 columns から導出)。未取得時は 1 にフォールバック。
+  const { fyStartMonth } = useFyElapsed();
 
   // ドリルダウン経由で来た時に search を自動セット (取引先名があれば優先、なければ勘定名)
   useEffect(() => {
@@ -135,7 +159,10 @@ export function JournalReviewTab({ orgId, fiscalYear, month }: Props) {
     if (next) setSearchText(next);
   }, [focusAccount, focusPartner]);
 
-  const range = useMemo(() => defaultRangeFor(preset, customStart, customEnd), [preset, customStart, customEnd]);
+  const range = useMemo(
+    () => defaultRangeFor(preset, customStart, customEnd, fiscalYear, month, fyStartMonth),
+    [preset, customStart, customEnd, fiscalYear, month, fyStartMonth],
+  );
   const queryReady = !!orgId && !!range.start && !!range.end;
 
   const query = useQuery({
@@ -204,6 +231,17 @@ export function JournalReviewTab({ orgId, fiscalYear, month }: Props) {
           <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
           <span className="text-muted-foreground">期間</span>
         </div>
+        <PresetButton
+          current={preset}
+          value="selectedMonth"
+          label={
+            fiscalYear != null && month != null
+              ? `${fiscalYear}年${month}月度`
+              : "選択月度"
+          }
+          onClick={setPreset}
+          disabled={fiscalYear == null || month == null}
+        />
         <PresetButton current={preset} value="thisMonth" label="今月" onClick={setPreset} />
         <PresetButton current={preset} value="lastMonth" label="先月" onClick={setPreset} />
         <PresetButton current={preset} value="custom" label="カスタム" onClick={setPreset} />
@@ -350,11 +388,13 @@ function PresetButton({
   value,
   label,
   onClick,
+  disabled,
 }: {
   current: RangePreset;
   value: RangePreset;
   label: string;
   onClick: (v: RangePreset) => void;
+  disabled?: boolean;
 }) {
   const selected = current === value;
   return (
@@ -364,6 +404,7 @@ function PresetButton({
       size="sm"
       className={cn("h-6 px-2 text-[11px]", selected && "")}
       onClick={() => onClick(value)}
+      disabled={disabled}
     >
       {label}
     </Button>
