@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
@@ -106,6 +106,15 @@ function AccountingReviewPageInner() {
   const [activeTab, setActiveTabState] = useState<TabKey>(
     isValidTab(tabFromQuery) ? tabFromQuery : "review",
   );
+  // URL の ?tab= 変更に追従して activeTab を更新する。
+  // (仕訳レビュー → メモタブの 🔗 リンク等、外から router.push で URL を変えてくる経路で
+  //  page を unmount せずに activeTab を切り替えるための同期)。
+  useEffect(() => {
+    if (isValidTab(tabFromQuery) && tabFromQuery !== activeTab) {
+      setActiveTabState(tabFromQuery);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- activeTab は依存に入れない (ループ防止)
+  }, [tabFromQuery]);
   // タブ切替時に URL も同期 (ドリルダウン経路から ?tab=journal で来た時に履歴を維持)
   const setActiveTab = useCallback(
     (next: TabKey) => {
