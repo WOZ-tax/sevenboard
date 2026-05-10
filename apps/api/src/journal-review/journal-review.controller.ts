@@ -8,6 +8,7 @@ import {
   Param,
   ParseIntPipe,
   ParseUUIDPipe,
+  Post,
   Put,
   Query,
   Request,
@@ -94,6 +95,16 @@ export class JournalReviewSnapshotsController {
     const month = parseOptionalMonth(monthRaw, 'month');
     const throughMonth = parseOptionalMonth(throughMonthRaw, 'throughMonth');
     return this.service.listSnapshots(orgId, fiscalYear, month, throughMonth);
+  }
+
+  /** 指定月 (省略時は fy 全月) の snapshot cache を破棄して MF から再取得させる。 */
+  @Post('snapshots/refresh')
+  @RequirePermission('org:journal_review:manage')
+  async refreshSnapshots(
+    @Param('orgId', ParseUUIDPipe) orgId: string,
+    @Body() dto: { fiscalYear: number; month?: number },
+  ) {
+    return this.service.refreshSnapshots(orgId, dto.fiscalYear, dto.month);
   }
 }
 

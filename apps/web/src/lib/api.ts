@@ -1474,6 +1474,15 @@ export const api = {
         `/organizations/${orgId}/journal-review/snapshots?${qs.toString()}`,
       );
     },
+    /** 指定月 (省略時は fy 全月) の snapshot cache を破棄して MF から再取得させる。 */
+    refreshSnapshots: (
+      orgId: string,
+      input: { fiscalYear: number; month?: number },
+    ) =>
+      apiFetch<{ refreshedMonths: number[] }>(
+        `/organizations/${orgId}/journal-review/snapshots/refresh`,
+        { method: 'POST', body: JSON.stringify(input) },
+      ),
     addComment: (
       orgId: string,
       input: {

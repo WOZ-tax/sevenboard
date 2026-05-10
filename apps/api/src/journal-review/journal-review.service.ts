@@ -226,6 +226,36 @@ export class JournalReviewService {
     return toCommentItem(updated);
   }
 
+  /**
+   * 指定月 (省略時は会計年度全月) の snapshot cache を破棄して、
+   * 次の listSnapshots 呼び出しで MF から取り直させる。
+   *
+   * memo タブの「更新」ボタンから呼ばれる。 過去の仕訳が MF 側で
+   * 修正された場合の手動 invalidation 経路。
+   */
+  async refreshSnapshots(
+    orgId: string,
+    fiscalYear: number,
+    month?: number,
+  ): Promise<{ refreshedMonths: number[] }> {
+    const { tenantId, fiscalMonthEnd } = await this.resolveOrg(orgId);
+    const fyStartMonth = fiscalMonthEnd === 12 ? 1 : fiscalMonthEnd + 1;
+    const targetMonths =
+      month != null
+        ? [month]
+        : monthsForFiscalPeriod(fyStartMonth, undefined);
+
+    await this.prisma.$transaction([
+      this.prisma.journalReviewSnapshot.deleteMany({
+        where: { tenantId, orgId, fiscalYear, month: { in: targetMonths } },
+      }),
+      this.prisma.journalReviewSnapshotMonth.deleteMany({
+        where: { tenantId, orgId, fiscalYear, month: { in: targetMonths } },
+      }),
+    ]);
+    return { refreshedMonths: targetMonths };
+  }
+
   async listSnapshots(
     orgId: string,
     fiscalYear: number,

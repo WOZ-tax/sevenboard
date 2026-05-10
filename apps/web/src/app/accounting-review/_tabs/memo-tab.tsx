@@ -199,6 +199,24 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
     },
     onError: () => toast.error("レビューメモ削除に失敗しました"),
   });
+  // MF 側で過去仕訳が修正された場合の手動「更新」。 該当月 (or 全期間) の
+  // snapshot cache を破棄 → 次の listSnapshots 呼び出しで MF から取り直す。
+  const refreshSnapshotsMutation = useMutation({
+    mutationFn: () =>
+      api.journalReview.refreshSnapshots(orgId, {
+        fiscalYear: fiscalYear!,
+        month: monthFilterValue,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["journal-review-snapshots-for-memo", orgId] });
+      toast.success(
+        monthFilterValue == null
+          ? "全期間の仕訳を最新に更新しました"
+          : `${monthFilterValue}月度の仕訳を最新に更新しました`,
+      );
+    },
+    onError: () => toast.error("更新に失敗しました"),
+  });
 
   // 行展開状態 + compose mode (新規 root コメント編集)
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -279,7 +297,7 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
         </div>
       </div>
 
-      {/* 月別フィルタ */}
+      {/* 月別フィルタ + 更新 */}
       <div className="flex items-center gap-2 text-xs">
         <span className="text-muted-foreground">期間</span>
         <Select
@@ -298,6 +316,24 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
             ))}
           </SelectContent>
         </Select>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="h-7 px-2 text-[11px]"
+          onClick={() => refreshSnapshotsMutation.mutate()}
+          disabled={refreshSnapshotsMutation.isPending || fiscalYear == null}
+          title={
+            monthFilterValue == null
+              ? "全期間の仕訳キャッシュを破棄して MF から取り直す"
+              : `${monthFilterValue}月度の仕訳キャッシュを破棄して MF から取り直す`
+          }
+        >
+          {refreshSnapshotsMutation.isPending ? (
+            <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+          ) : null}
+          更新
+        </Button>
       </div>
 
       <div className="overflow-x-auto rounded-md border bg-card">
