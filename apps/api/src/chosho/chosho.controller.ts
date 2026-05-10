@@ -273,6 +273,53 @@ export class ChoshoController {
     await this.service.deleteCellCommentById(orgId, commentId, req.user.id);
   }
 
+  // ============================================================
+  // 新 API: preview/saved 共通の cell コメント (rowKey ベース)
+  //   モード切替不要。 (org, fy, month, rowKey) で直接書き読みする。
+  // ============================================================
+
+  /** GET /preview-cell-comments?fiscalYear=&month=[&rowKey=] — (fy, month) 配下の cell コメント全件 */
+  @Get('preview-cell-comments')
+  @RequirePermission('org:chosho:read')
+  async listPreviewCellComments(
+    @Param('orgId', ParseUUIDPipe) orgId: string,
+    @Query('fiscalYear', ParseIntPipe) fiscalYear: number,
+    @Query('month', ParseIntPipe) month: number,
+    @Query('rowKey') rowKey?: string,
+  ) {
+    return this.service.listPreviewCellComments(orgId, fiscalYear, month, rowKey);
+  }
+
+  /** POST /preview-cell-comments — 任意セルにコメント追加 (root or 返信)。 */
+  @Post('preview-cell-comments')
+  @RequirePermission('org:chosho:manage')
+  async addPreviewCellComment(
+    @Request() req: { user: { id: string } },
+    @Param('orgId', ParseUUIDPipe) orgId: string,
+    @Body()
+    dto: {
+      fiscalYear: number;
+      month: number;
+      rowKey: string;
+      body: string;
+      urls?: string[];
+      anomalyType?: 'EXPECTED_VALUE_VIOLATION' | 'AGING_3M' | null;
+      parentCommentId?: string;
+    },
+  ) {
+    return this.service.addPreviewCellComment(
+      orgId,
+      dto.fiscalYear,
+      dto.month,
+      dto.rowKey,
+      dto.body,
+      dto.urls ?? [],
+      dto.anomalyType ?? null,
+      dto.parentCommentId ?? null,
+      req.user.id,
+    );
+  }
+
   /** memo タブ用: 期間内最新 saved version の cell コメント全件を返す。 */
   @Get('recent-cell-comments')
   @RequirePermission('org:chosho:read')

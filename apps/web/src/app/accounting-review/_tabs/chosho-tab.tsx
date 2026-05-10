@@ -24,7 +24,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronRight, Loader2, MessageSquare, Save, Settings2 } from "lucide-react";
 import { toast } from "sonner";
 import { useChoshoPreview } from "@/hooks/use-chosho-preview";
-import { useChoshoComments } from "@/hooks/use-chosho-comments";
+import { useChoshoComments, useChoshoPreviewCellComments } from "@/hooks/use-chosho-comments";
 import {
   api,
   type ChoshoAnomaly,
@@ -71,6 +71,9 @@ export function ChoshoTab({ orgId, fiscalYear, month }: Props) {
 
 function PreviewView({ orgId, fiscalYear, month }: Props) {
   const query = useChoshoPreview({ orgId, fiscalYear, month });
+  // preview モードでも (org, fy, month, rowKey) ベースで cell コメントを直接書き読みできる。
+  const previewComments = useChoshoPreviewCellComments({ orgId, fiscalYear, month });
+  const currentUserId = useAuthStore((s) => s.user?.id ?? null);
 
   if (!orgId || fiscalYear == null || month == null) {
     return (
@@ -109,32 +112,55 @@ function PreviewView({ orgId, fiscalYear, month }: Props) {
     );
   }
 
+  // preview モードでもセルクリック → 直接コメント可能。
+  // (org, fy, month, rowKey) で書き読みするので「下書き保存」は snapshot 用途だけになる。
+  const cellComments = previewComments.cellComments.data ?? [];
   return (
-    <div className="space-y-2">
-      <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-        <span className="font-semibold">📝 プレビュー表示中</span>
-        <span className="text-amber-800">
-          セル単位でレビューメモを残すには、 右上の「下書き保存」を押して保存済 version モードに入ってください。
-          プレビュー上ではセルクリックは反応しません。
-        </span>
-      </div>
-      <ChoshoTable
-        data={data}
-        headerSlot={
-          <SaveDraftButton
-            orgId={orgId}
-            fiscalYear={data.fiscalYear}
-            month={data.selectedMonth}
-          />
+    <ChoshoTable
+      data={data}
+      commentsEnabled
+      commentsEditable
+      cellOnlyMode
+      cellComments={cellComments}
+      currentUserId={currentUserId}
+      onUpsertCellComment={(input) => {
+        // 1:1 互換: 既存があれば削除してから新規追加
+        const key = `${input.rowId}:${input.month}`;
+        const existing = cellComments.find(
+          (c) => `${c.rowKey ?? c.rowId}:${c.month}` === key && c.parentCommentId == null,
+        );
+        const writeNew = () =>
+          previewComments.addCellComment.mutate({
+            rowKey: input.rowId, // PreviewView は rowKey を rowId 引数に流している
+            body: input.body,
+            urls: input.urls,
+            anomalyType: input.anomalyType,
+          });
+        if (existing) {
+          previewComments.deleteCellCommentById.mutate(existing.id, { onSuccess: writeNew });
+        } else {
+          writeNew();
         }
-        previewCellHint={() =>
-          toast.warning("先に「下書き保存」を押してください", {
-            description: "保存済 version に入るとセル単位でメモを残せます",
-            duration: 4000,
-          })
-        }
-      />
-    </div>
+      }}
+      onDeleteCellComment={(input) => {
+        const key = `${input.rowId}:${input.month}`;
+        const existing = cellComments.find(
+          (c) => `${c.rowKey ?? c.rowId}:${c.month}` === key && c.parentCommentId == null,
+        );
+        if (existing) previewComments.deleteCellCommentById.mutate(existing.id);
+      }}
+      isUpsertingCellComment={
+        previewComments.addCellComment.isPending || previewComments.deleteCellCommentById.isPending
+      }
+      isDeletingCellComment={previewComments.deleteCellCommentById.isPending}
+      headerSlot={
+        <SaveDraftButton
+          orgId={orgId}
+          fiscalYear={data.fiscalYear}
+          month={data.selectedMonth}
+        />
+      }
+    />
   );
 }
 
@@ -342,6 +368,12 @@ interface ChoshoTableProps {
    * 「下書き保存後にメモを残せます」と知らせる用。
    */
   previewCellHint?: () => void;
+  /**
+   * セルコメントのみ有効化するモード。 commentsEnabled と組み合わせて使う。
+   * true のときは行コメントボタン・行ルール列・行コメント Dialog を非表示にし、
+   * セルクリックでの (rowKey, month) コメントだけを許可する (preview モード用)。
+   */
+  cellOnlyMode?: boolean;
 }
 
 function ChoshoTable({
@@ -362,6 +394,7 @@ function ChoshoTable({
   isDeletingCellComment = false,
   isUpdatingRowRule = false,
   previewCellHint,
+  cellOnlyMode = false,
 }: ChoshoTableProps) {
   const router = useRouter();
   // 残高調書 → 仕訳タブへのドリルダウン。
@@ -449,10 +482,16 @@ function ChoshoTable({
     return m;
   }, [rowComments]);
 
-  // (rowId, month) -> CellComment 1 件 (UNIQUE 制約あり)
+  // (rowKey, month) -> CellComment 1 件
+  // saved 経路では rowKey===chosho_rows.id (rowId と一致) なので互換、
+  // preview 経路では rowKey フィールドが直接入っている。 旧データは rowId fallback。
   const cellCommentsByCell = useMemo(() => {
     const m = new Map<string, ChoshoCellComment>();
-    for (const c of cellComments) m.set(`${c.rowId}:${c.month}`, c);
+    for (const c of cellComments) {
+      const key = c.rowKey ?? c.rowId;
+      if (!key) continue;
+      m.set(`${key}:${c.month}`, c);
+    }
     return m;
   }, [cellComments]);
 
@@ -519,7 +558,7 @@ function ChoshoTable({
               <th className="min-w-[96px] px-2 py-2 text-right font-semibold text-[var(--color-text-primary)] tabular-nums">
                 決算整理
               </th>
-              {commentsEnabled && (
+              {commentsEnabled && !cellOnlyMode && (
                 <>
                   <th className="min-w-[40px] px-1 py-2 text-center font-semibold text-[var(--color-text-primary)]">
                     ルール
@@ -557,6 +596,7 @@ function ChoshoTable({
                   onOpenRowRule={() => setOpenRowRule(r)}
                   onDrilldownToJournal={drilldownToJournal}
                   previewCellHint={previewCellHint}
+                  cellOnlyMode={cellOnlyMode}
                 />
               );
             })}
@@ -652,6 +692,7 @@ function ChoshoRow({
   onOpenRowRule,
   onDrilldownToJournal,
   previewCellHint,
+  cellOnlyMode = false,
 }: {
   row: ChoshoPreviewRow;
   monthOrder: number[];
@@ -670,6 +711,8 @@ function ChoshoRow({
   onDrilldownToJournal: (row: ChoshoPreviewRow) => void;
   /** preview モードでセルクリック時の hint コールバック (toast.warning 等) */
   previewCellHint?: () => void;
+  /** true なら 行末 (ルール / 💬) 列を出さない (preview モード用) */
+  cellOnlyMode?: boolean;
 }) {
   // 大区分 (level 0) は太字背景、勘定 (level 1) は通常太字、補助以降 (level 2+) は通常文字。
   const isHeader = row.level === 0;
@@ -845,7 +888,7 @@ function ChoshoRow({
       <td className="px-2 py-1.5 text-right tabular-nums">
         {row.settlementBalance != null ? formatYen(row.settlementBalance) : ""}
       </td>
-      {commentsEnabled && (
+      {commentsEnabled && !cellOnlyMode && (
         <>
           <td className="px-1 py-1.5 text-center">
             {/* 大区分・中区分はルール意味なし (mfType !== 'account')、勘定以下にだけアイコン */}

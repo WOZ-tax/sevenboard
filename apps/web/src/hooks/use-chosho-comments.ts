@@ -109,3 +109,62 @@ export function useChoshoComments(args: {
     updateRowRule,
   };
 }
+
+/**
+ * preview/saved 共通の cell コメント (rowKey ベース)。
+ * preview モード (versionId なし) でも `(org, fy, month, rowKey)` で書き読みできる。
+ *
+ * - list: 期間内 (org, fy, month) 全 rowKey のコメントを 1 リクエストで取得
+ * - upsert: 既存あれば削除して追加 (1:1 互換)、 新規なら直接追加
+ * - delete: commentId 指定で削除 (本人のみ、 返信もカスケード)
+ */
+export function useChoshoPreviewCellComments(args: {
+  orgId: string;
+  fiscalYear: number | undefined;
+  month: number | undefined;
+}) {
+  const { orgId, fiscalYear, month } = args;
+  const qc = useQueryClient();
+
+  const enabled = !!orgId && fiscalYear != null && month != null;
+  const cellKey = ["chosho", "preview-cell-comments", orgId, fiscalYear, month];
+
+  const cellComments = useQuery<ChoshoCellComment[]>({
+    queryKey: cellKey,
+    queryFn: () => api.chosho.listPreviewCellComments(orgId, fiscalYear!, month!),
+    enabled,
+    staleTime: 30_000,
+  });
+
+  const addCellComment = useMutation({
+    mutationFn: (input: {
+      rowKey: string;
+      body: string;
+      urls: string[];
+      anomalyType: "EXPECTED_VALUE_VIOLATION" | "AGING_3M" | null;
+      parentCommentId?: string;
+    }) =>
+      api.chosho.addPreviewCellComment(orgId, {
+        fiscalYear: fiscalYear!,
+        month: month!,
+        rowKey: input.rowKey,
+        body: input.body,
+        urls: input.urls,
+        anomalyType: input.anomalyType,
+        parentCommentId: input.parentCommentId,
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: cellKey }),
+  });
+
+  const deleteCellCommentById = useMutation({
+    mutationFn: (commentId: string) =>
+      api.chosho.deleteCellCommentById(orgId, commentId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: cellKey }),
+  });
+
+  return {
+    cellComments,
+    addCellComment,
+    deleteCellCommentById,
+  };
+}

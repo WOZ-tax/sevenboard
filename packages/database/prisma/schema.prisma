@@ -137,29 +137,29 @@ model User {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  organization         Organization?            @relation(fields: [orgId], references: [id])
-  platformMemberships  PlatformMembership[]
-  tenantMemberships    TenantMembership[]
-  memberships          OrganizationMembership[]
-  budgetVersions       BudgetVersion[]
-  aiComments           AiComment[]              @relation("ReviewedBy")
-  notifications        Notification[]
-  auditLogs            AuditLog[]
-  ownedActions         Action[]                 @relation("ActionOwner")
-  createdActions       Action[]                 @relation("ActionCreator")
-  actionEvents         ActionEvent[]
-  businessEvents       BusinessEvent[]
-  resolvedRiskFindings RiskFinding[]
-  orgContextUpdates    Organization[]           @relation("OrgContextUpdater")
-  createdChoshoVersions    ChoshoVersion[]    @relation("ChoshoVersionCreator")
-  approvedChoshoVersions   ChoshoVersion[]    @relation("ChoshoVersionApprover")
-  confirmedChoshoRows      ChoshoRow[]        @relation("ChoshoRowConfirmer")
-  authoredChoshoRowComments  ChoshoRowComment[]  @relation("ChoshoRowCommentAuthor")
-  authoredChoshoCellComments ChoshoCellComment[] @relation("ChoshoCellCommentAuthor")
-  resolvedChoshoCellComments ChoshoCellComment[] @relation("ChoshoCellCommentResolver")
-  flaggedJournalReviews      JournalReviewFlag[] @relation("JournalReviewFlagged")
-  resolvedJournalReviews     JournalReviewFlag[] @relation("JournalReviewResolved")
-  authoredJournalReviewComments JournalReviewComment[] @relation("JournalReviewCommentAuthor")
+  organization                  Organization?            @relation(fields: [orgId], references: [id])
+  platformMemberships           PlatformMembership[]
+  tenantMemberships             TenantMembership[]
+  memberships                   OrganizationMembership[]
+  budgetVersions                BudgetVersion[]
+  aiComments                    AiComment[]              @relation("ReviewedBy")
+  notifications                 Notification[]
+  auditLogs                     AuditLog[]
+  ownedActions                  Action[]                 @relation("ActionOwner")
+  createdActions                Action[]                 @relation("ActionCreator")
+  actionEvents                  ActionEvent[]
+  businessEvents                BusinessEvent[]
+  resolvedRiskFindings          RiskFinding[]
+  orgContextUpdates             Organization[]           @relation("OrgContextUpdater")
+  createdChoshoVersions         ChoshoVersion[]          @relation("ChoshoVersionCreator")
+  approvedChoshoVersions        ChoshoVersion[]          @relation("ChoshoVersionApprover")
+  confirmedChoshoRows           ChoshoRow[]              @relation("ChoshoRowConfirmer")
+  authoredChoshoRowComments     ChoshoRowComment[]       @relation("ChoshoRowCommentAuthor")
+  authoredChoshoCellComments    ChoshoCellComment[]      @relation("ChoshoCellCommentAuthor")
+  resolvedChoshoCellComments    ChoshoCellComment[]      @relation("ChoshoCellCommentResolver")
+  flaggedJournalReviews         JournalReviewFlag[]      @relation("JournalReviewFlagged")
+  resolvedJournalReviews        JournalReviewFlag[]      @relation("JournalReviewResolved")
+  authoredJournalReviewComments JournalReviewComment[]   @relation("JournalReviewCommentAuthor")
 
   @@map("users")
 }
@@ -1272,19 +1272,19 @@ model HealthSnapshot {
 /// MF 推移表 API から月別残高を引き、3階層 (勘定→補助→取引先) で並べる。
 /// 異常検知ルール (零残高違反 / 3ヶ月以上滞留) で赤セル表示し、行・セル単位でコメント可能。
 model ChoshoVersion {
-  id             String        @id @default(uuid()) @db.Uuid
-  tenantId       String        @map("tenant_id") @db.Uuid
-  orgId          String        @map("org_id") @db.Uuid
-  fiscalYear     Int           @map("fiscal_year")
+  id            String       @id @default(uuid()) @db.Uuid
+  tenantId      String       @map("tenant_id") @db.Uuid
+  orgId         String       @map("org_id") @db.Uuid
+  fiscalYear    Int          @map("fiscal_year")
   /// この調書がカバーする「最新月」(1-12 のカレンダー月)。月次=その月、決算=期末月。
-  selectedMonth  Int           @map("selected_month")
-  status         ChoshoStatus  @default(DRAFT)
-  title          String?
-  createdById    String?       @map("created_by_id") @db.Uuid
-  approvedById   String?       @map("approved_by_id") @db.Uuid
-  approvedAt     DateTime?     @map("approved_at")
-  createdAt      DateTime      @default(now()) @map("created_at")
-  updatedAt      DateTime      @updatedAt @map("updated_at")
+  selectedMonth Int          @map("selected_month")
+  status        ChoshoStatus @default(DRAFT)
+  title         String?
+  createdById   String?      @map("created_by_id") @db.Uuid
+  approvedById  String?      @map("approved_by_id") @db.Uuid
+  approvedAt    DateTime?    @map("approved_at")
+  createdAt     DateTime     @default(now()) @map("created_at")
+  updatedAt     DateTime     @updatedAt @map("updated_at")
 
   organization Organization @relation(fields: [orgId, tenantId], references: [id, tenantId])
   creator      User?        @relation("ChoshoVersionCreator", fields: [createdById], references: [id])
@@ -1307,42 +1307,42 @@ enum ChoshoStatus {
 /// 調書の 1 行。3階層を level で表現:
 /// 0=大区分(資産の部 等) / 1=勘定(普通預金 等) / 2=補助(銀行口座 等) / 3=取引先
 model ChoshoRow {
-  id                 String              @id @default(uuid()) @db.Uuid
-  versionId          String              @map("version_id") @db.Uuid
-  tenantId           String              @map("tenant_id") @db.Uuid
-  orgId              String              @map("org_id") @db.Uuid
-  level              Int
-  displayOrder       Int                 @default(0) @map("display_order")
-  parentRowId        String?             @map("parent_row_id") @db.Uuid
-  accountCode        String?             @map("account_code")
-  accountName        String              @map("account_name")
-  subaccountName     String?             @map("subaccount_name")
-  partnerName        String?             @map("partner_name")
+  id                String             @id @default(uuid()) @db.Uuid
+  versionId         String             @map("version_id") @db.Uuid
+  tenantId          String             @map("tenant_id") @db.Uuid
+  orgId             String             @map("org_id") @db.Uuid
+  level             Int
+  displayOrder      Int                @default(0) @map("display_order")
+  parentRowId       String?            @map("parent_row_id") @db.Uuid
+  accountCode       String?            @map("account_code")
+  accountName       String             @map("account_name")
+  subaccountName    String?            @map("subaccount_name")
+  partnerName       String?            @map("partner_name")
   /// 月別残高: {"4": 12345.0, "5": 23456.0, ...}
-  monthlyBalances    Json                @default("{}") @map("monthly_balances")
-  expectedRule       ChoshoExpectedRule  @default(NONE) @map("expected_rule")
+  monthlyBalances   Json               @default("{}") @map("monthly_balances")
+  expectedRule      ChoshoExpectedRule @default(NONE) @map("expected_rule")
   /// 期待残高 (EXPECTED_VALUE ルールのときだけ意味を持つ)。
   /// NULL = 未設定。0 / 300万 / 55,000 等、会計士が任意で指定する。
-  expectedValue      Decimal?            @map("expected_value") @db.Decimal
-  agingCheckEnabled  Boolean             @default(false) @map("aging_check_enabled")
-  evidenceText       String?             @map("evidence_text")
-  notes              String?
-  confirmed          Boolean             @default(false)
-  confirmedById      String?             @map("confirmed_by_id") @db.Uuid
-  confirmedAt        DateTime?           @map("confirmed_at")
-  createdAt          DateTime            @default(now()) @map("created_at")
-  updatedAt          DateTime            @updatedAt @map("updated_at")
+  expectedValue     Decimal?           @map("expected_value") @db.Decimal
+  agingCheckEnabled Boolean            @default(false) @map("aging_check_enabled")
+  evidenceText      String?            @map("evidence_text")
+  notes             String?
+  confirmed         Boolean            @default(false)
+  confirmedById     String?            @map("confirmed_by_id") @db.Uuid
+  confirmedAt       DateTime?          @map("confirmed_at")
+  createdAt         DateTime           @default(now()) @map("created_at")
+  updatedAt         DateTime           @updatedAt @map("updated_at")
 
   /// 同一 (versionId, tenantId, orgId) でないと FK が成立しない複合参照。
   /// これにより別テナント/別組織/別版の version を子から指すことが DB レベルで不可能。
-  version       ChoshoVersion       @relation(fields: [versionId, tenantId, orgId], references: [id, tenantId, orgId], onDelete: Cascade)
-  organization  Organization        @relation(fields: [orgId, tenantId], references: [id, tenantId])
+  version      ChoshoVersion       @relation(fields: [versionId, tenantId, orgId], references: [id, tenantId, orgId], onDelete: Cascade)
+  organization Organization        @relation(fields: [orgId, tenantId], references: [id, tenantId])
   /// 親行も同じ (versionId, tenantId, orgId) 内に制限。階層は同一スナップショット内でのみ成立。
-  parent        ChoshoRow?          @relation("ChoshoRowParent", fields: [parentRowId, versionId, tenantId, orgId], references: [id, versionId, tenantId, orgId])
-  children      ChoshoRow[]         @relation("ChoshoRowParent")
-  confirmer     User?               @relation("ChoshoRowConfirmer", fields: [confirmedById], references: [id])
-  rowComments   ChoshoRowComment[]
-  cellComments  ChoshoCellComment[]
+  parent       ChoshoRow?          @relation("ChoshoRowParent", fields: [parentRowId, versionId, tenantId, orgId], references: [id, versionId, tenantId, orgId])
+  children     ChoshoRow[]         @relation("ChoshoRowParent")
+  confirmer    User?               @relation("ChoshoRowConfirmer", fields: [confirmedById], references: [id])
+  rowComments  ChoshoRowComment[]
+  cellComments ChoshoCellComment[]
 
   /// 自己参照 (parent) からの 4 列複合 FK ターゲット。同一版内に制限。
   @@unique([id, versionId, tenantId, orgId])
@@ -1385,39 +1385,51 @@ model ChoshoRowComment {
   @@map("chosho_row_comments")
 }
 
-/// 赤セルコメントスレッド (Phase 2-3 で 1:1 → 1:N + 返信に拡張)。
-/// 1 (rowId, month) に複数 root コメントを許容、各 root に返信 (parent_comment_id) 可。
+/// セルコメントスレッド。 1 (org, fiscalYear, month, rowKey) に複数 root + 返信 (parent_comment_id)。
 /// resolved_at は root コメント単位で「解決済」状態を持つ。
+///
+/// 旧設計 (saved version の row_id 紐付け) からの移行中。
+///   - 新 API: (fiscalYear, month, rowKey) で書き読みする — preview/saved 両方から見える
+///   - 旧 API: rowId を持つレコードはまだ動く (saved version 経由の delete 等)
+///   - rowId は nullable に変更済 (新 API で書く時は NULL)
 model ChoshoCellComment {
-  id              String            @id @default(uuid()) @db.Uuid
-  rowId           String            @map("row_id") @db.Uuid
-  tenantId        String            @map("tenant_id") @db.Uuid
-  orgId           String            @map("org_id") @db.Uuid
+  id              String             @id @default(uuid()) @db.Uuid
+  /// 旧設計の chosho_rows.id 参照。 新 API で書く時は NULL。 既存データは best-effort で残置。
+  rowId           String?            @map("row_id") @db.Uuid
+  tenantId        String             @map("tenant_id") @db.Uuid
+  orgId           String             @map("org_id") @db.Uuid
   /// 1-12 のカレンダー月。どのセルへのコメントか。
   month           Int
+  /// 新設計: 会計年度 (fiscalYear)。 旧データは migration で best-effort 埋め。
+  fiscalYear      Int?               @map("fiscal_year")
+  /// 新設計: 行識別子 (preview builder の rowKey をそのまま使用)。
+  /// version 横断で同じ場所のセルを指す stable な key。
+  rowKey          String?            @map("row_key")
   /// NULL = root コメント、UUID = 返信
-  parentCommentId String?           @map("parent_comment_id") @db.Uuid
+  parentCommentId String?            @map("parent_comment_id") @db.Uuid
   body            String
-  urls            Json              @default("[]")
+  urls            Json               @default("[]")
   /// 異常種別。 null = ユーザーが任意セルに付けたメモ (異常検知なし)。
   anomalyType     ChoshoAnomalyType? @map("anomaly_type")
-  authorId        String?           @map("author_id") @db.Uuid
-  resolvedAt      DateTime?         @map("resolved_at")
-  resolvedById    String?           @map("resolved_by_id") @db.Uuid
-  createdAt       DateTime          @default(now()) @map("created_at")
-  updatedAt       DateTime          @updatedAt @map("updated_at")
+  authorId        String?            @map("author_id") @db.Uuid
+  resolvedAt      DateTime?          @map("resolved_at")
+  resolvedById    String?            @map("resolved_by_id") @db.Uuid
+  createdAt       DateTime           @default(now()) @map("created_at")
+  updatedAt       DateTime           @updatedAt @map("updated_at")
 
-  /// 同一 (rowId, tenantId, orgId) でないと FK が成立しない複合参照。別テナント/別組織の row を指せない。
-  row          ChoshoRow             @relation(fields: [rowId, tenantId, orgId], references: [id, tenantId, orgId], onDelete: Cascade)
-  organization Organization          @relation(fields: [orgId, tenantId], references: [id, tenantId])
-  author       User?                 @relation("ChoshoCellCommentAuthor", fields: [authorId], references: [id])
-  resolvedBy   User?                 @relation("ChoshoCellCommentResolver", fields: [resolvedById], references: [id])
-  parent       ChoshoCellComment?    @relation("ChoshoCellCommentReplies", fields: [parentCommentId], references: [id], onDelete: Cascade)
-  replies      ChoshoCellComment[]   @relation("ChoshoCellCommentReplies")
+  /// 旧 FK: 同一 (rowId, tenantId, orgId) でないと成立しない複合参照。 rowId NULL ならスキップ。
+  row          ChoshoRow?          @relation(fields: [rowId, tenantId, orgId], references: [id, tenantId, orgId], onDelete: Cascade)
+  organization Organization        @relation(fields: [orgId, tenantId], references: [id, tenantId])
+  author       User?               @relation("ChoshoCellCommentAuthor", fields: [authorId], references: [id])
+  resolvedBy   User?               @relation("ChoshoCellCommentResolver", fields: [resolvedById], references: [id])
+  parent       ChoshoCellComment?  @relation("ChoshoCellCommentReplies", fields: [parentCommentId], references: [id], onDelete: Cascade)
+  replies      ChoshoCellComment[] @relation("ChoshoCellCommentReplies")
 
   @@index([rowId, month])
   @@index([parentCommentId])
   @@index([tenantId, orgId])
+  /// 新 API の主検索パス: (org, fy, month, rowKey)
+  @@index([tenantId, orgId, fiscalYear, month, rowKey], map: "chosho_cell_comments_org_fy_month_rowkey_idx")
   @@map("chosho_cell_comments")
 }
 
@@ -1456,23 +1468,23 @@ model JournalReviewFlag {
 /// 仕訳レビュー: 1 仕訳に対するコメントスレッド (Phase 2 / Unit 2-2)。
 /// parent_comment_id NULL = root コメント、UUID = 返信。
 model JournalReviewComment {
-  id              String    @id @default(uuid()) @db.Uuid
-  tenantId        String    @map("tenant_id") @db.Uuid
-  orgId           String    @map("org_id") @db.Uuid
+  id              String   @id @default(uuid()) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  orgId           String   @map("org_id") @db.Uuid
   /// MF 仕訳の id (UUID 形式)。FK なし (MF が正本)
-  journalId       String    @map("journal_id")
-  parentCommentId String?   @map("parent_comment_id") @db.Uuid
+  journalId       String   @map("journal_id")
+  parentCommentId String?  @map("parent_comment_id") @db.Uuid
   body            String
   /// 添付 URL の配列 (string[])
-  urls            Json      @default("[]")
-  authorId        String?   @map("author_id") @db.Uuid
-  createdAt       DateTime  @default(now()) @map("created_at")
-  updatedAt       DateTime  @updatedAt @map("updated_at")
+  urls            Json     @default("[]")
+  authorId        String?  @map("author_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
 
-  organization Organization @relation(fields: [orgId, tenantId], references: [id, tenantId])
+  organization Organization           @relation(fields: [orgId, tenantId], references: [id, tenantId])
   parent       JournalReviewComment?  @relation("JournalReviewCommentReplies", fields: [parentCommentId], references: [id], onDelete: Cascade)
   replies      JournalReviewComment[] @relation("JournalReviewCommentReplies")
-  author       User?        @relation("JournalReviewCommentAuthor", fields: [authorId], references: [id])
+  author       User?                  @relation("JournalReviewCommentAuthor", fields: [authorId], references: [id])
 
   @@index([tenantId, orgId, journalId, createdAt])
   @@index([parentCommentId])

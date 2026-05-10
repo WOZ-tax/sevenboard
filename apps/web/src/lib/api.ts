@@ -333,10 +333,19 @@ export interface ChoshoRowComment {
   updatedAt: string;
 }
 
-/** セルコメント (Phase 2-3: 1:N スレッド対応) */
+/** セルコメント (Phase 2-3: 1:N スレッド対応)
+ *
+ * 旧設計: rowId で saved version の chosho_rows に紐付け (rowId 必須)
+ * 新設計: (fiscalYear, month, rowKey) で識別 (rowId は旧データ後方互換用、新規は null)
+ */
 export interface ChoshoCellComment {
   id: string;
-  rowId: string;
+  /** 旧: chosho_rows.id 紐付け。 新形式は null。 */
+  rowId: string | null;
+  /** 新: 会計年度。 旧データは migration で best-effort 埋め (null の可能性あり) */
+  fiscalYear: number | null;
+  /** 新: preview builder の rowKey 文字列 */
+  rowKey: string | null;
   month: number;
   /** NULL = root コメント、UUID = 返信 */
   parentCommentId: string | null;
@@ -1362,6 +1371,41 @@ export const api = {
         `/organizations/${orgId}/chosho/recent-cell-comments?${qs.toString()}`,
       );
     },
+
+    // === 新 API: preview/saved 共通の cell コメント (rowKey ベース) ===
+    /** GET /preview-cell-comments?fiscalYear=&month=[&rowKey=] */
+    listPreviewCellComments: (
+      orgId: string,
+      fiscalYear: number,
+      month: number,
+      rowKey?: string,
+    ) => {
+      const qs = new URLSearchParams({
+        fiscalYear: String(fiscalYear),
+        month: String(month),
+      });
+      if (rowKey) qs.set('rowKey', rowKey);
+      return apiFetch<ChoshoCellComment[]>(
+        `/organizations/${orgId}/chosho/preview-cell-comments?${qs.toString()}`,
+      );
+    },
+    /** POST /preview-cell-comments — 任意セル (anomalyType=null) でも書ける */
+    addPreviewCellComment: (
+      orgId: string,
+      input: {
+        fiscalYear: number;
+        month: number;
+        rowKey: string;
+        body: string;
+        urls?: string[];
+        anomalyType?: 'EXPECTED_VALUE_VIOLATION' | 'AGING_3M' | null;
+        parentCommentId?: string;
+      },
+    ) =>
+      apiFetch<ChoshoCellComment>(
+        `/organizations/${orgId}/chosho/preview-cell-comments`,
+        { method: 'POST', body: JSON.stringify(input) },
+      ),
   },
 
   // === Journal Review (仕訳レビュー: 要確認フラグ + 解決管理) ===

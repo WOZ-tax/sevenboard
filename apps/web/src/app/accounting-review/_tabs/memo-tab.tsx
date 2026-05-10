@@ -860,7 +860,9 @@ function ChoshoCellMemoSection({
 
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
-  // (rowId, month) 単位でグルーピング (1セル = 1グループ)
+  // (rowId or rowKey, month) 単位でグルーピング (1セル = 1グループ)
+  // listRecentCellComments は saved version 経由なので row.rowId は確実に非 NULL。
+  // preview 経由の (rowId=NULL, rowKey only) コメントは現在 memo タブ未表示。
   const cellsGroup = useMemo(() => {
     type Group = {
       key: string;
@@ -874,6 +876,7 @@ function ChoshoCellMemoSection({
     };
     const map = new Map<string, Group>();
     for (const c of items) {
+      if (!c.rowId) continue; // saved 経由のコメントのみ memo タブに出す
       const key = `${c.rowId}:${c.month}`;
       let g: Group | undefined = map.get(key);
       if (!g) {

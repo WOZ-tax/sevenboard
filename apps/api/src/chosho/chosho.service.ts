@@ -676,6 +676,84 @@ export class ChoshoService {
   }
 
   // ============================================================
+  // 新 API: preview/saved 共通の cell コメント (rowKey ベース)
+  //   モード切替を撤去し、 (org, fy, month, rowKey) で直接書き読みする経路。
+  //   既存 saved 経路 (rowId 紐付け) は読み出しのみ後方互換。
+  // ============================================================
+
+  /** (org, fy, month, rowKey?) のセルコメント一覧 (返信含む)。 rowKey 省略時は (fy, month) 全件。 */
+  async listPreviewCellComments(
+    orgId: string,
+    fiscalYear: number,
+    month: number,
+    rowKey?: string,
+  ): Promise<CellCommentRow[]> {
+    const { tenantId } = await this.resolveOrg(orgId);
+    if (month < 1 || month > 12) {
+      throw new ForbiddenException('month must be 1..12');
+    }
+    const items = await this.prisma.choshoCellComment.findMany({
+      where: {
+        tenantId,
+        orgId,
+        fiscalYear,
+        month,
+        ...(rowKey ? { rowKey } : {}),
+      },
+      orderBy: { createdAt: 'asc' },
+      include: { author: { select: { name: true } } },
+    });
+    return items.map(toCellCommentRow);
+  }
+
+  /** preview モードからのコメント追加 (root or 返信)。 versionId 不要、 (fy, month, rowKey) で identify。 */
+  async addPreviewCellComment(
+    orgId: string,
+    fiscalYear: number,
+    month: number,
+    rowKey: string,
+    body: string,
+    urls: string[],
+    anomalyType: ChoshoAnomalyType | null,
+    parentCommentId: string | null,
+    authorId: string,
+  ): Promise<CellCommentRow> {
+    const { tenantId } = await this.resolveOrg(orgId);
+    if (month < 1 || month > 12) {
+      throw new ForbiddenException('month must be 1..12');
+    }
+    if (!rowKey || rowKey.length === 0) {
+      throw new ForbiddenException('rowKey is required');
+    }
+    if (parentCommentId) {
+      const parent = await this.prisma.choshoCellComment.findFirst({
+        where: { id: parentCommentId, tenantId, orgId, fiscalYear, month, rowKey },
+        select: { id: true, parentCommentId: true },
+      });
+      if (!parent) throw new NotFoundException('Parent comment not found');
+      // 返信の返信は root にぶら下げる (2 階層 flatten)
+      if (parent.parentCommentId) parentCommentId = parent.parentCommentId;
+    }
+    const created = await this.prisma.choshoCellComment.create({
+      data: {
+        tenantId,
+        orgId,
+        fiscalYear,
+        rowKey,
+        month,
+        rowId: null,
+        body,
+        urls: urls as Prisma.InputJsonValue,
+        anomalyType,
+        parentCommentId,
+        authorId,
+      },
+      include: { author: { select: { name: true } } },
+    });
+    return toCellCommentRow(created);
+  }
+
+  // ============================================================
   // memo タブ用: 期間内の最新 saved version の cell コメントを集約
   // ============================================================
 
@@ -729,9 +807,11 @@ export class ChoshoService {
     // versionId ごとに row の versionId を埋め戻す (memo UI が必要に応じて使う)
     return items.map((c) => ({
       id: c.id,
-      versionId: c.row.versionId,
+      versionId: c.row?.versionId ?? '',
       rowId: c.rowId,
-      rowName: c.row.accountName,
+      fiscalYear: c.fiscalYear ?? null,
+      rowKey: c.rowKey ?? null,
+      rowName: c.row?.accountName ?? '',
       month: c.month,
       parentCommentId: c.parentCommentId,
       body: c.body,
@@ -892,10 +972,17 @@ export interface RowCommentRow {
   updatedAt: string;
 }
 
-/** GET /chosho/versions/:id/cell-comments の戻り値要素 (Phase 2-3: スレッド対応) */
+/** GET /chosho/versions/:id/cell-comments の戻り値要素 (Phase 2-3: スレッド対応)
+ *
+ * 旧設計の rowId は schema 変更で nullable に。 新 API (preview-cell-comments) で
+ * 書き込まれたコメントは rowId=null となり、 (fiscalYear, month, rowKey) で識別する。
+ */
 export interface CellCommentRow {
   id: string;
-  rowId: string;
+  rowId: string | null;
+  /** 新設計: (fiscalYear, month, rowKey) で識別。 旧データは migration で best-effort 埋め。 */
+  fiscalYear: number | null;
+  rowKey: string | null;
   month: number;
   /** NULL = root コメント、UUID = 返信 */
   parentCommentId: string | null;
@@ -925,7 +1012,9 @@ export interface RecentCellCommentItem extends CellCommentRow {
 
 function toCellCommentRow(c: {
   id: string;
-  rowId: string;
+  rowId: string | null;
+  fiscalYear?: number | null;
+  rowKey?: string | null;
   month: number;
   parentCommentId: string | null;
   body: string;
@@ -941,6 +1030,8 @@ function toCellCommentRow(c: {
   return {
     id: c.id,
     rowId: c.rowId,
+    fiscalYear: c.fiscalYear ?? null,
+    rowKey: c.rowKey ?? null,
     month: c.month,
     parentCommentId: c.parentCommentId,
     body: c.body,
