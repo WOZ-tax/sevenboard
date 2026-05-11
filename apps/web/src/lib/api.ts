@@ -1603,13 +1603,13 @@ export const api = {
     listPreviewCellComments: (
       orgId: string,
       fiscalYear: number,
-      month: number,
+      month?: number,
       rowKey?: string,
     ) => {
       const qs = new URLSearchParams({
         fiscalYear: String(fiscalYear),
-        month: String(month),
       });
+      if (month != null) qs.set('month', String(month));
       if (rowKey) qs.set('rowKey', rowKey);
       return apiFetch<ChoshoCellComment[]>(
         `/organizations/${orgId}/chosho/preview-cell-comments?${qs.toString()}`,

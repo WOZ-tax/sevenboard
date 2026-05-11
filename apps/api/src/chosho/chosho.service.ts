@@ -732,15 +732,18 @@ export class ChoshoService {
   //   既存 saved 経路 (rowId 紐付け) は読み出しのみ後方互換。
   // ============================================================
 
-  /** (org, fy, month, rowKey?) のセルコメント一覧 (返信含む)。 rowKey 省略時は (fy, month) 全件。 */
+  /** (org, fy, month?, rowKey?) のセルコメント一覧 (返信含む)。month省略時は会計年度内全件。 */
   async listPreviewCellComments(
     orgId: string,
     fiscalYear: number,
-    month: number,
+    month?: number,
     rowKey?: string,
   ): Promise<CellCommentRow[]> {
     const { tenantId } = await this.resolveOrg(orgId);
-    if (month < 1 || month > 12) {
+    if (
+      month != null &&
+      (!Number.isInteger(month) || month < 1 || month > 12)
+    ) {
       throw new ForbiddenException('month must be 1..12');
     }
     const items = await this.prisma.choshoCellComment.findMany({
@@ -748,7 +751,7 @@ export class ChoshoService {
         tenantId,
         orgId,
         fiscalYear,
-        month,
+        ...(month != null ? { month } : {}),
         ...(rowKey ? { rowKey } : {}),
       },
       orderBy: { createdAt: 'asc' },

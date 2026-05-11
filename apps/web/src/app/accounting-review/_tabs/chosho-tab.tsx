@@ -192,6 +192,7 @@ function PreviewView({ orgId, fiscalYear, month }: Props) {
           );
           const writeNew = () =>
             previewComments.addCellComment.mutate({
+              month: input.month,
               rowKey: input.rowId, // PreviewView は rowKey を rowId 引数に流している
               body: input.body,
               urls: input.urls,

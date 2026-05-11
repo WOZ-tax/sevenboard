@@ -135,18 +135,18 @@ export function useChoshoPreviewCellComments(args: {
 
   const enabled =
     !!orgId && fiscalYear != null && month != null && (args.enabled ?? true);
-  const cellKey = ["chosho", "preview-cell-comments", orgId, fiscalYear, month];
+  const cellKey = ["chosho", "preview-cell-comments", orgId, fiscalYear, "all"];
 
   const cellComments = useQuery<ChoshoCellComment[]>({
     queryKey: cellKey,
-    queryFn: () =>
-      api.chosho.listPreviewCellComments(orgId, fiscalYear!, month!),
+    queryFn: () => api.chosho.listPreviewCellComments(orgId, fiscalYear!),
     enabled,
     staleTime: 30_000,
   });
 
   const addCellComment = useMutation({
     mutationFn: (input: {
+      month: number;
       rowKey: string;
       body: string;
       urls: string[];
@@ -155,7 +155,7 @@ export function useChoshoPreviewCellComments(args: {
     }) =>
       api.chosho.addPreviewCellComment(orgId, {
         fiscalYear: fiscalYear!,
-        month: month!,
+        month: input.month,
         rowKey: input.rowKey,
         body: input.body,
         urls: input.urls,

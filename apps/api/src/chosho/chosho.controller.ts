@@ -318,9 +318,11 @@ export class ChoshoController {
   async listPreviewCellComments(
     @Param('orgId', ParseUUIDPipe) orgId: string,
     @Query('fiscalYear', ParseIntPipe) fiscalYear: number,
-    @Query('month', ParseIntPipe) month: number,
+    @Query('month') monthRaw?: string,
     @Query('rowKey') rowKey?: string,
   ) {
+    const month =
+      monthRaw != null && monthRaw !== '' ? Number(monthRaw) : undefined;
     return this.service.listPreviewCellComments(
       orgId,
       fiscalYear,
