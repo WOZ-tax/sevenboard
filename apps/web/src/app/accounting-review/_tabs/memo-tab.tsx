@@ -31,6 +31,7 @@ import { toast } from "sonner";
 import {
   api,
   type ChoshoRecentCellComment,
+  type ChoshoRecentCellCommentPage,
   type JournalReviewCommentItem,
   type JournalReviewFlagItem,
   type JournalReviewSnapshotItem,
@@ -216,6 +217,16 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ["journal-comments", orgId] });
   };
+  const removeJournalCommentFromCache = (commentId: string) => {
+    qc.setQueriesData<JournalReviewCommentItem[]>(
+      { queryKey: ["journal-comments", orgId] },
+      (old) =>
+        old?.filter(
+          (comment) =>
+            comment.id !== commentId && comment.parentCommentId !== commentId,
+        ) ?? old,
+    );
+  };
   const addComment = useMutation({
     mutationFn: (input: {
       journalId: string;
@@ -229,7 +240,10 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
   const deleteCommentMutation = useMutation({
     mutationFn: (commentId: string) =>
       api.journalReview.deleteComment(orgId, commentId),
-    onSuccess: () => invalidate(),
+    onSuccess: (_deleted, commentId) => {
+      removeJournalCommentFromCache(commentId);
+      invalidate();
+    },
     onError: () => toast.error("コメント削除に失敗しました"),
   });
   const deleteComment = (commentId: string) =>
@@ -1397,10 +1411,58 @@ function ChoshoCellMemoSection({
     onSuccess: () => qc.invalidateQueries({ queryKey }),
     onError: () => toast.error("解決状態の更新に失敗しました"),
   });
+  const removeCellCommentFromCache = (commentId: string) => {
+    qc.setQueriesData<ChoshoRecentCellCommentPage>(
+      { queryKey: ["chosho-recent-cell-comment-groups", orgId] },
+      (old) => {
+        if (!old) return old;
+        const removed = old.items.filter(
+          (comment) =>
+            comment.id === commentId || comment.parentCommentId === commentId,
+        );
+        if (removed.length === 0) return old;
+
+        const groupKey = (comment: ChoshoRecentCellComment) =>
+          `${comment.rowId ?? comment.rowKey ?? ""}:${comment.month}`;
+        const beforeGroups = new Set(old.items.map(groupKey));
+        const nextItems = old.items.filter(
+          (comment) =>
+            comment.id !== commentId && comment.parentCommentId !== commentId,
+        );
+        const afterGroups = new Set(nextItems.map(groupKey));
+        const removedGroupCount = beforeGroups.size - afterGroups.size;
+        const removedRoots = removed.filter(
+          (comment) => comment.parentCommentId == null,
+        );
+        const removedUnresolvedRoots = removedRoots.filter(
+          (comment) => comment.resolvedAt == null,
+        ).length;
+        const removedResolvedRoots =
+          removedRoots.length - removedUnresolvedRoots;
+        const nextTotal = Math.max(0, old.total - removedGroupCount);
+        const nextTotalPages = Math.max(1, Math.ceil(nextTotal / old.limit));
+
+        return {
+          ...old,
+          items: nextItems,
+          total: nextTotal,
+          unresolvedTotal: Math.max(
+            0,
+            old.unresolvedTotal - removedUnresolvedRoots,
+          ),
+          resolvedTotal: Math.max(0, old.resolvedTotal - removedResolvedRoots),
+          totalPages: nextTotalPages,
+        };
+      },
+    );
+  };
   const deleteCell = useMutation({
     mutationFn: (commentId: string) =>
       api.chosho.deleteCellCommentById(orgId, commentId),
-    onSuccess: () => qc.invalidateQueries({ queryKey }),
+    onSuccess: (_deleted, commentId) => {
+      removeCellCommentFromCache(commentId);
+      qc.invalidateQueries({ queryKey });
+    },
     onError: () => toast.error("削除に失敗しました"),
   });
   const updateCell = useMutation({
