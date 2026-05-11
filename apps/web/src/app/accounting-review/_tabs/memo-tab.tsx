@@ -81,6 +81,14 @@ function shortenMiddle(value: string, limit: number): string {
   return `${value.slice(0, head)}...${value.slice(-tail)}`;
 }
 
+function navigableUrl(rawUrl: string): string {
+  const trimmed = rawUrl.trim();
+  if (!trimmed) return "#";
+  if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) return trimmed;
+  if (trimmed.startsWith("//")) return `https:${trimmed}`;
+  return `https://${trimmed}`;
+}
+
 export function MemoTab({ orgId, fiscalYear, month }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -1183,7 +1191,7 @@ function CommentBubble({
 function MemoUrlLink({ url }: { url: string }) {
   return (
     <a
-      href={url}
+      href={navigableUrl(url)}
       target="_blank"
       rel="noreferrer"
       title={url}

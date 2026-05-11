@@ -45,6 +45,14 @@ function shortenMiddle(value: string, limit: number): string {
   return `${value.slice(0, head)}...${value.slice(-tail)}`;
 }
 
+function navigableUrl(rawUrl: string): string {
+  const trimmed = rawUrl.trim();
+  if (!trimmed) return "#";
+  if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) return trimmed;
+  if (trimmed.startsWith("//")) return `https:${trimmed}`;
+  return `https://${trimmed}`;
+}
+
 // ============================================================
 // 共通: URL chips エディタ
 // ============================================================
@@ -367,7 +375,7 @@ export function CellCommentDialog({
                 {existing.urls.map((u) => (
                   <a
                     key={u}
-                    href={u}
+                    href={navigableUrl(u)}
                     target="_blank"
                     rel="noreferrer"
                     title={u}
@@ -479,7 +487,7 @@ function CommentItem({
           {urls.map((u) => (
             <a
               key={u}
-              href={u}
+              href={navigableUrl(u)}
               target="_blank"
               rel="noreferrer"
               title={u}

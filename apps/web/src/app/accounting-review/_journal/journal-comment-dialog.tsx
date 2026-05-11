@@ -29,6 +29,14 @@ import { api, type JournalReviewCommentItem, type JournalReviewFlagItem } from "
 import { cn } from "@/lib/utils";
 import { UrlChipsEditor } from "../_chosho/comment-dialogs";
 
+function navigableUrl(rawUrl: string): string {
+  const trimmed = rawUrl.trim();
+  if (!trimmed) return "#";
+  if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) return trimmed;
+  if (trimmed.startsWith("//")) return `https:${trimmed}`;
+  return `https://${trimmed}`;
+}
+
 interface JournalSummary {
   id: string;
   number: string | null;
@@ -407,7 +415,7 @@ function CommentBubble({
               {comment.urls.map((u) => (
                 <a
                   key={u}
-                  href={u}
+                  href={navigableUrl(u)}
                   target="_blank"
                   rel="noreferrer"
                   className="inline-flex max-w-full items-center gap-0.5 truncate rounded bg-muted/60 px-1.5 py-0.5 text-[10px] text-[var(--color-primary)] hover:underline"
