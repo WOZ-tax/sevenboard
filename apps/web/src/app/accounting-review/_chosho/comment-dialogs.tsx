@@ -23,6 +23,28 @@ import { Badge } from "@/components/ui/badge";
 import type { ChoshoCellComment, ChoshoRowComment } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
+const URL_DISPLAY_LIMIT = 56;
+
+function shortenUrlForDisplay(rawUrl: string): string {
+  const fallback = shortenMiddle(rawUrl, URL_DISPLAY_LIMIT);
+  try {
+    const parsed = new URL(rawUrl);
+    const host = parsed.hostname.replace(/^www\./, "");
+    const rest = `${parsed.pathname === "/" ? "" : parsed.pathname}${parsed.search}${parsed.hash}`;
+    const label = `${host}${rest}`;
+    return shortenMiddle(label || host, URL_DISPLAY_LIMIT);
+  } catch {
+    return fallback;
+  }
+}
+
+function shortenMiddle(value: string, limit: number): string {
+  if (value.length <= limit) return value;
+  const head = Math.max(16, Math.floor(limit * 0.62));
+  const tail = Math.max(8, limit - head - 3);
+  return `${value.slice(0, head)}...${value.slice(-tail)}`;
+}
+
 // ============================================================
 // 共通: URL chips エディタ
 // ============================================================
@@ -54,10 +76,11 @@ export function UrlChipsEditor({
         {urls.map((u) => (
           <span
             key={u}
-            className="inline-flex max-w-full items-center gap-1 rounded bg-muted/60 px-1.5 py-0.5 text-[10px] text-muted-foreground"
+            title={u}
+            className="inline-flex min-w-0 max-w-full items-center gap-1 rounded bg-muted/60 px-1.5 py-0.5 text-[10px] text-muted-foreground"
           >
             <LinkIcon className="h-2.5 w-2.5 shrink-0" />
-            <span className="truncate">{u}</span>
+            <span className="min-w-0 truncate">{shortenUrlForDisplay(u)}</span>
             <button
               type="button"
               onClick={() => onChange(urls.filter((x) => x !== u))}
@@ -168,7 +191,9 @@ export function RowCommentDialog({
                 urls={c.urls}
                 createdAt={c.createdAt}
                 authorName={c.authorName}
-                isMine={editable && !!currentUserId && c.authorId === currentUserId}
+                isMine={
+                  editable && !!currentUserId && c.authorId === currentUserId
+                }
                 onDelete={() => onDelete(c.id)}
               />
             ))
@@ -195,7 +220,13 @@ export function RowCommentDialog({
         )}
 
         <DialogFooter className="gap-1.5">
-          <DialogClose render={<Button variant="ghost" size="sm" className="h-7 text-xs">閉じる</Button>} />
+          <DialogClose
+            render={
+              <Button variant="ghost" size="sm" className="h-7 text-xs">
+                閉じる
+              </Button>
+            }
+          />
           {editable && (
             <Button
               size="sm"
@@ -203,7 +234,11 @@ export function RowCommentDialog({
               onClick={handleSubmit}
               disabled={isAdding || !body.trim()}
             >
-              {isAdding ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" /> : <Plus className="mr-1.5 h-3 w-3" />}
+              {isAdding ? (
+                <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
+              ) : (
+                <Plus className="mr-1.5 h-3 w-3" />
+              )}
               追加
             </Button>
           )}
@@ -279,14 +314,18 @@ export function CellCommentDialog({
             {rowName} <span className="text-muted-foreground">/ {month}月</span>
           </DialogTitle>
           <DialogDescription className="text-[11px]">
-            {anomalyType ? "この異常への対応・根拠を記録します" : "このセルへのレビューメモを残します"}
+            {anomalyType
+              ? "この異常への対応・根拠を記録します"
+              : "このセルへのレビューメモを残します"}
           </DialogDescription>
         </DialogHeader>
 
         {anomalyType ? (
           <div className="rounded bg-red-50 px-2 py-1.5 text-[11px] text-red-700">
             <span className="mr-1.5 font-semibold">
-              {anomalyType === "EXPECTED_VALUE_VIOLATION" ? "期待残高ズレ" : "3ヶ月以上滞留"}
+              {anomalyType === "EXPECTED_VALUE_VIOLATION"
+                ? "期待残高ズレ"
+                : "3ヶ月以上滞留"}
             </span>
             {anomalyMessage ?? ""}
           </div>
@@ -311,12 +350,18 @@ export function CellCommentDialog({
           <div className="space-y-2">
             {existing.authorName && (
               <div className="text-[10px] text-muted-foreground">
-                <span className="font-semibold text-[var(--color-text-primary)]">{existing.authorName}</span>
+                <span className="font-semibold text-[var(--color-text-primary)]">
+                  {existing.authorName}
+                </span>
                 <span className="mx-1">·</span>
-                <span>{new Date(existing.createdAt).toLocaleString("ja-JP")}</span>
+                <span>
+                  {new Date(existing.createdAt).toLocaleString("ja-JP")}
+                </span>
               </div>
             )}
-            <div className="whitespace-pre-wrap rounded border bg-card p-2 text-xs">{existing.body}</div>
+            <div className="whitespace-pre-wrap rounded border bg-card p-2 text-xs">
+              {existing.body}
+            </div>
             {existing.urls.length > 0 && (
               <div className="flex flex-wrap gap-1">
                 {existing.urls.map((u) => (
@@ -325,10 +370,13 @@ export function CellCommentDialog({
                     href={u}
                     target="_blank"
                     rel="noreferrer"
-                    className="inline-flex max-w-full items-center gap-0.5 truncate rounded bg-muted/60 px-1.5 py-0.5 text-[10px] text-[var(--color-primary)] hover:underline"
+                    title={u}
+                    className="inline-flex min-w-0 max-w-full items-center gap-0.5 rounded bg-muted/60 px-1.5 py-0.5 text-[10px] text-[var(--color-primary)] hover:underline"
                   >
                     <LinkIcon className="h-2.5 w-2.5 shrink-0" />
-                    <span className="truncate">{u}</span>
+                    <span className="min-w-0 truncate">
+                      {shortenUrlForDisplay(u)}
+                    </span>
                   </a>
                 ))}
               </div>
@@ -350,17 +398,30 @@ export function CellCommentDialog({
               size="sm"
               className="h-7 text-xs text-red-600 hover:text-red-700"
               onClick={() => {
-                if (typeof window !== "undefined" && window.confirm("本当に削除しますか?")) {
+                if (
+                  typeof window !== "undefined" &&
+                  window.confirm("本当に削除しますか?")
+                ) {
                   onDelete({ rowId, month });
                 }
               }}
               disabled={isDeleting}
             >
-              {isDeleting ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" /> : <Trash2 className="mr-1.5 h-3 w-3" />}
+              {isDeleting ? (
+                <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
+              ) : (
+                <Trash2 className="mr-1.5 h-3 w-3" />
+              )}
               削除
             </Button>
           )}
-          <DialogClose render={<Button variant="ghost" size="sm" className="h-7 text-xs">閉じる</Button>} />
+          <DialogClose
+            render={
+              <Button variant="ghost" size="sm" className="h-7 text-xs">
+                閉じる
+              </Button>
+            }
+          />
           {editable && (
             <Button
               size="sm"
@@ -368,7 +429,9 @@ export function CellCommentDialog({
               onClick={handleSubmit}
               disabled={isSaving || !body.trim()}
             >
-              {isSaving ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" /> : null}
+              {isSaving ? (
+                <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
+              ) : null}
               {existing ? "更新" : "保存"}
             </Button>
           )}
@@ -397,7 +460,10 @@ function CommentItem({
   isMine: boolean;
   onDelete: () => void;
 }) {
-  const date = useMemo(() => new Date(createdAt).toLocaleString("ja-JP"), [createdAt]);
+  const date = useMemo(
+    () => new Date(createdAt).toLocaleString("ja-JP"),
+    [createdAt],
+  );
   return (
     <div className="rounded border bg-card p-2 text-xs">
       <div className="mb-0.5 flex items-center gap-1.5 text-[10px] text-muted-foreground">
@@ -416,10 +482,13 @@ function CommentItem({
               href={u}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex max-w-full items-center gap-0.5 truncate rounded bg-muted/60 px-1.5 py-0.5 text-[10px] text-[var(--color-primary)] hover:underline"
+              title={u}
+              className="inline-flex min-w-0 max-w-full items-center gap-0.5 rounded bg-muted/60 px-1.5 py-0.5 text-[10px] text-[var(--color-primary)] hover:underline"
             >
               <LinkIcon className="h-2.5 w-2.5 shrink-0" />
-              <span className="truncate">{u}</span>
+              <span className="min-w-0 truncate">
+                {shortenUrlForDisplay(u)}
+              </span>
             </a>
           ))}
         </div>
@@ -429,7 +498,10 @@ function CommentItem({
           <button
             type="button"
             onClick={() => {
-              if (typeof window !== "undefined" && window.confirm("本当に削除しますか?")) {
+              if (
+                typeof window !== "undefined" &&
+                window.confirm("本当に削除しますか?")
+              ) {
                 onDelete();
               }
             }}
@@ -450,7 +522,10 @@ function CommentItem({
 export function RowCommentCountBadge({ count }: { count: number }) {
   if (count === 0) return null;
   return (
-    <Badge variant="secondary" className={cn("h-4 min-w-[16px] justify-center px-1 text-[10px]")}>
+    <Badge
+      variant="secondary"
+      className={cn("h-4 min-w-[16px] justify-center px-1 text-[10px]")}
+    >
       {count}
     </Badge>
   );

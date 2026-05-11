@@ -58,6 +58,27 @@ interface Props {
 type MfJournalRefItem = JournalReviewSnapshotItem;
 type MemoSource = "chosho" | "journal";
 const MEMO_PAGE_SIZE = 50;
+const URL_DISPLAY_LIMIT = 56;
+
+function shortenUrlForDisplay(rawUrl: string): string {
+  const fallback = shortenMiddle(rawUrl, URL_DISPLAY_LIMIT);
+  try {
+    const parsed = new URL(rawUrl);
+    const host = parsed.hostname.replace(/^www\./, "");
+    const rest = `${parsed.pathname === "/" ? "" : parsed.pathname}${parsed.search}${parsed.hash}`;
+    const label = `${host}${rest}`;
+    return shortenMiddle(label || host, URL_DISPLAY_LIMIT);
+  } catch {
+    return fallback;
+  }
+}
+
+function shortenMiddle(value: string, limit: number): string {
+  if (value.length <= limit) return value;
+  const head = Math.max(16, Math.floor(limit * 0.62));
+  const tail = Math.max(8, limit - head - 3);
+  return `${value.slice(0, head)}...${value.slice(-tail)}`;
+}
 
 export function MemoTab({ orgId, fiscalYear, month }: Props) {
   const router = useRouter();
@@ -65,7 +86,9 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
   const focusJournal = searchParams.get("focusJournal");
   const composeOnLoad = searchParams.get("compose") === "1";
   const currentUserId = useAuthStore((s) => s.user?.id ?? null);
-  const [memoSource, setMemoSource] = useState<MemoSource>(focusJournal ? "journal" : "chosho");
+  const [memoSource, setMemoSource] = useState<MemoSource>(
+    focusJournal ? "journal" : "chosho",
+  );
   const [journalPage, setJournalPage] = useState(1);
   const [choshoPage, setChoshoPage] = useState(1);
 
@@ -168,7 +191,8 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
   const commentsQuery = useQuery({
     queryKey: ["journal-comments", orgId, flaggedJournalKey],
     queryFn: () => api.journalReview.listComments(orgId, flaggedJournalIds),
-    enabled: memoSource === "journal" && !!orgId && flaggedJournalIds.length > 0,
+    enabled:
+      memoSource === "journal" && !!orgId && flaggedJournalIds.length > 0,
     staleTime: 30_000,
   });
   const commentsByJournal = useMemo(() => {
@@ -183,7 +207,8 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
 
   useEffect(() => {
     if (memoSource !== "journal" || !flagsPage) return;
-    if (journalPage > flagsPage.totalPages) setJournalPage(flagsPage.totalPages);
+    if (journalPage > flagsPage.totalPages)
+      setJournalPage(flagsPage.totalPages);
   }, [memoSource, flagsPage, journalPage]);
 
   // mutations
@@ -192,17 +217,23 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
     qc.invalidateQueries({ queryKey: ["journal-comments", orgId] });
   };
   const addComment = useMutation({
-    mutationFn: (input: { journalId: string; body: string; urls: string[]; parentCommentId?: string }) =>
-      api.journalReview.addComment(orgId, input),
+    mutationFn: (input: {
+      journalId: string;
+      body: string;
+      urls: string[];
+      parentCommentId?: string;
+    }) => api.journalReview.addComment(orgId, input),
     onSuccess: () => invalidate(),
     onError: () => toast.error("コメント追加に失敗しました"),
   });
   const deleteCommentMutation = useMutation({
-    mutationFn: (commentId: string) => api.journalReview.deleteComment(orgId, commentId),
+    mutationFn: (commentId: string) =>
+      api.journalReview.deleteComment(orgId, commentId),
     onSuccess: () => invalidate(),
     onError: () => toast.error("コメント削除に失敗しました"),
   });
-  const deleteComment = (commentId: string) => deleteCommentMutation.mutate(commentId);
+  const deleteComment = (commentId: string) =>
+    deleteCommentMutation.mutate(commentId);
   const updateCommentMutation = useMutation({
     mutationFn: (input: { commentId: string; body: string; urls: string[] }) =>
       api.journalReview.updateComment(orgId, input.commentId, {
@@ -215,7 +246,12 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
   const updateComment = (commentId: string, body: string, urls: string[]) =>
     updateCommentMutation.mutate({ commentId, body, urls });
   const upsertFlag = useMutation({
-    mutationFn: (input: { journalId: string; fiscalYear: number; month: number; resolved: boolean }) =>
+    mutationFn: (input: {
+      journalId: string;
+      fiscalYear: number;
+      month: number;
+      resolved: boolean;
+    }) =>
       api.journalReview.upsertFlag(orgId, input.journalId, {
         resolved: input.resolved,
         fiscalYear: input.fiscalYear,
@@ -224,7 +260,8 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
     onSuccess: () => qc.invalidateQueries({ queryKey: flagsQueryKey }),
   });
   const deleteFlagMutation = useMutation({
-    mutationFn: (journalId: string) => api.journalReview.deleteFlag(orgId, journalId),
+    mutationFn: (journalId: string) =>
+      api.journalReview.deleteFlag(orgId, journalId),
     onSuccess: () => {
       // フラグ自体 + 紐づく全コメントが消えるので両方の cache を invalidate
       qc.invalidateQueries({ queryKey: ["journal-flags", orgId] });
@@ -242,7 +279,9 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
         month: monthFilterValue,
       }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["journal-review-snapshots-for-memo", orgId] });
+      qc.invalidateQueries({
+        queryKey: ["journal-review-snapshots-for-memo", orgId],
+      });
       toast.success(
         monthFilterValue == null
           ? "全期間の仕訳を最新に更新しました"
@@ -268,7 +307,9 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
       const params = new URLSearchParams(searchParams.toString());
       params.delete("focusJournal");
       params.delete("compose");
-      router.replace(`/accounting-review?${params.toString()}`, { scroll: false });
+      router.replace(`/accounting-review?${params.toString()}`, {
+        scroll: false,
+      });
     }
   }, [focusJournal, composeOnLoad, router, searchParams]);
 
@@ -283,7 +324,10 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
   // 初回 snapshot 取得は MF を 12 ヶ月分叩くため数〜十数秒。 ThinkingIndicator で
   // 段階表示する (AI 生成中と同じ感じ)。 cache hit 時は ms オーダーで終わるので、
   // この分岐に来ない。
-  if (memoSource === "journal" && (flagsQuery.isLoading || journalsQuery.isLoading)) {
+  if (
+    memoSource === "journal" &&
+    (flagsQuery.isLoading || journalsQuery.isLoading)
+  ) {
     return (
       <ThinkingIndicator
         stages={[
@@ -320,11 +364,15 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="font-semibold text-[var(--color-text-primary)]">レビューメモ</span>
+          <span className="font-semibold text-[var(--color-text-primary)]">
+            レビューメモ
+          </span>
           <span>{fiscalYear}年度</span>
           <Select
             value={filterMonth === "all" ? "all" : String(filterMonth)}
-            onValueChange={(v) => handleSetFilterMonth(v === "all" ? "all" : Number(v))}
+            onValueChange={(v) =>
+              handleSetFilterMonth(v === "all" ? "all" : Number(v))
+            }
           >
             <SelectTrigger className="h-7 w-32 text-xs">
               <SelectValue />
@@ -345,7 +393,9 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
               variant="outline"
               className="h-7 px-2 text-[11px]"
               onClick={() => refreshSnapshotsMutation.mutate()}
-              disabled={refreshSnapshotsMutation.isPending || fiscalYear == null}
+              disabled={
+                refreshSnapshotsMutation.isPending || fiscalYear == null
+              }
               title={
                 monthFilterValue == null
                   ? "全期間の仕訳キャッシュを破棄して MF から取り直す"
@@ -361,8 +411,12 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
         </div>
         {memoSource === "journal" && flagsPage ? (
           <div className="flex items-center gap-2">
-            <Badge variant="secondary" className="text-[10px]">未解決 {flagsPage.unresolvedTotal}</Badge>
-            <Badge variant="outline" className="text-[10px]">全体 {flagsPage.total}</Badge>
+            <Badge variant="secondary" className="text-[10px]">
+              未解決 {flagsPage.unresolvedTotal}
+            </Badge>
+            <Badge variant="outline" className="text-[10px]">
+              全体 {flagsPage.total}
+            </Badge>
           </div>
         ) : null}
       </div>
@@ -419,106 +473,130 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
           )
         ) : (
           <>
-      <div className="overflow-x-auto rounded-md border bg-card">
-        <table className="w-full text-xs">
-          <thead>
-            <tr className="border-b-2 border-[var(--color-border)] bg-[var(--color-background)]">
-              <th className="w-6 px-1 py-2"></th>
-              <th className="w-24 px-2 py-2 text-left font-semibold text-[var(--color-text-primary)]">取引No</th>
-              <th className="w-24 px-2 py-2 text-left font-semibold text-[var(--color-text-primary)]">取引日</th>
-              <th className="px-2 py-2 text-left font-semibold text-[var(--color-text-primary)]">科目</th>
-              <th className="px-2 py-2 text-left font-semibold text-[var(--color-text-primary)]">摘要</th>
-              <th className="w-20 px-2 py-2 text-center font-semibold text-[var(--color-text-primary)]">コメント</th>
-              <th className="w-20 px-2 py-2 text-center font-semibold text-[var(--color-text-primary)]">返信</th>
-              <th className="w-24 px-2 py-2 text-center font-semibold text-[var(--color-text-primary)]">ステータス</th>
-              <th className="w-10 px-1 py-2 text-center font-semibold text-[var(--color-text-primary)]" title="メモ削除"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {flags.map((flag) => {
-              const j = journalsById.get(flag.journalId) ?? null;
-              const all = commentsByJournal.get(flag.journalId) ?? [];
-              const roots = all.filter((c) => c.parentCommentId == null);
-              const replies = all.filter((c) => c.parentCommentId != null);
-              const replyCount = replies.length;
-              const isExpanded = expanded.has(flag.journalId);
-              const isResolved = flag.resolvedAt != null;
-              return (
-                <FlaggedJournalRow
-                  key={flag.journalId}
-                  flag={flag}
-                  journal={j}
-                  rootComments={roots}
-                  allReplies={replies}
-                  rootCount={roots.length}
-                  replyCount={replyCount}
-                  isExpanded={isExpanded}
-                  isComposing={composing.has(flag.journalId)}
-                  isResolved={isResolved}
-                  currentUserId={currentUserId}
-                  onToggleExpand={() => handleToggleExpand(flag.journalId)}
-                  onStartCompose={() => handleStartCompose(flag.journalId)}
-                  onEndCompose={() => handleEndCompose(flag.journalId)}
-                  onAdd={(input) => addComment.mutate(input)}
-                  onDelete={(id) => deleteComment(id)}
-                  onUpdate={updateComment}
-                  isUpdating={updateCommentMutation.isPending}
-                  onToggleResolve={() =>
-                    upsertFlag.mutate({
-                      journalId: flag.journalId,
-                      fiscalYear: flag.fiscalYear,
-                      month: flag.month,
-                      resolved: !isResolved,
-                    })
-                  }
-                  onDeleteFlag={() => {
-                    if (
-                      typeof window !== "undefined" &&
-                      window.confirm(
-                        "このレビューメモを削除しますか?\nフラグと紐づく全コメント (返信含む) が消えます。",
-                      )
-                    ) {
-                      deleteFlagMutation.mutate(flag.journalId);
-                    }
-                  }}
-                  isAdding={addComment.isPending}
-                  isResolving={upsertFlag.isPending}
-                  isDeletingFlag={deleteFlagMutation.isPending}
-                />
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+            <div className="overflow-x-auto rounded-md border bg-card">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b-2 border-[var(--color-border)] bg-[var(--color-background)]">
+                    <th className="w-6 px-1 py-2"></th>
+                    <th className="w-24 px-2 py-2 text-left font-semibold text-[var(--color-text-primary)]">
+                      取引No
+                    </th>
+                    <th className="w-24 px-2 py-2 text-left font-semibold text-[var(--color-text-primary)]">
+                      取引日
+                    </th>
+                    <th className="px-2 py-2 text-left font-semibold text-[var(--color-text-primary)]">
+                      科目
+                    </th>
+                    <th className="px-2 py-2 text-left font-semibold text-[var(--color-text-primary)]">
+                      摘要
+                    </th>
+                    <th className="w-20 px-2 py-2 text-center font-semibold text-[var(--color-text-primary)]">
+                      コメント
+                    </th>
+                    <th className="w-20 px-2 py-2 text-center font-semibold text-[var(--color-text-primary)]">
+                      返信
+                    </th>
+                    <th className="w-24 px-2 py-2 text-center font-semibold text-[var(--color-text-primary)]">
+                      ステータス
+                    </th>
+                    <th
+                      className="w-10 px-1 py-2 text-center font-semibold text-[var(--color-text-primary)]"
+                      title="メモ削除"
+                    ></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {flags.map((flag) => {
+                    const j = journalsById.get(flag.journalId) ?? null;
+                    const all = commentsByJournal.get(flag.journalId) ?? [];
+                    const roots = all.filter((c) => c.parentCommentId == null);
+                    const replies = all.filter(
+                      (c) => c.parentCommentId != null,
+                    );
+                    const replyCount = replies.length;
+                    const isExpanded = expanded.has(flag.journalId);
+                    const isResolved = flag.resolvedAt != null;
+                    return (
+                      <FlaggedJournalRow
+                        key={flag.journalId}
+                        flag={flag}
+                        journal={j}
+                        rootComments={roots}
+                        allReplies={replies}
+                        rootCount={roots.length}
+                        replyCount={replyCount}
+                        isExpanded={isExpanded}
+                        isComposing={composing.has(flag.journalId)}
+                        isResolved={isResolved}
+                        currentUserId={currentUserId}
+                        onToggleExpand={() =>
+                          handleToggleExpand(flag.journalId)
+                        }
+                        onStartCompose={() =>
+                          handleStartCompose(flag.journalId)
+                        }
+                        onEndCompose={() => handleEndCompose(flag.journalId)}
+                        onAdd={(input) => addComment.mutate(input)}
+                        onDelete={(id) => deleteComment(id)}
+                        onUpdate={updateComment}
+                        isUpdating={updateCommentMutation.isPending}
+                        onToggleResolve={() =>
+                          upsertFlag.mutate({
+                            journalId: flag.journalId,
+                            fiscalYear: flag.fiscalYear,
+                            month: flag.month,
+                            resolved: !isResolved,
+                          })
+                        }
+                        onDeleteFlag={() => {
+                          if (
+                            typeof window !== "undefined" &&
+                            window.confirm(
+                              "このレビューメモを削除しますか?\nフラグと紐づく全コメント (返信含む) が消えます。",
+                            )
+                          ) {
+                            deleteFlagMutation.mutate(flag.journalId);
+                          }
+                        }}
+                        isAdding={addComment.isPending}
+                        isResolving={upsertFlag.isPending}
+                        isDeletingFlag={deleteFlagMutation.isPending}
+                      />
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
 
-      {flagsPage ? (
-        <MemoPagination
-          page={journalPage}
-          limit={MEMO_PAGE_SIZE}
-          total={flagsPage.total}
-          totalPages={flagsPage.totalPages}
-          unresolvedTotal={flagsPage.unresolvedTotal}
-          onPageChange={setJournalPage}
-        />
-      ) : null}
+            {flagsPage ? (
+              <MemoPagination
+                page={journalPage}
+                limit={MEMO_PAGE_SIZE}
+                total={flagsPage.total}
+                totalPages={flagsPage.totalPages}
+                unresolvedTotal={flagsPage.unresolvedTotal}
+                onPageChange={setJournalPage}
+              />
+            ) : null}
           </>
         )
       ) : (
-      <ChoshoCellMemoSection
-        orgId={orgId}
-        fiscalYear={fiscalYear}
-        month={monthFilterValue}
-        fyStartMonth={fyStartMonth}
-        currentUserId={currentUserId}
-        page={choshoPage}
-        pageSize={MEMO_PAGE_SIZE}
-        onPageChange={setChoshoPage}
-      />
+        <ChoshoCellMemoSection
+          orgId={orgId}
+          fiscalYear={fiscalYear}
+          month={monthFilterValue}
+          fyStartMonth={fyStartMonth}
+          currentUserId={currentUserId}
+          page={choshoPage}
+          pageSize={MEMO_PAGE_SIZE}
+          onPageChange={setChoshoPage}
+        />
       )}
 
       <p className="text-[10px] italic text-muted-foreground">
-        ▶ をクリックでスレッド展開。「コメント追加」で root、各 root の「返信」で reply。
-        URL は貼ると chip 化。削除は本人のみ + 確認ポップアップあり。
+        ▶ をクリックでスレッド展開。「コメント追加」で root、各 root
+        の「返信」で reply。 URL は貼ると chip 化。削除は本人のみ +
+        確認ポップアップあり。
       </p>
     </div>
   );
@@ -625,7 +703,12 @@ function FlaggedJournalRow({
   onToggleExpand: () => void;
   onStartCompose: () => void;
   onEndCompose: () => void;
-  onAdd: (input: { journalId: string; body: string; urls: string[]; parentCommentId?: string }) => void;
+  onAdd: (input: {
+    journalId: string;
+    body: string;
+    urls: string[];
+    parentCommentId?: string;
+  }) => void;
   onDelete: (commentId: string) => void;
   onUpdate: (commentId: string, body: string, urls: string[]) => void;
   isUpdating: boolean;
@@ -637,7 +720,13 @@ function FlaggedJournalRow({
 }) {
   return (
     <>
-      <tr className={cn("border-b border-muted/50", !isResolved && "bg-blue-50/40 hover:bg-blue-50/70", isResolved && "hover:bg-muted/30")}>
+      <tr
+        className={cn(
+          "border-b border-muted/50",
+          !isResolved && "bg-blue-50/40 hover:bg-blue-50/70",
+          isResolved && "hover:bg-muted/30",
+        )}
+      >
         <td className="px-1 py-1.5 text-center">
           <button
             type="button"
@@ -645,7 +734,11 @@ function FlaggedJournalRow({
             className="flex h-4 w-4 items-center justify-center rounded text-muted-foreground hover:bg-muted/60"
             aria-label={isExpanded ? "折りたたむ" : "展開"}
           >
-            {isExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+            {isExpanded ? (
+              <ChevronDown className="h-3 w-3" />
+            ) : (
+              <ChevronRight className="h-3 w-3" />
+            )}
           </button>
         </td>
         <td className="px-2 py-1.5 font-mono text-[10px] text-muted-foreground tabular-nums">
@@ -655,18 +748,31 @@ function FlaggedJournalRow({
           {journal?.issueDate ?? "—"}
         </td>
         <td className="px-2 py-1.5">
-          {journal ? <ShortAccountSummary journal={journal} /> : <span className="text-muted-foreground">—</span>}
+          {journal ? (
+            <ShortAccountSummary journal={journal} />
+          ) : (
+            <span className="text-muted-foreground">—</span>
+          )}
         </td>
-        <td className="max-w-[280px] truncate px-2 py-1.5 text-muted-foreground" title={journal?.description ?? ""}>
+        <td
+          className="max-w-[280px] truncate px-2 py-1.5 text-muted-foreground"
+          title={journal?.description ?? ""}
+        >
           {journal?.description ?? "—"}
         </td>
         <td className="px-2 py-1.5 text-center">
-          <Badge variant={rootCount > 0 ? "secondary" : "outline"} className="text-[10px]">
+          <Badge
+            variant={rootCount > 0 ? "secondary" : "outline"}
+            className="text-[10px]"
+          >
             {rootCount}
           </Badge>
         </td>
         <td className="px-2 py-1.5 text-center">
-          <Badge variant={replyCount > 0 ? "secondary" : "outline"} className="text-[10px]">
+          <Badge
+            variant={replyCount > 0 ? "secondary" : "outline"}
+            className="text-[10px]"
+          >
             {replyCount}
           </Badge>
         </td>
@@ -674,7 +780,9 @@ function FlaggedJournalRow({
           <span
             className={cn(
               "rounded border px-1.5 py-0.5 text-[10px] font-medium",
-              isResolved ? "border-emerald-300 bg-emerald-50 text-emerald-700" : "border-red-300 bg-red-50 text-red-700",
+              isResolved
+                ? "border-emerald-300 bg-emerald-50 text-emerald-700"
+                : "border-red-300 bg-red-50 text-red-700",
             )}
           >
             {isResolved ? "✓ 解決済" : "未解決"}
@@ -689,7 +797,11 @@ function FlaggedJournalRow({
             title="レビューメモを削除 (フラグ + 全コメント)"
             aria-label="レビューメモを削除"
           >
-            {isDeletingFlag ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+            {isDeletingFlag ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <Trash2 className="h-3 w-3" />
+            )}
           </button>
         </td>
       </tr>
@@ -750,7 +862,12 @@ function CommentThread({
   isComposing: boolean;
   onStartCompose: () => void;
   onEndCompose: () => void;
-  onAdd: (input: { journalId: string; body: string; urls: string[]; parentCommentId?: string }) => void;
+  onAdd: (input: {
+    journalId: string;
+    body: string;
+    urls: string[];
+    parentCommentId?: string;
+  }) => void;
   onDelete: (commentId: string) => void;
   onUpdate: (commentId: string, body: string, urls: string[]) => void;
   isUpdating: boolean;
@@ -785,7 +902,9 @@ function CommentThread({
           )}
           title={isResolved ? "クリックで再オープン" : "クリックで解決済"}
         >
-          {isResolving ? <Loader2 className="mr-1 inline h-3 w-3 animate-spin" /> : null}
+          {isResolving ? (
+            <Loader2 className="mr-1 inline h-3 w-3 animate-spin" />
+          ) : null}
           {isResolved ? "✓ 解決" : "未解決"}
         </button>
       </div>
@@ -850,7 +969,12 @@ function RootComment({
   root: JournalReviewCommentItem;
   replies: JournalReviewCommentItem[];
   currentUserId: string | null;
-  onAdd: (input: { journalId: string; body: string; urls: string[]; parentCommentId?: string }) => void;
+  onAdd: (input: {
+    journalId: string;
+    body: string;
+    urls: string[];
+    parentCommentId?: string;
+  }) => void;
   onDelete: (commentId: string) => void;
   onUpdate: (commentId: string, body: string, urls: string[]) => void;
   isAdding: boolean;
@@ -922,7 +1046,14 @@ function CommentBubble({
   onUpdate,
   isUpdating,
 }: {
-  comment: { id: string; body: string; urls: string[]; authorId: string | null; authorName: string | null; createdAt: string };
+  comment: {
+    id: string;
+    body: string;
+    urls: string[];
+    authorId: string | null;
+    authorName: string | null;
+    createdAt: string;
+  };
   currentUserId: string | null;
   onDelete: () => void;
   /** 本人のみ編集可。 渡されない時は編集ボタン非表示 (legacy 互換)。 */
@@ -950,7 +1081,7 @@ function CommentBubble({
     setEditing(false);
   };
   return (
-    <div>
+    <div className="min-w-0 flex-1">
       <div className="mb-0.5 flex items-center gap-1.5 text-[10px] text-muted-foreground">
         <span className="font-semibold text-[var(--color-text-primary)]">
           {comment.authorName ?? "(不明なユーザー)"}
@@ -969,31 +1100,39 @@ function CommentBubble({
           />
           <UrlChipsEditor urls={draftUrls} onChange={setDraftUrls} />
           <div className="flex justify-end gap-1">
-            <Button type="button" size="sm" variant="ghost" className="h-6 px-2 text-[10px]" onClick={cancelEdit} disabled={isUpdating}>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-6 px-2 text-[10px]"
+              onClick={cancelEdit}
+              disabled={isUpdating}
+            >
               キャンセル
             </Button>
-            <Button type="button" size="sm" className="h-6 px-2 text-[10px]" onClick={saveEdit} disabled={isUpdating || !draftBody.trim()}>
-              {isUpdating ? <Loader2 className="mr-1 h-2.5 w-2.5 animate-spin" /> : null}
+            <Button
+              type="button"
+              size="sm"
+              className="h-6 px-2 text-[10px]"
+              onClick={saveEdit}
+              disabled={isUpdating || !draftBody.trim()}
+            >
+              {isUpdating ? (
+                <Loader2 className="mr-1 h-2.5 w-2.5 animate-spin" />
+              ) : null}
               保存
             </Button>
           </div>
         </div>
       ) : (
         <>
-          <div className="whitespace-pre-wrap break-words text-xs">{comment.body}</div>
+          <div className="whitespace-pre-wrap break-words text-xs">
+            {comment.body}
+          </div>
           {comment.urls.length > 0 && (
             <div className="mt-1 flex flex-wrap gap-1">
               {comment.urls.map((u) => (
-                <a
-                  key={u}
-                  href={u}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex max-w-full items-center gap-0.5 truncate rounded bg-muted/60 px-1.5 py-0.5 text-[10px] text-[var(--color-primary)] hover:underline"
-                >
-                  <LinkIcon className="h-2.5 w-2.5 shrink-0" />
-                  <span className="truncate">{u}</span>
-                </a>
+                <MemoUrlLink key={u} url={u} />
               ))}
             </div>
           )}
@@ -1024,6 +1163,21 @@ function CommentBubble({
         </>
       )}
     </div>
+  );
+}
+
+function MemoUrlLink({ url }: { url: string }) {
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noreferrer"
+      title={url}
+      className="inline-flex min-w-0 max-w-full items-center gap-0.5 rounded bg-muted/60 px-1.5 py-0.5 text-[10px] text-[var(--color-primary)] hover:underline"
+    >
+      <LinkIcon className="h-2.5 w-2.5 shrink-0" />
+      <span className="min-w-0 truncate">{shortenUrlForDisplay(url)}</span>
+    </a>
   );
 }
 
@@ -1074,10 +1228,20 @@ function CommentComposer({
       {urls.length > 0 && (
         <div className="flex flex-wrap gap-1">
           {urls.map((u) => (
-            <span key={u} className="inline-flex max-w-full items-center gap-1 rounded bg-muted/60 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+            <span
+              key={u}
+              title={u}
+              className="inline-flex min-w-0 max-w-full items-center gap-1 rounded bg-muted/60 px-1.5 py-0.5 text-[10px] text-muted-foreground"
+            >
               <LinkIcon className="h-2.5 w-2.5 shrink-0" />
-              <span className="truncate">{u}</span>
-              <button type="button" onClick={() => setUrls(urls.filter((x) => x !== u))} className="ml-0.5 hover:text-foreground">
+              <span className="min-w-0 truncate">
+                {shortenUrlForDisplay(u)}
+              </span>
+              <button
+                type="button"
+                onClick={() => setUrls(urls.filter((x) => x !== u))}
+                className="ml-0.5 hover:text-foreground"
+              >
                 <X className="h-2.5 w-2.5" />
               </button>
             </span>
@@ -1098,7 +1262,13 @@ function CommentComposer({
           placeholder="https://... (Enter で追加)"
           className="flex-1 rounded border px-2 py-0.5 text-[11px] focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)]"
         />
-        <Button type="button" size="sm" variant="ghost" className="h-6 text-[10px]" onClick={onCancel}>
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          className="h-6 text-[10px]"
+          onClick={onCancel}
+        >
           キャンセル
         </Button>
         <Button
@@ -1108,7 +1278,9 @@ function CommentComposer({
           onClick={handleSubmit}
           disabled={isSubmitting || !body.trim()}
         >
-          {isSubmitting && <Loader2 className="mr-1 h-2.5 w-2.5 animate-spin" />}
+          {isSubmitting && (
+            <Loader2 className="mr-1 h-2.5 w-2.5 animate-spin" />
+          )}
           送信
         </Button>
       </div>
@@ -1128,7 +1300,9 @@ function ShortAccountSummary({ journal }: { journal: MfJournalRefItem }) {
       <span className="text-[var(--color-text-primary)]">{dr}</span>
       <span className="mx-1 text-muted-foreground">/</span>
       <span className="text-[var(--color-text-primary)]">{cr}</span>
-      <span className="ml-2 tabular-nums text-muted-foreground">¥{Math.round(journal.totalAmount).toLocaleString()}</span>
+      <span className="ml-2 tabular-nums text-muted-foreground">
+        ¥{Math.round(journal.totalAmount).toLocaleString()}
+      </span>
     </span>
   );
 }
@@ -1159,7 +1333,14 @@ function ChoshoCellMemoSection({
   onPageChange: (page: number) => void;
 }) {
   const qc = useQueryClient();
-  const queryKey = ["chosho-recent-cell-comment-groups", orgId, fiscalYear, month ?? "all", page, pageSize];
+  const queryKey = [
+    "chosho-recent-cell-comment-groups",
+    orgId,
+    fiscalYear,
+    month ?? "all",
+    page,
+    pageSize,
+  ];
   const cellQuery = useQuery({
     queryKey,
     queryFn: () =>
@@ -1323,12 +1504,21 @@ function ChoshoCellMemoSection({
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
-        <span className="font-semibold text-[var(--color-text-primary)]">残高調書セル</span>
-        <span>{periodLabel}で {pageData?.total ?? cellsGroup.length} 件のセルにコメント</span>
+        <span className="font-semibold text-[var(--color-text-primary)]">
+          残高調書セル
+        </span>
+        <span>
+          {periodLabel}で {pageData?.total ?? cellsGroup.length}{" "}
+          件のセルにコメント
+        </span>
         {pageData ? (
           <>
-            <Badge variant="secondary" className="text-[10px]">未解決 {pageData.unresolvedTotal}</Badge>
-            <Badge variant="outline" className="text-[10px]">全体 {pageData.total}</Badge>
+            <Badge variant="secondary" className="text-[10px]">
+              未解決 {pageData.unresolvedTotal}
+            </Badge>
+            <Badge variant="outline" className="text-[10px]">
+              全体 {pageData.total}
+            </Badge>
           </>
         ) : null}
       </div>
@@ -1337,20 +1527,35 @@ function ChoshoCellMemoSection({
           <thead>
             <tr className="border-b-2 border-[var(--color-border)] bg-[var(--color-background)]">
               <th className="w-6 px-1 py-2"></th>
-              <th className="w-24 px-2 py-2 text-left font-semibold text-[var(--color-text-primary)]">YYYY-MM</th>
-              <th className="px-2 py-2 text-left font-semibold text-[var(--color-text-primary)]">勘定科目</th>
-              <th className="w-16 px-2 py-2 text-left font-semibold text-[var(--color-text-primary)]">取引No</th>
-              <th className="w-16 px-2 py-2 text-left font-semibold text-[var(--color-text-primary)]">摘要</th>
-              <th className="w-20 px-2 py-2 text-center font-semibold text-[var(--color-text-primary)]">コメント</th>
-              <th className="w-20 px-2 py-2 text-center font-semibold text-[var(--color-text-primary)]">返信</th>
-              <th className="w-24 px-2 py-2 text-center font-semibold text-[var(--color-text-primary)]">ステータス</th>
+              <th className="w-24 px-2 py-2 text-left font-semibold text-[var(--color-text-primary)]">
+                YYYY-MM
+              </th>
+              <th className="px-2 py-2 text-left font-semibold text-[var(--color-text-primary)]">
+                勘定科目
+              </th>
+              <th className="w-16 px-2 py-2 text-left font-semibold text-[var(--color-text-primary)]">
+                取引No
+              </th>
+              <th className="w-16 px-2 py-2 text-left font-semibold text-[var(--color-text-primary)]">
+                摘要
+              </th>
+              <th className="w-20 px-2 py-2 text-center font-semibold text-[var(--color-text-primary)]">
+                コメント
+              </th>
+              <th className="w-20 px-2 py-2 text-center font-semibold text-[var(--color-text-primary)]">
+                返信
+              </th>
+              <th className="w-24 px-2 py-2 text-center font-semibold text-[var(--color-text-primary)]">
+                ステータス
+              </th>
             </tr>
           </thead>
           <tbody>
             {cellsGroup.map((g) => {
               const isExpanded = expanded.has(g.key);
               const allResolved =
-                g.roots.length > 0 && g.roots.every((r) => r.resolvedAt != null);
+                g.roots.length > 0 &&
+                g.roots.every((r) => r.resolvedAt != null);
               const yyyymm = formatYyyyMm(fiscalYear, g.month, fyStartMonth);
               return (
                 <CellMemoRow
@@ -1361,14 +1566,18 @@ function ChoshoCellMemoSection({
                   isResolved={allResolved}
                   currentUserId={currentUserId}
                   onToggleExpand={() => handleToggleExpand(g.key)}
-                  onAdd={(input) => addCell.mutate({
-                    versionId: g.versionId,
-                    rowId: g.rowId,
-                    rowKey: g.rowKey,
-                    ...input,
-                  })}
+                  onAdd={(input) =>
+                    addCell.mutate({
+                      versionId: g.versionId,
+                      rowId: g.rowId,
+                      rowKey: g.rowKey,
+                      ...input,
+                    })
+                  }
                   onDelete={(id) => deleteCell.mutate(id)}
-                  onUpdate={(commentId, body, urls) => updateCell.mutate({ commentId, body, urls })}
+                  onUpdate={(commentId, body, urls) =>
+                    updateCell.mutate({ commentId, body, urls })
+                  }
                   isUpdating={updateCell.isPending}
                   onResolveRoot={(rootId, resolved) =>
                     resolveCell.mutate({ commentId: rootId, resolved })
@@ -1456,31 +1665,57 @@ function CellMemoRow({
 
   return (
     <>
-      <tr className={cn("border-b border-muted/50", !isResolved && "bg-blue-50/40 hover:bg-blue-50/70", isResolved && "hover:bg-muted/30")}>
+      <tr
+        className={cn(
+          "border-b border-muted/50",
+          !isResolved && "bg-blue-50/40 hover:bg-blue-50/70",
+          isResolved && "hover:bg-muted/30",
+        )}
+      >
         <td className="px-1 py-1.5 text-center">
           <button
             type="button"
             onClick={onToggleExpand}
             className="flex h-4 w-4 items-center justify-center rounded text-muted-foreground hover:bg-muted/60"
           >
-            {isExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+            {isExpanded ? (
+              <ChevronDown className="h-3 w-3" />
+            ) : (
+              <ChevronRight className="h-3 w-3" />
+            )}
           </button>
         </td>
-        <td className="px-2 py-1.5 font-mono text-[10px] text-muted-foreground tabular-nums">{yyyymm}</td>
-        <td className="px-2 py-1.5 text-[var(--color-text-primary)]">{group.rowName}</td>
+        <td className="px-2 py-1.5 font-mono text-[10px] text-muted-foreground tabular-nums">
+          {yyyymm}
+        </td>
+        <td className="px-2 py-1.5 text-[var(--color-text-primary)]">
+          {group.rowName}
+        </td>
         <td className="px-2 py-1.5 text-muted-foreground">—</td>
         <td className="px-2 py-1.5 text-muted-foreground">—</td>
         <td className="px-2 py-1.5 text-center">
-          <Badge variant={rootCount > 0 ? "secondary" : "outline"} className="text-[10px]">{rootCount}</Badge>
+          <Badge
+            variant={rootCount > 0 ? "secondary" : "outline"}
+            className="text-[10px]"
+          >
+            {rootCount}
+          </Badge>
         </td>
         <td className="px-2 py-1.5 text-center">
-          <Badge variant={replyCount > 0 ? "secondary" : "outline"} className="text-[10px]">{replyCount}</Badge>
+          <Badge
+            variant={replyCount > 0 ? "secondary" : "outline"}
+            className="text-[10px]"
+          >
+            {replyCount}
+          </Badge>
         </td>
         <td className="px-2 py-1.5 text-center">
           <span
             className={cn(
               "rounded border px-1.5 py-0.5 text-[10px] font-medium",
-              isResolved ? "border-emerald-300 bg-emerald-50 text-emerald-700" : "border-red-300 bg-red-50 text-red-700",
+              isResolved
+                ? "border-emerald-300 bg-emerald-50 text-emerald-700"
+                : "border-red-300 bg-red-50 text-red-700",
             )}
           >
             {isResolved ? "✓ 解決済" : "未解決"}
@@ -1493,7 +1728,9 @@ function CellMemoRow({
           <td colSpan={7} className="px-2 py-2">
             <div className="space-y-2 rounded bg-muted/20 p-2">
               {group.roots.length === 0 && !composing && (
-                <p className="py-2 text-center text-[11px] text-muted-foreground">まだコメントはありません</p>
+                <p className="py-2 text-center text-[11px] text-muted-foreground">
+                  まだコメントはありません
+                </p>
               )}
               {group.roots.map((root) => {
                 const replies = repliesByRoot.get(root.id) ?? [];
@@ -1509,7 +1746,9 @@ function CellMemoRow({
                       />
                       <button
                         type="button"
-                        onClick={() => onResolveRoot(root.id, root.resolvedAt == null)}
+                        onClick={() =>
+                          onResolveRoot(root.id, root.resolvedAt == null)
+                        }
                         disabled={isResolving}
                         className={cn(
                           "shrink-0 rounded border px-1.5 py-0.5 text-[10px]",
@@ -1517,7 +1756,11 @@ function CellMemoRow({
                             ? "border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
                             : "border-red-300 bg-red-50 text-red-700 hover:bg-red-100",
                         )}
-                        title={root.resolvedAt ? "クリックで再 open" : "クリックで解決済"}
+                        title={
+                          root.resolvedAt
+                            ? "クリックで再 open"
+                            : "クリックで解決済"
+                        }
                       >
                         {root.resolvedAt ? "✓ 解決" : "未解決"}
                       </button>
@@ -1530,7 +1773,9 @@ function CellMemoRow({
                             comment={rep}
                             currentUserId={currentUserId}
                             onDelete={() => onDelete(rep.id)}
-                            onUpdate={(body, urls) => onUpdate(rep.id, body, urls)}
+                            onUpdate={(body, urls) =>
+                              onUpdate(rep.id, body, urls)
+                            }
                             isUpdating={isUpdating}
                           />
                         ))}
@@ -1606,7 +1851,11 @@ function CellMemoRow({
 }
 
 /** SevenBoard fiscalYear × selectedMonth → "YYYY-MM" */
-function formatYyyyMm(fiscalYear: number | undefined, month: number, fyStartMonth: number): string {
+function formatYyyyMm(
+  fiscalYear: number | undefined,
+  month: number,
+  fyStartMonth: number,
+): string {
   if (fiscalYear == null) return `?-${String(month).padStart(2, "0")}`;
   const year = month >= fyStartMonth ? fiscalYear : fiscalYear + 1;
   return `${year}-${String(month).padStart(2, "0")}`;
