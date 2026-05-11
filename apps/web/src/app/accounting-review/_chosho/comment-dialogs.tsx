@@ -25,6 +25,7 @@ import { cn } from "@/lib/utils";
 import {
   CommentUrlLink,
   LinkedCommentText,
+  navigableUrl,
   shortenUrlForDisplay,
 } from "../_components/comment-url-link";
 
@@ -63,7 +64,15 @@ export function UrlChipsEditor({
             className="inline-grid min-w-0 max-w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-1 overflow-hidden rounded bg-muted/60 px-1.5 py-0.5 text-[10px] text-muted-foreground"
           >
             <LinkIcon className="h-2.5 w-2.5 shrink-0" />
-            <span className="min-w-0 truncate">{shortenUrlForDisplay(u)}</span>
+            <a
+              href={navigableUrl(u)}
+              target="_blank"
+              rel="noreferrer"
+              onClick={(event) => event.stopPropagation()}
+              className="min-w-0 truncate text-[var(--color-primary)] hover:underline"
+            >
+              {shortenUrlForDisplay(u)}
+            </a>
             <button
               type="button"
               onClick={() => onChange(urls.filter((x) => x !== u))}
