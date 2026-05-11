@@ -28,7 +28,10 @@ import { Badge } from "@/components/ui/badge";
 import { api, type JournalReviewCommentItem, type JournalReviewFlagItem } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { UrlChipsEditor } from "../_chosho/comment-dialogs";
-import { CommentUrlLink } from "../_components/comment-url-link";
+import {
+  CommentUrlLink,
+  LinkedCommentText,
+} from "../_components/comment-url-link";
 
 interface JournalSummary {
   id: string;
@@ -402,7 +405,7 @@ function CommentBubble({
         </div>
       ) : (
         <>
-          <div className="whitespace-pre-wrap break-words text-xs">{comment.body}</div>
+          <LinkedCommentText text={comment.body} className="text-xs" />
           {comment.urls.length > 0 && (
             <div className="mt-1 flex flex-wrap gap-1">
               {comment.urls.map((u) => (

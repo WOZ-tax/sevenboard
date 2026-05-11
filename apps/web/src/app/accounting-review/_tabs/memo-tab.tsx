@@ -29,6 +29,7 @@ import {
 import { UrlChipsEditor } from "../_chosho/comment-dialogs";
 import {
   CommentUrlLink,
+  LinkedCommentText,
   shortenUrlForDisplay,
 } from "../_components/comment-url-link";
 import { toast } from "sonner";
@@ -1123,9 +1124,7 @@ function CommentBubble({
         </div>
       ) : (
         <>
-          <div className="whitespace-pre-wrap break-words text-xs">
-            {comment.body}
-          </div>
+          <LinkedCommentText text={comment.body} className="text-xs" />
           {comment.urls.length > 0 && (
             <div className="mt-1 flex flex-wrap gap-1">
               {comment.urls.map((u) => (

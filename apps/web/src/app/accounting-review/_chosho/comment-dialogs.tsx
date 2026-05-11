@@ -24,6 +24,7 @@ import type { ChoshoCellComment, ChoshoRowComment } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import {
   CommentUrlLink,
+  LinkedCommentText,
   shortenUrlForDisplay,
 } from "../_components/comment-url-link";
 
@@ -341,9 +342,10 @@ export function CellCommentDialog({
                 </span>
               </div>
             )}
-            <div className="whitespace-pre-wrap rounded border bg-card p-2 text-xs">
-              {existing.body}
-            </div>
+            <LinkedCommentText
+              text={existing.body}
+              className="rounded border bg-card p-2 text-xs"
+            />
             {existing.urls.length > 0 && (
               <div className="flex flex-wrap gap-1">
                 {existing.urls.map((u) => (
@@ -443,7 +445,7 @@ function CommentItem({
         <span>·</span>
         <span>{date}</span>
       </div>
-      <div className="whitespace-pre-wrap break-words">{body}</div>
+      <LinkedCommentText text={body} />
       {urls.length > 0 && (
         <div className="mt-1.5 flex flex-wrap gap-1">
           {urls.map((u) => (

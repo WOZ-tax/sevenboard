@@ -50,6 +50,7 @@ export function CommentUrlLink({
       rel="noreferrer"
       title={url}
       aria-label={`URLを開く: ${url}`}
+      onClick={(event) => event.stopPropagation()}
       className={cn(
         "inline-grid min-w-0 max-w-full grid-cols-[auto_minmax(0,1fr)] items-center gap-0.5 overflow-hidden rounded bg-muted/60 px-1.5 py-0.5 text-[10px] text-[var(--color-primary)] align-middle hover:underline",
         className,
@@ -59,4 +60,78 @@ export function CommentUrlLink({
       <span className="min-w-0 truncate">{shortenUrlForDisplay(url)}</span>
     </a>
   );
+}
+
+const URL_TOKEN_PATTERN =
+  /((?:https?:\/\/|www\.)[^\s<>"']+|[a-z0-9][a-z0-9.-]+\.[a-z]{2,}(?:[/?#][^\s<>"']*)?)/gi;
+
+export function LinkedCommentText({
+  text,
+  className,
+}: {
+  text: string;
+  className?: string;
+}) {
+  const parts = splitTextWithUrls(text);
+  return (
+    <div className={cn("whitespace-pre-wrap break-words", className)}>
+      {parts.map((part, index) =>
+        part.kind === "url" ? (
+          <a
+            key={`${part.value}-${index}`}
+            href={navigableUrl(part.value)}
+            target="_blank"
+            rel="noreferrer"
+            title={part.value}
+            onClick={(event) => event.stopPropagation()}
+            className="inline max-w-full break-all text-[var(--color-primary)] underline underline-offset-2 hover:opacity-80"
+          >
+            {shortenUrlForDisplay(part.value, 52)}
+          </a>
+        ) : (
+          <span key={`${index}-${part.value.slice(0, 8)}`}>
+            {part.value}
+          </span>
+        ),
+      )}
+    </div>
+  );
+}
+
+function splitTextWithUrls(
+  text: string,
+): Array<{ kind: "text" | "url"; value: string }> {
+  const parts: Array<{ kind: "text" | "url"; value: string }> = [];
+  let lastIndex = 0;
+  for (const match of text.matchAll(URL_TOKEN_PATTERN)) {
+    const raw = match[0];
+    const index = match.index ?? 0;
+    if (index > lastIndex) {
+      parts.push({ kind: "text", value: text.slice(lastIndex, index) });
+    }
+    const { url, trailing } = splitTrailingPunctuation(raw);
+    parts.push({ kind: "url", value: url });
+    if (trailing) {
+      parts.push({ kind: "text", value: trailing });
+    }
+    lastIndex = index + raw.length;
+  }
+  if (lastIndex < text.length) {
+    parts.push({ kind: "text", value: text.slice(lastIndex) });
+  }
+  return parts.length > 0 ? parts : [{ kind: "text", value: text }];
+}
+
+function splitTrailingPunctuation(rawUrl: string): {
+  url: string;
+  trailing: string;
+} {
+  const match = rawUrl.match(/[.,;:!?。、，．）)\]}】」』]+$/);
+  if (!match || match.index == null || match.index === 0) {
+    return { url: rawUrl, trailing: "" };
+  }
+  return {
+    url: rawUrl.slice(0, match.index),
+    trailing: rawUrl.slice(match.index),
+  };
 }
