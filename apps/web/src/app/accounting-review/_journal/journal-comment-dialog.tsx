@@ -12,7 +12,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Pencil, Plus, Reply, Trash2, Link as LinkIcon } from "lucide-react";
+import { Loader2, Pencil, Plus, Reply, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -28,14 +28,7 @@ import { Badge } from "@/components/ui/badge";
 import { api, type JournalReviewCommentItem, type JournalReviewFlagItem } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { UrlChipsEditor } from "../_chosho/comment-dialogs";
-
-function navigableUrl(rawUrl: string): string {
-  const trimmed = rawUrl.trim();
-  if (!trimmed) return "#";
-  if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) return trimmed;
-  if (trimmed.startsWith("//")) return `https:${trimmed}`;
-  return `https://${trimmed}`;
-}
+import { CommentUrlLink } from "../_components/comment-url-link";
 
 interface JournalSummary {
   id: string;
@@ -413,16 +406,7 @@ function CommentBubble({
           {comment.urls.length > 0 && (
             <div className="mt-1 flex flex-wrap gap-1">
               {comment.urls.map((u) => (
-                <a
-                  key={u}
-                  href={navigableUrl(u)}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex max-w-full items-center gap-0.5 truncate rounded bg-muted/60 px-1.5 py-0.5 text-[10px] text-[var(--color-primary)] hover:underline"
-                >
-                  <LinkIcon className="h-2.5 w-2.5 shrink-0" />
-                  <span className="truncate">{u}</span>
-                </a>
+                <CommentUrlLink key={u} url={u} />
               ))}
             </div>
           )}

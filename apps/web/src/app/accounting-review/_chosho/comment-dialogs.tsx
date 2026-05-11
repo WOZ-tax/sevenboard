@@ -22,36 +22,10 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import type { ChoshoCellComment, ChoshoRowComment } from "@/lib/api";
 import { cn } from "@/lib/utils";
-
-const URL_DISPLAY_LIMIT = 56;
-
-function shortenUrlForDisplay(rawUrl: string): string {
-  const fallback = shortenMiddle(rawUrl, URL_DISPLAY_LIMIT);
-  try {
-    const parsed = new URL(rawUrl);
-    const host = parsed.hostname.replace(/^www\./, "");
-    const rest = `${parsed.pathname === "/" ? "" : parsed.pathname}${parsed.search}${parsed.hash}`;
-    const label = `${host}${rest}`;
-    return shortenMiddle(label || host, URL_DISPLAY_LIMIT);
-  } catch {
-    return fallback;
-  }
-}
-
-function shortenMiddle(value: string, limit: number): string {
-  if (value.length <= limit) return value;
-  const head = Math.max(16, Math.floor(limit * 0.62));
-  const tail = Math.max(8, limit - head - 3);
-  return `${value.slice(0, head)}...${value.slice(-tail)}`;
-}
-
-function navigableUrl(rawUrl: string): string {
-  const trimmed = rawUrl.trim();
-  if (!trimmed) return "#";
-  if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) return trimmed;
-  if (trimmed.startsWith("//")) return `https:${trimmed}`;
-  return `https://${trimmed}`;
-}
+import {
+  CommentUrlLink,
+  shortenUrlForDisplay,
+} from "../_components/comment-url-link";
 
 // ============================================================
 // 共通: URL chips エディタ
@@ -85,7 +59,7 @@ export function UrlChipsEditor({
           <span
             key={u}
             title={u}
-            className="inline-flex min-w-0 max-w-full items-center gap-1 rounded bg-muted/60 px-1.5 py-0.5 text-[10px] text-muted-foreground"
+            className="inline-grid min-w-0 max-w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-1 overflow-hidden rounded bg-muted/60 px-1.5 py-0.5 text-[10px] text-muted-foreground"
           >
             <LinkIcon className="h-2.5 w-2.5 shrink-0" />
             <span className="min-w-0 truncate">{shortenUrlForDisplay(u)}</span>
@@ -373,19 +347,7 @@ export function CellCommentDialog({
             {existing.urls.length > 0 && (
               <div className="flex flex-wrap gap-1">
                 {existing.urls.map((u) => (
-                  <a
-                    key={u}
-                    href={navigableUrl(u)}
-                    target="_blank"
-                    rel="noreferrer"
-                    title={u}
-                    className="inline-flex min-w-0 max-w-full items-center gap-0.5 rounded bg-muted/60 px-1.5 py-0.5 text-[10px] text-[var(--color-primary)] hover:underline"
-                  >
-                    <LinkIcon className="h-2.5 w-2.5 shrink-0" />
-                    <span className="min-w-0 truncate">
-                      {shortenUrlForDisplay(u)}
-                    </span>
-                  </a>
+                  <CommentUrlLink key={u} url={u} />
                 ))}
               </div>
             )}
@@ -485,19 +447,7 @@ function CommentItem({
       {urls.length > 0 && (
         <div className="mt-1.5 flex flex-wrap gap-1">
           {urls.map((u) => (
-            <a
-              key={u}
-              href={navigableUrl(u)}
-              target="_blank"
-              rel="noreferrer"
-              title={u}
-              className="inline-flex min-w-0 max-w-full items-center gap-0.5 rounded bg-muted/60 px-1.5 py-0.5 text-[10px] text-[var(--color-primary)] hover:underline"
-            >
-              <LinkIcon className="h-2.5 w-2.5 shrink-0" />
-              <span className="min-w-0 truncate">
-                {shortenUrlForDisplay(u)}
-              </span>
-            </a>
+            <CommentUrlLink key={u} url={u} />
           ))}
         </div>
       )}
