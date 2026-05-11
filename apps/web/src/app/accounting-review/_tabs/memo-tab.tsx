@@ -18,7 +18,6 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  ExternalLink,
   Loader2,
   Pencil,
   Plus,
@@ -720,8 +719,9 @@ function FlaggedJournalRow({
   return (
     <>
       <tr
+        onClick={onToggleExpand}
         className={cn(
-          "border-b border-muted/50",
+          "cursor-pointer border-b border-muted/50",
           !isResolved && "bg-blue-50/40 hover:bg-blue-50/70",
           isResolved && "hover:bg-muted/30",
         )}
@@ -729,7 +729,10 @@ function FlaggedJournalRow({
         <td className="px-1 py-1.5 text-center">
           <button
             type="button"
-            onClick={onToggleExpand}
+            onClick={(event) => {
+              event.stopPropagation();
+              onToggleExpand();
+            }}
             className="flex h-4 w-4 items-center justify-center rounded text-muted-foreground hover:bg-muted/60"
             aria-label={isExpanded ? "折りたたむ" : "展開"}
           >
@@ -790,7 +793,10 @@ function FlaggedJournalRow({
         <td className="px-1 py-1.5 text-center">
           <button
             type="button"
-            onClick={onDeleteFlag}
+            onClick={(event) => {
+              event.stopPropagation();
+              onDeleteFlag();
+            }}
             disabled={isDeletingFlag}
             className="inline-flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-red-50 hover:text-red-600 disabled:opacity-40"
             title="レビューメモを削除 (フラグ + 全コメント)"
@@ -1698,13 +1704,13 @@ function CellMemoRow({
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
   const rootCount = group.roots.length;
   const replyCount = group.replies.length;
-  const sourceHref = buildChoshoSourceHref(group);
 
   return (
     <>
       <tr
+        onClick={onToggleExpand}
         className={cn(
-          "border-b border-muted/50",
+          "cursor-pointer border-b border-muted/50",
           !isResolved && "bg-blue-50/40 hover:bg-blue-50/70",
           isResolved && "hover:bg-muted/30",
         )}
@@ -1712,7 +1718,10 @@ function CellMemoRow({
         <td className="px-1 py-1.5 text-center">
           <button
             type="button"
-            onClick={onToggleExpand}
+            onClick={(event) => {
+              event.stopPropagation();
+              onToggleExpand();
+            }}
             className="flex h-4 w-4 items-center justify-center rounded text-muted-foreground hover:bg-muted/60"
           >
             {isExpanded ? (
@@ -1728,17 +1737,6 @@ function CellMemoRow({
         <td className="px-2 py-1.5 text-[var(--color-text-primary)]">
           <div className="flex min-w-0 items-center gap-1.5">
             <span className="min-w-0 truncate">{group.rowName}</span>
-            {sourceHref ? (
-              <a
-                href={sourceHref}
-                onClick={(event) => event.stopPropagation()}
-                className="inline-flex shrink-0 items-center gap-0.5 rounded px-1 py-0.5 text-[10px] font-medium text-[var(--color-primary)] hover:bg-muted/60 hover:underline"
-                title="残高調書の該当セルを開く"
-              >
-                <ExternalLink className="h-2.5 w-2.5" />
-                開く
-              </a>
-            ) : null}
           </div>
         </td>
         <td className="px-2 py-1.5 text-muted-foreground">—</td>
@@ -1786,19 +1784,6 @@ function CellMemoRow({
                 const replies = repliesByRoot.get(root.id) ?? [];
                 return (
                   <div key={root.id} className="rounded border bg-card p-2">
-                    {sourceHref ? (
-                      <div className="mb-1.5 flex justify-end">
-                        <a
-                          href={sourceHref}
-                          onClick={(event) => event.stopPropagation()}
-                          className="inline-flex items-center gap-1 rounded border border-[var(--color-primary)]/25 bg-[var(--color-primary)]/5 px-1.5 py-0.5 text-[10px] font-medium text-[var(--color-primary)] hover:bg-[var(--color-primary)]/10 hover:underline"
-                          title="残高調書の該当セルを開く"
-                        >
-                          <ExternalLink className="h-2.5 w-2.5" />
-                          残高調書で開く
-                        </a>
-                      </div>
-                    ) : null}
                     <div className="flex items-start justify-between gap-2">
                       <CommentBubble
                         comment={root}
@@ -1928,33 +1913,4 @@ function displayNameFromRowKey(rowKey: string | null): string {
   if (!rowKey) return "";
   const tail = rowKey.split("/").filter(Boolean).at(-1) ?? rowKey;
   return tail.replace(/^\d+-/, "").replace(/_/g, " ");
-}
-
-function buildChoshoSourceHref(group: {
-  rowId: string | null;
-  rowKey: string | null;
-  versionId: string | null;
-  month: number;
-}): string | null {
-  const target =
-    group.versionId && group.rowId ? group.rowId : group.rowKey ?? group.rowId;
-  if (!target) return null;
-
-  const params = new URLSearchParams();
-  params.set("tab", "chosho");
-  params.set("focusChoshoRow", target);
-  params.set("focusChoshoMonth", String(group.month));
-
-  const scope = scopeFromRowKey(group.rowKey);
-  if (scope) params.set("scope", scope);
-  if (group.versionId && group.rowId) params.set("versionId", group.versionId);
-
-  return `/accounting-review?${params.toString()}`;
-}
-
-function scopeFromRowKey(rowKey: string | null): "bs" | "pl" | null {
-  if (!rowKey) return null;
-  if (rowKey === "pl" || rowKey.startsWith("pl/")) return "pl";
-  if (rowKey === "bs" || rowKey.startsWith("bs/")) return "bs";
-  return null;
 }
