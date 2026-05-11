@@ -374,15 +374,15 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
         ) : null}
       </div>
 
-      <div className="inline-flex w-fit items-center rounded-md bg-muted p-0.5 text-xs">
+      <div className="grid grid-cols-2 gap-1 rounded-md border border-[var(--color-border)] bg-card p-1 shadow-sm">
         <button
           type="button"
           onClick={() => setMemoSource("chosho")}
           className={cn(
-            "rounded px-3 py-1 font-medium transition-colors",
+            "relative h-10 rounded border px-3 text-sm font-semibold transition-all",
             memoSource === "chosho"
-              ? "bg-background text-[var(--color-text-primary)] shadow-sm"
-              : "text-muted-foreground hover:text-[var(--color-text-primary)]",
+              ? "border-[var(--color-primary)] bg-[var(--color-primary)]/10 text-[var(--color-primary)] shadow-sm ring-1 ring-[var(--color-primary)]/20 before:absolute before:inset-x-3 before:top-0 before:h-0.5 before:rounded-full before:bg-[var(--color-primary)]"
+              : "border-transparent text-muted-foreground hover:border-[var(--color-border)] hover:bg-muted/50 hover:text-[var(--color-text-primary)]",
           )}
         >
           残高調書
@@ -391,15 +391,22 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
           type="button"
           onClick={() => setMemoSource("journal")}
           className={cn(
-            "rounded px-3 py-1 font-medium transition-colors",
+            "relative h-10 rounded border px-3 text-sm font-semibold transition-all",
             memoSource === "journal"
-              ? "bg-background text-[var(--color-text-primary)] shadow-sm"
-              : "text-muted-foreground hover:text-[var(--color-text-primary)]",
+              ? "border-[var(--color-primary)] bg-[var(--color-primary)]/10 text-[var(--color-primary)] shadow-sm ring-1 ring-[var(--color-primary)]/20 before:absolute before:inset-x-3 before:top-0 before:h-0.5 before:rounded-full before:bg-[var(--color-primary)]"
+              : "border-transparent text-muted-foreground hover:border-[var(--color-border)] hover:bg-muted/50 hover:text-[var(--color-text-primary)]",
           )}
         >
           仕訳レビュー
           {flagsPage ? (
-            <span className="ml-1 rounded bg-muted-foreground/10 px-1 text-[10px]">
+            <span
+              className={cn(
+                "ml-2 rounded-full border px-1.5 py-0.5 text-[10px] font-medium",
+                memoSource === "journal"
+                  ? "border-[var(--color-primary)]/30 bg-background text-[var(--color-primary)]"
+                  : "border-transparent bg-muted-foreground/10 text-muted-foreground",
+              )}
+            >
               未解決 {flagsPage.unresolvedTotal}
             </span>
           ) : null}
