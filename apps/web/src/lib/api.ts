@@ -69,7 +69,8 @@ function getCsrfToken(): string | null {
 }
 
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
-  const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+  const token =
+    typeof window !== 'undefined' ? localStorage.getItem('token') : null;
   const csrfToken = getCsrfToken();
   const method = options?.method?.toUpperCase() || 'GET';
   const needsCsrf = !['GET', 'HEAD', 'OPTIONS'].includes(method);
@@ -97,7 +98,9 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    const err = new Error(body.message || `API error: ${res.status}`) as Error & { statusCode?: number };
+    const err = new Error(
+      body.message || `API error: ${res.status}`,
+    ) as Error & { statusCode?: number };
     err.statusCode = res.status;
     throw err;
   }
@@ -108,7 +111,11 @@ export function isMfNotConnected(err: unknown): boolean {
   return (err as { statusCode?: number })?.statusCode === 503;
 }
 
-export type MonthlyReviewApprovalStatus = 'DRAFT' | 'PENDING' | 'APPROVED' | 'REJECTED';
+export type MonthlyReviewApprovalStatus =
+  | 'DRAFT'
+  | 'PENDING'
+  | 'APPROVED'
+  | 'REJECTED';
 
 export interface MonthlyReviewApprovalRecord {
   id: string;
@@ -292,6 +299,8 @@ export interface ChoshoPreviewResult {
   rows: ChoshoPreviewRow[];
 }
 
+export type ChoshoPreviewScope = 'focused' | 'bs';
+
 // === Journal Review ===
 export interface JournalReviewFlagItem {
   id: string;
@@ -429,9 +438,15 @@ export const api = {
 
   // Advisor organizations
   getAdvisorOrgs: () =>
-    apiFetch<{ id: string; name: string; code: string; industry: string; fiscalMonthEnd: number }[]>(
-      '/auth/me/organizations',
-    ),
+    apiFetch<
+      {
+        id: string;
+        name: string;
+        code: string;
+        industry: string;
+        fiscalMonthEnd: number;
+      }[]
+    >('/auth/me/organizations'),
 
   /**
    * factory-hybrid と整合する membership API。
@@ -476,8 +491,8 @@ export const api = {
     usesCostAccounting?: boolean;
     advisorUserIds?: string[];
   }) =>
-    apiFetch<Organization>("/organizations", {
-      method: "POST",
+    apiFetch<Organization>('/organizations', {
+      method: 'POST',
       body: JSON.stringify(payload),
     }),
 
@@ -496,13 +511,13 @@ export const api = {
     },
   ) =>
     apiFetch<Organization>(`/organizations/${orgId}`, {
-      method: "PUT",
+      method: 'PUT',
       body: JSON.stringify(payload),
     }),
 
   deleteOrganization: (orgId: string) =>
     apiFetch<{ success: boolean }>(`/organizations/${orgId}`, {
-      method: "DELETE",
+      method: 'DELETE',
     }),
 
   // === Tenant Staff (会計事務所スタッフ) ===
@@ -536,13 +551,10 @@ export const api = {
         password?: string;
       },
     ) =>
-      apiFetch<TenantStaffRow>(
-        `/tenants/${tenantId}/staff/${userId}`,
-        {
-          method: 'PUT',
-          body: JSON.stringify(payload),
-        },
-      ),
+      apiFetch<TenantStaffRow>(`/tenants/${tenantId}/staff/${userId}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      }),
 
     remove: (tenantId: string, userId: string) =>
       apiFetch<{ success: boolean }>(`/tenants/${tenantId}/staff/${userId}`, {
@@ -585,7 +597,9 @@ export const api = {
       ...(params.startMonth ? { startMonth: params.startMonth } : {}),
       ...(params.endMonth ? { endMonth: params.endMonth } : {}),
     });
-    return apiFetch<VarianceRow[]>(`/organizations/${orgId}/reports/variance?${query.toString()}`);
+    return apiFetch<VarianceRow[]>(
+      `/organizations/${orgId}/reports/variance?${query.toString()}`,
+    );
   },
 
   getPL: (
@@ -599,7 +613,7 @@ export const api = {
       ...(params?.startMonth ? { startMonth: params.startMonth } : {}),
       ...(params?.endMonth ? { endMonth: params.endMonth } : {}),
     });
-    const suffix = query.toString() ? `?${query.toString()}` : "";
+    const suffix = query.toString() ? `?${query.toString()}` : '';
     return apiFetch<PlRow[]>(`/organizations/${orgId}/reports/pl${suffix}`);
   },
 
@@ -628,7 +642,9 @@ export const api = {
 
   // Actuals
   getActuals: (orgId: string, month?: string) =>
-    apiFetch<ActualEntry[]>(`/organizations/${orgId}/actuals${month ? `?month=${month}` : ''}`),
+    apiFetch<ActualEntry[]>(
+      `/organizations/${orgId}/actuals${month ? `?month=${month}` : ''}`,
+    ),
 
   // Cashflow
   getCashflowActual: (orgId: string) =>
@@ -643,13 +659,35 @@ export const api = {
   // === Calendar ===
   calendar: {
     getEvents: (orgId: string, year: number, month: number) =>
-      apiFetch<CalendarEvent[]>(`/organizations/${orgId}/calendar?year=${year}&month=${month}`),
-    createEvent: (orgId: string, data: { title: string; date: string; type?: string; description?: string }) =>
-      apiFetch<CalendarEvent>(`/organizations/${orgId}/calendar`, { method: 'POST', body: JSON.stringify(data) }),
-    updateEvent: (orgId: string, eventId: string, data: UpdateCalendarEventInput) =>
-      apiFetch<CalendarEvent>(`/organizations/${orgId}/calendar/${eventId}`, { method: 'PUT', body: JSON.stringify(data) }),
+      apiFetch<CalendarEvent[]>(
+        `/organizations/${orgId}/calendar?year=${year}&month=${month}`,
+      ),
+    createEvent: (
+      orgId: string,
+      data: {
+        title: string;
+        date: string;
+        type?: string;
+        description?: string;
+      },
+    ) =>
+      apiFetch<CalendarEvent>(`/organizations/${orgId}/calendar`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+    updateEvent: (
+      orgId: string,
+      eventId: string,
+      data: UpdateCalendarEventInput,
+    ) =>
+      apiFetch<CalendarEvent>(`/organizations/${orgId}/calendar/${eventId}`, {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      }),
     deleteEvent: (orgId: string, eventId: string) =>
-      apiFetch<DeletedResult>(`/organizations/${orgId}/calendar/${eventId}`, { method: 'DELETE' }),
+      apiFetch<DeletedResult>(`/organizations/${orgId}/calendar/${eventId}`, {
+        method: 'DELETE',
+      }),
   },
 
   // === Comments ===
@@ -658,7 +696,15 @@ export const api = {
       apiFetch<AiComment[]>(
         `/organizations/${orgId}/comments${month ? `?month=${month}` : ''}`,
       ),
-    create: (orgId: string, data: { content: string; month?: string; cellRef?: string; priority?: string }) =>
+    create: (
+      orgId: string,
+      data: {
+        content: string;
+        month?: string;
+        cellRef?: string;
+        priority?: string;
+      },
+    ) =>
       apiFetch<AiComment>(`/organizations/${orgId}/comments`, {
         method: 'POST',
         body: JSON.stringify(data),
@@ -668,10 +714,13 @@ export const api = {
       commentId: string,
       data: { status: string; content?: string; rejectReason?: string },
     ) =>
-      apiFetch<AiComment>(`/organizations/${orgId}/comments/${commentId}/status`, {
-        method: 'PATCH',
-        body: JSON.stringify(data),
-      }),
+      apiFetch<AiComment>(
+        `/organizations/${orgId}/comments/${commentId}/status`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify(data),
+        },
+      ),
     remove: (orgId: string, commentId: string) =>
       apiFetch<DeletedResult>(`/organizations/${orgId}/comments/${commentId}`, {
         method: 'DELETE',
@@ -743,7 +792,9 @@ export const api = {
       if (endMonth) qs.set('endMonth', String(endMonth));
       if (runwayMode) qs.set('runwayMode', runwayMode);
       const suffix = qs.toString() ? `?${qs}` : '';
-      return apiFetch<TalkScript>(`/organizations/${orgId}/ai/talk-script${suffix}`);
+      return apiFetch<TalkScript>(
+        `/organizations/${orgId}/ai/talk-script${suffix}`,
+      );
     },
     getBudgetScenarios: (
       orgId: string,
@@ -758,20 +809,26 @@ export const api = {
         `/organizations/${orgId}/ai/budget-scenarios${suffix}`,
       );
     },
-    generateBudgetScenarios: (orgId: string, params: {
-      fiscalYear?: number;
-      baseGrowthRate?: number;
-      upsideGrowthRate?: number;
-      downsideGrowthRate?: number;
-      newHires?: number;
-      costReductionRate?: number;
-      notes?: string;
-      runwayMode?: 'worstCase' | 'netBurn' | 'actual';
-    }) =>
-      apiFetch<BudgetScenario[]>(`/organizations/${orgId}/ai/budget-scenarios`, {
-        method: 'POST',
-        body: JSON.stringify(params),
-      }),
+    generateBudgetScenarios: (
+      orgId: string,
+      params: {
+        fiscalYear?: number;
+        baseGrowthRate?: number;
+        upsideGrowthRate?: number;
+        downsideGrowthRate?: number;
+        newHires?: number;
+        costReductionRate?: number;
+        notes?: string;
+        runwayMode?: 'worstCase' | 'netBurn' | 'actual';
+      },
+    ) =>
+      apiFetch<BudgetScenario[]>(
+        `/organizations/${orgId}/ai/budget-scenarios`,
+        {
+          method: 'POST',
+          body: JSON.stringify(params),
+        },
+      ),
     /**
      * 財務指標ページの AI CFO 解説。
      * 安全性 / 収益性 / 効率性 の 3 カテゴリ別 commentary。
@@ -820,7 +877,9 @@ export const api = {
       if (endMonth) qs.set('endMonth', String(endMonth));
       if (runwayMode) qs.set('runwayMode', runwayMode);
       const suffix = qs.toString() ? `?${qs}` : '';
-      return apiFetch<FundingReport>(`/organizations/${orgId}/ai/funding-report${suffix}`);
+      return apiFetch<FundingReport>(
+        `/organizations/${orgId}/ai/funding-report${suffix}`,
+      );
     },
 
     /** 融資シミュの結果を添えてレポート再生成 */
@@ -867,9 +926,14 @@ export const api = {
   // === Integrations (データ連携) ===
   integrations: {
     getAll: (orgId: string) =>
-      apiFetch<{ provider: string; isConnected: boolean; lastSyncAt: string | null; syncStatus: string }[]>(
-        `/organizations/${orgId}/integrations`,
-      ),
+      apiFetch<
+        {
+          provider: string;
+          isConnected: boolean;
+          lastSyncAt: string | null;
+          syncStatus: string;
+        }[]
+      >(`/organizations/${orgId}/integrations`),
     connect: (orgId: string, provider: string) =>
       apiFetch<{ authUrl: string; provider: string }>(
         `/organizations/${orgId}/integrations/${provider}/connect`,
@@ -897,14 +961,20 @@ export const api = {
         body: JSON.stringify(data),
       }),
     updateAccount: (orgId: string, id: string, data: UpdateAccountInput) =>
-      apiFetch<AccountMaster>(`/organizations/${orgId}/masters/accounts/${id}`, {
-        method: 'PUT',
-        body: JSON.stringify(data),
-      }),
+      apiFetch<AccountMaster>(
+        `/organizations/${orgId}/masters/accounts/${id}`,
+        {
+          method: 'PUT',
+          body: JSON.stringify(data),
+        },
+      ),
     deleteAccount: (orgId: string, id: string) =>
-      apiFetch<AccountMaster>(`/organizations/${orgId}/masters/accounts/${id}`, {
-        method: 'DELETE',
-      }),
+      apiFetch<AccountMaster>(
+        `/organizations/${orgId}/masters/accounts/${id}`,
+        {
+          method: 'DELETE',
+        },
+      ),
     /** 変動損益分析画面の固定/変動分類を一括保存 */
     bulkUpdateVariableCostFlags: (
       orgId: string,
@@ -918,21 +988,36 @@ export const api = {
         },
       ),
     getDepartments: (orgId: string) =>
-      apiFetch<DepartmentMaster[]>(`/organizations/${orgId}/masters/departments`),
+      apiFetch<DepartmentMaster[]>(
+        `/organizations/${orgId}/masters/departments`,
+      ),
     createDepartment: (orgId: string, data: CreateDepartmentInput) =>
-      apiFetch<DepartmentMaster>(`/organizations/${orgId}/masters/departments`, {
-        method: 'POST',
-        body: JSON.stringify(data),
-      }),
-    updateDepartment: (orgId: string, id: string, data: UpdateDepartmentInput) =>
-      apiFetch<DepartmentMaster>(`/organizations/${orgId}/masters/departments/${id}`, {
-        method: 'PUT',
-        body: JSON.stringify(data),
-      }),
+      apiFetch<DepartmentMaster>(
+        `/organizations/${orgId}/masters/departments`,
+        {
+          method: 'POST',
+          body: JSON.stringify(data),
+        },
+      ),
+    updateDepartment: (
+      orgId: string,
+      id: string,
+      data: UpdateDepartmentInput,
+    ) =>
+      apiFetch<DepartmentMaster>(
+        `/organizations/${orgId}/masters/departments/${id}`,
+        {
+          method: 'PUT',
+          body: JSON.stringify(data),
+        },
+      ),
     deleteDepartment: (orgId: string, id: string) =>
-      apiFetch<DepartmentMaster>(`/organizations/${orgId}/masters/departments/${id}`, {
-        method: 'DELETE',
-      }),
+      apiFetch<DepartmentMaster>(
+        `/organizations/${orgId}/masters/departments/${id}`,
+        {
+          method: 'DELETE',
+        },
+      ),
     getUsers: (orgId: string) =>
       apiFetch<UserSummary[]>(`/organizations/${orgId}/masters/users`),
     createUser: (orgId: string, data: CreateUserInput) =>
@@ -961,7 +1046,9 @@ export const api = {
       if (fiscalYear) qs.set('fiscalYear', String(fiscalYear));
       if (month) qs.set('endMonth', String(month));
       const suffix = qs.toString() ? `?${qs}` : '';
-      return apiFetch<DashboardSummary>(`/organizations/${orgId}/mf/dashboard${suffix}`);
+      return apiFetch<DashboardSummary>(
+        `/organizations/${orgId}/mf/dashboard${suffix}`,
+      );
     },
 
     getPL: (orgId: string, fiscalYear?: number, month?: number) => {
@@ -969,7 +1056,9 @@ export const api = {
       if (fiscalYear) qs.set('fiscalYear', String(fiscalYear));
       if (month) qs.set('endMonth', String(month));
       const suffix = qs.toString() ? `?${qs}` : '';
-      return apiFetch<PLStatement>(`/organizations/${orgId}/mf/financial-statements/pl${suffix}`);
+      return apiFetch<PLStatement>(
+        `/organizations/${orgId}/mf/financial-statements/pl${suffix}`,
+      );
     },
 
     getBS: (orgId: string, fiscalYear?: number, month?: number) => {
@@ -977,7 +1066,9 @@ export const api = {
       if (fiscalYear) qs.set('fiscalYear', String(fiscalYear));
       if (month) qs.set('endMonth', String(month));
       const suffix = qs.toString() ? `?${qs}` : '';
-      return apiFetch<BSStatement>(`/organizations/${orgId}/mf/financial-statements/bs${suffix}`);
+      return apiFetch<BSStatement>(
+        `/organizations/${orgId}/mf/financial-statements/bs${suffix}`,
+      );
     },
 
     getCashflow: (orgId: string, fiscalYear?: number, month?: number) => {
@@ -985,7 +1076,9 @@ export const api = {
       if (fiscalYear) qs.set('fiscalYear', String(fiscalYear));
       if (month) qs.set('endMonth', String(month));
       const suffix = qs.toString() ? `?${qs}` : '';
-      return apiFetch<CashflowData>(`/organizations/${orgId}/mf/cashflow${suffix}`);
+      return apiFetch<CashflowData>(
+        `/organizations/${orgId}/mf/cashflow${suffix}`,
+      );
     },
 
     getPLTransition: (orgId: string, fiscalYear?: number) =>
@@ -996,26 +1089,41 @@ export const api = {
     getAccounts: (orgId: string) =>
       apiFetch<MfAccountsResponse>(`/organizations/${orgId}/mf/accounts`),
 
-    getAccountTransition: (orgId: string, accountName: string, fiscalYear?: number) =>
+    getAccountTransition: (
+      orgId: string,
+      accountName: string,
+      fiscalYear?: number,
+    ) =>
       apiFetch<{ month: string; amount: number }[]>(
         `/organizations/${orgId}/mf/accounts/${encodeURIComponent(accountName)}/transition${fiscalYear ? `?fiscalYear=${fiscalYear}` : ''}`,
       ),
 
-    getJournals: (orgId: string, params?: { startDate?: string; endDate?: string; accountName?: string }) => {
+    getJournals: (
+      orgId: string,
+      params?: { startDate?: string; endDate?: string; accountName?: string },
+    ) => {
       const qs = new URLSearchParams();
       if (params?.startDate) qs.set('startDate', params.startDate);
       if (params?.endDate) qs.set('endDate', params.endDate);
       if (params?.accountName) qs.set('accountName', params.accountName);
       const suffix = qs.toString() ? `?${qs.toString()}` : '';
-      return apiFetch<MfJournalsResponse>(`/organizations/${orgId}/mf/journals${suffix}`);
+      return apiFetch<MfJournalsResponse>(
+        `/organizations/${orgId}/mf/journals${suffix}`,
+      );
     },
 
-    getFinancialIndicators: (orgId: string, fiscalYear?: number, month?: number) => {
+    getFinancialIndicators: (
+      orgId: string,
+      fiscalYear?: number,
+      month?: number,
+    ) => {
       const qs = new URLSearchParams();
       if (fiscalYear) qs.set('fiscalYear', String(fiscalYear));
       if (month) qs.set('endMonth', String(month));
       const suffix = qs.toString() ? `?${qs}` : '';
-      return apiFetch<FinancialIndicators>(`/organizations/${orgId}/mf/financial-indicators${suffix}`);
+      return apiFetch<FinancialIndicators>(
+        `/organizations/${orgId}/mf/financial-indicators${suffix}`,
+      );
     },
   },
 
@@ -1032,26 +1140,35 @@ export const api = {
 
   // === Simulation ===
   simulation: {
-    whatIf: (orgId: string, dto: {
-      revenueChangePercent?: number;
-      costChangePercent?: number;
-      newHires?: number;
-      additionalInvestment?: number;
-    }) =>
+    whatIf: (
+      orgId: string,
+      dto: {
+        revenueChangePercent?: number;
+        costChangePercent?: number;
+        newHires?: number;
+        additionalInvestment?: number;
+      },
+    ) =>
       apiFetch<WhatIfResult>(`/organizations/${orgId}/simulation/what-if`, {
         method: 'POST',
         body: JSON.stringify(dto),
       }),
     loan: (orgId: string, params: LoanSimulationInput) =>
-      apiFetch<LoanSimulationResult>(`/organizations/${orgId}/simulation/loan`, {
-        method: 'POST',
-        body: JSON.stringify(params),
-      }),
+      apiFetch<LoanSimulationResult>(
+        `/organizations/${orgId}/simulation/loan`,
+        {
+          method: 'POST',
+          body: JSON.stringify(params),
+        },
+      ),
     linkedStatements: (orgId: string, params: LinkedStatementsInput) =>
-      apiFetch<LinkedStatementsResult>(`/organizations/${orgId}/simulation/linked-statements`, {
-        method: 'POST',
-        body: JSON.stringify(params),
-      }),
+      apiFetch<LinkedStatementsResult>(
+        `/organizations/${orgId}/simulation/linked-statements`,
+        {
+          method: 'POST',
+          body: JSON.stringify(params),
+        },
+      ),
   },
 
   // === Review (経理レビュー) ===
@@ -1077,20 +1194,44 @@ export const api = {
       apiFetch<{ record: MonthlyReviewApprovalRecord | null }>(
         `/organizations/${orgId}/monthly-review-approvals/current?fiscalYear=${fiscalYear}&month=${month}`,
       ),
-    submit: (orgId: string, fiscalYear: number, month: number, comment?: string) =>
+    submit: (
+      orgId: string,
+      fiscalYear: number,
+      month: number,
+      comment?: string,
+    ) =>
       apiFetch<{ record: MonthlyReviewApprovalRecord }>(
         `/organizations/${orgId}/monthly-review-approvals/submit`,
-        { method: 'POST', body: JSON.stringify({ fiscalYear, month, comment }) },
+        {
+          method: 'POST',
+          body: JSON.stringify({ fiscalYear, month, comment }),
+        },
       ),
-    approve: (orgId: string, fiscalYear: number, month: number, comment?: string) =>
+    approve: (
+      orgId: string,
+      fiscalYear: number,
+      month: number,
+      comment?: string,
+    ) =>
       apiFetch<{ record: MonthlyReviewApprovalRecord }>(
         `/organizations/${orgId}/monthly-review-approvals/approve`,
-        { method: 'POST', body: JSON.stringify({ fiscalYear, month, comment }) },
+        {
+          method: 'POST',
+          body: JSON.stringify({ fiscalYear, month, comment }),
+        },
       ),
-    reject: (orgId: string, fiscalYear: number, month: number, comment?: string) =>
+    reject: (
+      orgId: string,
+      fiscalYear: number,
+      month: number,
+      comment?: string,
+    ) =>
       apiFetch<{ record: MonthlyReviewApprovalRecord }>(
         `/organizations/${orgId}/monthly-review-approvals/reject`,
-        { method: 'POST', body: JSON.stringify({ fiscalYear, month, comment }) },
+        {
+          method: 'POST',
+          body: JSON.stringify({ fiscalYear, month, comment }),
+        },
       ),
     reset: (orgId: string, fiscalYear: number, month: number) =>
       apiFetch<{ record: MonthlyReviewApprovalRecord | null }>(
@@ -1117,13 +1258,19 @@ export const api = {
 
   // === kintone (月次進捗) ===
   kintone: {
-    getMonthlyProgress: (fiscalYear?: string, search?: string, assignee?: string) => {
+    getMonthlyProgress: (
+      fiscalYear?: string,
+      search?: string,
+      assignee?: string,
+    ) => {
       const qs = new URLSearchParams();
       if (fiscalYear) qs.set('fiscalYear', fiscalYear);
       if (search) qs.set('search', search);
       if (assignee) qs.set('assignee', assignee);
       const suffix = qs.toString() ? `?${qs}` : '';
-      return apiFetch<KintoneMonthlyProgress[]>(`/kintone/monthly-progress${suffix}`);
+      return apiFetch<KintoneMonthlyProgress[]>(
+        `/kintone/monthly-progress${suffix}`,
+      );
     },
     getByMfCode: (mfCode: string, fiscalYear?: string) =>
       apiFetch<KintoneMonthlyProgress>(
@@ -1174,7 +1321,9 @@ export const api = {
   // === Sync ===
   sync: {
     run: (orgId: string) =>
-      apiFetch<SyncRunResult>(`/organizations/${orgId}/sync/run`, { method: 'POST' }),
+      apiFetch<SyncRunResult>(`/organizations/${orgId}/sync/run`, {
+        method: 'POST',
+      }),
     status: (orgId: string) =>
       apiFetch<SyncStatusResult>(`/organizations/${orgId}/sync/status`),
   },
@@ -1221,7 +1370,12 @@ export const api = {
 
   // === Risk Findings (会計レビュー ② 要確認アイテム) ===
   riskFindings: {
-    list: (orgId: string, fiscalYear: number, month: number, status?: string) => {
+    list: (
+      orgId: string,
+      fiscalYear: number,
+      month: number,
+      status?: string,
+    ) => {
       const params = new URLSearchParams({
         fiscalYear: String(fiscalYear),
         month: String(month),
@@ -1264,10 +1418,21 @@ export const api = {
      * 残高調書プレビュー — MF推移表 (BS) を 3 階層 row 配列に flatten したものを返す。
      * DB 書き込みなし。Phase 1 Unit 2A。
      */
-    preview: (orgId: string, fiscalYear: number, month: number) =>
-      apiFetch<ChoshoPreviewResult>(
-        `/organizations/${orgId}/chosho/preview?fiscalYear=${fiscalYear}&month=${month}`,
-      ),
+    preview: (
+      orgId: string,
+      fiscalYear: number,
+      month: number,
+      scope: ChoshoPreviewScope = 'focused',
+    ) => {
+      const qs = new URLSearchParams({
+        fiscalYear: String(fiscalYear),
+        month: String(month),
+      });
+      if (scope === 'bs') qs.set('scope', scope);
+      return apiFetch<ChoshoPreviewResult>(
+        `/organizations/${orgId}/chosho/preview?${qs.toString()}`,
+      );
+    },
     /**
      * preview の snapshot を DRAFT で保存。row 配列は client から送らず、
      * server 側で再生成される (越境改ざん防止)。Phase 1 Unit 2B-2。
@@ -1276,10 +1441,10 @@ export const api = {
       orgId: string,
       input: { fiscalYear: number; month: number; title?: string },
     ) =>
-      apiFetch<ChoshoVersionDetail>(
-        `/organizations/${orgId}/chosho/versions`,
-        { method: 'POST', body: JSON.stringify(input) },
-      ),
+      apiFetch<ChoshoVersionDetail>(`/organizations/${orgId}/chosho/versions`, {
+        method: 'POST',
+        body: JSON.stringify(input),
+      }),
     /** 保存済 version を読み取り。preview と同じ row shape。 */
     getVersion: (orgId: string, versionId: string) =>
       apiFetch<ChoshoVersionDetail>(
@@ -1408,7 +1573,11 @@ export const api = {
         { method: 'DELETE' },
       ),
     /** memo タブ用: 期間内最新 version の cell コメント全件。 month 省略時は会計年度全月。 */
-    listRecentCellComments: (orgId: string, fiscalYear: number, month?: number) => {
+    listRecentCellComments: (
+      orgId: string,
+      fiscalYear: number,
+      month?: number,
+    ) => {
       const qs = new URLSearchParams({ fiscalYear: String(fiscalYear) });
       if (month != null) qs.set('month', String(month));
       return apiFetch<ChoshoRecentCellComment[]>(
@@ -1502,21 +1671,29 @@ export const api = {
         { method: 'DELETE' },
       ),
     listComments: (orgId: string, journalIds?: string[]) => {
-      const qs = journalIds && journalIds.length > 0
-        ? `?journalIds=${encodeURIComponent(journalIds.join(','))}`
-        : '';
+      const qs =
+        journalIds && journalIds.length > 0
+          ? `?journalIds=${encodeURIComponent(journalIds.join(','))}`
+          : '';
       return apiFetch<JournalReviewCommentItem[]>(
         `/organizations/${orgId}/journal-comments${qs}`,
       );
     },
     listSnapshots: (
       orgId: string,
-      input: { fiscalYear: number; month?: number; throughMonth?: number; journalIds?: string[] },
+      input: {
+        fiscalYear: number;
+        month?: number;
+        throughMonth?: number;
+        journalIds?: string[];
+      },
     ) => {
       const qs = new URLSearchParams({ fiscalYear: String(input.fiscalYear) });
       if (input.month != null) qs.set('month', String(input.month));
-      if (input.throughMonth != null) qs.set('throughMonth', String(input.throughMonth));
-      if (input.journalIds && input.journalIds.length > 0) qs.set('journalIds', input.journalIds.join(','));
+      if (input.throughMonth != null)
+        qs.set('throughMonth', String(input.throughMonth));
+      if (input.journalIds && input.journalIds.length > 0)
+        qs.set('journalIds', input.journalIds.join(','));
       return apiFetch<JournalReviewSnapshotItem[]>(
         `/organizations/${orgId}/journal-review/snapshots?${qs.toString()}`,
       );
@@ -1554,18 +1731,20 @@ export const api = {
         { method: 'PUT', body: JSON.stringify(input) },
       ),
     deleteComment: (orgId: string, commentId: string) =>
-      apiFetch<void>(
-        `/organizations/${orgId}/journal-comments/${commentId}`,
-        { method: 'DELETE' },
-      ),
+      apiFetch<void>(`/organizations/${orgId}/journal-comments/${commentId}`, {
+        method: 'DELETE',
+      }),
   },
 
   // === Onboarding ===
   onboarding: {
     start: (orgId: string) =>
-      apiFetch<OnboardingStartResult>(`/organizations/${orgId}/onboarding/start`, {
-        method: 'POST',
-      }),
+      apiFetch<OnboardingStartResult>(
+        `/organizations/${orgId}/onboarding/start`,
+        {
+          method: 'POST',
+        },
+      ),
     status: (orgId: string) =>
       apiFetch<OnboardingStatus>(`/organizations/${orgId}/onboarding/status`),
   },
@@ -1671,9 +1850,9 @@ export const api = {
       params?: { fiscalYear?: number; endMonth?: number },
     ) => {
       const qs = new URLSearchParams();
-      if (params?.fiscalYear) qs.set("fiscalYear", String(params.fiscalYear));
-      if (params?.endMonth) qs.set("endMonth", String(params.endMonth));
-      const suffix = qs.toString() ? `?${qs}` : "";
+      if (params?.fiscalYear) qs.set('fiscalYear', String(params.fiscalYear));
+      if (params?.endMonth) qs.set('endMonth', String(params.endMonth));
+      const suffix = qs.toString() ? `?${qs}` : '';
       return apiFetch<{
         summary: {
           urgent: number;
@@ -1685,15 +1864,15 @@ export const api = {
         };
         signals: Array<{
           id: string;
-          source: "ACTION" | "ALERT" | "DATA_SYNC" | "BUSINESS_EVENT";
-          bucket: "URGENT" | "THIS_WEEK" | "MONTHLY" | "NOISE";
+          source: 'ACTION' | 'ALERT' | 'DATA_SYNC' | 'BUSINESS_EVENT';
+          bucket: 'URGENT' | 'THIS_WEEK' | 'MONTHLY' | 'NOISE';
           title: string;
           description: string;
-          severity: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFO";
-          agentOwner: "brief" | "sentinel" | "drafter" | "auditor";
+          severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'INFO';
+          agentOwner: 'brief' | 'sentinel' | 'drafter' | 'auditor';
           reason: string;
           evidenceSource: string;
-          confidence: "HIGH" | "MEDIUM" | "LOW";
+          confidence: 'HIGH' | 'MEDIUM' | 'LOW';
           linkHref?: string;
           detectedAt: string;
           refId?: string;
@@ -1709,30 +1888,27 @@ export const api = {
       params?: { fiscalYear?: number; endMonth?: number },
     ) => {
       const qs = new URLSearchParams();
-      if (params?.fiscalYear) qs.set("fiscalYear", String(params.fiscalYear));
-      if (params?.endMonth) qs.set("endMonth", String(params.endMonth));
-      const suffix = qs.toString() ? `?${qs}` : "";
+      if (params?.fiscalYear) qs.set('fiscalYear', String(params.fiscalYear));
+      if (params?.endMonth) qs.set('endMonth', String(params.endMonth));
+      const suffix = qs.toString() ? `?${qs}` : '';
       return apiFetch<{
         generatedAt: string;
         greeting: string;
         headlines: Array<{
           title: string;
           body: string;
-          source: "URGENT" | "ALERT" | "ACTION" | "FINANCIAL" | "DATA_HEALTH";
-          severity: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFO";
+          source: 'URGENT' | 'ALERT' | 'ACTION' | 'FINANCIAL' | 'DATA_HEALTH';
+          severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'INFO';
           linkHref?: string;
         }>;
         fallbackReason?: string;
       }>(`/organizations/${orgId}/briefing/today${suffix}`);
     },
-    history: (
-      orgId: string,
-      params?: { limit?: number; days?: number },
-    ) => {
+    history: (orgId: string, params?: { limit?: number; days?: number }) => {
       const qs = new URLSearchParams();
-      if (params?.limit) qs.set("limit", String(params.limit));
-      if (params?.days) qs.set("days", String(params.days));
-      const suffix = qs.toString() ? `?${qs}` : "";
+      if (params?.limit) qs.set('limit', String(params.limit));
+      if (params?.days) qs.set('days', String(params.days));
+      const suffix = qs.toString() ? `?${qs}` : '';
       return apiFetch<
         Array<{
           id: string;
@@ -1741,13 +1917,8 @@ export const api = {
           headlines: Array<{
             title: string;
             body: string;
-            source:
-              | "URGENT"
-              | "ALERT"
-              | "ACTION"
-              | "FINANCIAL"
-              | "DATA_HEALTH";
-            severity: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFO";
+            source: 'URGENT' | 'ALERT' | 'ACTION' | 'FINANCIAL' | 'DATA_HEALTH';
+            severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'INFO';
             linkHref?: string;
           }>;
           fallbackReason?: string;
@@ -1775,13 +1946,13 @@ export const api = {
         hourJst: number;
         webhookConfigured: boolean;
       }>(`/organizations/${orgId}/briefing/push-config`, {
-        method: "PATCH",
+        method: 'PATCH',
         body: JSON.stringify(payload),
       }),
     pushTest: (orgId: string) =>
       apiFetch<{ sent: boolean; reason?: string }>(
         `/organizations/${orgId}/briefing/push-test`,
-        { method: "POST" },
+        { method: 'POST' },
       ),
   },
 
@@ -1792,20 +1963,20 @@ export const api = {
       params?: { unreadOnly?: boolean; limit?: number; days?: number },
     ) => {
       const qs = new URLSearchParams();
-      if (params?.unreadOnly) qs.set("unreadOnly", "true");
-      if (params?.limit) qs.set("limit", String(params.limit));
-      if (params?.days) qs.set("days", String(params.days));
-      const suffix = qs.toString() ? `?${qs}` : "";
+      if (params?.unreadOnly) qs.set('unreadOnly', 'true');
+      if (params?.limit) qs.set('limit', String(params.limit));
+      if (params?.days) qs.set('days', String(params.days));
+      const suffix = qs.toString() ? `?${qs}` : '';
       return apiFetch<
         Array<{
           id: string;
           type:
-            | "ANOMALY_ALERT"
-            | "CASHFLOW_ALERT"
-            | "SYNC_ERROR"
-            | "AI_COMMENT"
-            | "ADVISOR_COMMENT"
-            | "SYSTEM";
+            | 'ANOMALY_ALERT'
+            | 'CASHFLOW_ALERT'
+            | 'SYNC_ERROR'
+            | 'AI_COMMENT'
+            | 'ADVISOR_COMMENT'
+            | 'SYSTEM';
           title: string;
           message: string;
           isRead: boolean;
@@ -1822,12 +1993,12 @@ export const api = {
     markRead: (orgId: string, id: string) =>
       apiFetch<{ id: string; isRead: boolean } | { ok: false }>(
         `/organizations/${orgId}/notifications/${id}/read`,
-        { method: "PATCH" },
+        { method: 'PATCH' },
       ),
     markAllRead: (orgId: string) =>
       apiFetch<{ count: number }>(
         `/organizations/${orgId}/notifications/mark-all-read`,
-        { method: "POST" },
+        { method: 'POST' },
       ),
   },
 
@@ -1842,25 +2013,21 @@ export const api = {
       },
     ) => {
       const qs = new URLSearchParams();
-      if (params?.fiscalYear) qs.set("fiscalYear", String(params.fiscalYear));
-      if (params?.endMonth) qs.set("endMonth", String(params.endMonth));
-      if (params?.runwayMode) qs.set("runwayMode", params.runwayMode);
-      const suffix = qs.toString() ? `?${qs}` : "";
+      if (params?.fiscalYear) qs.set('fiscalYear', String(params.fiscalYear));
+      if (params?.endMonth) qs.set('endMonth', String(params.endMonth));
+      if (params?.runwayMode) qs.set('runwayMode', params.runwayMode);
+      const suffix = qs.toString() ? `?${qs}` : '';
       return apiFetch<{
         generatedAt: string;
         detections: Array<{
           id: string;
-          kind:
-            | "CASH_TREND"
-            | "RUNWAY_SHORT"
-            | "DSO_SPIKE"
-            | "SHORT_BORROW_UP";
-          severity: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFO";
+          kind: 'CASH_TREND' | 'RUNWAY_SHORT' | 'DSO_SPIKE' | 'SHORT_BORROW_UP';
+          severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'INFO';
           title: string;
           body: string;
           evidence: {
             source: string;
-            confidence: "HIGH" | "MEDIUM" | "LOW";
+            confidence: 'HIGH' | 'MEDIUM' | 'LOW';
             premise: string;
           };
           linkHref?: string;
@@ -1878,16 +2045,16 @@ export const api = {
         findings: Array<{
           id: string;
           category:
-            | "COVERAGE_GAP"
-            | "RECURRING_FINDING"
-            | "RULE_DECAY"
-            | "DATA_FRESHNESS";
-          severity: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFO";
+            | 'COVERAGE_GAP'
+            | 'RECURRING_FINDING'
+            | 'RULE_DECAY'
+            | 'DATA_FRESHNESS';
+          severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'INFO';
           title: string;
           body: string;
           evidence: {
             source: string;
-            confidence: "HIGH" | "MEDIUM" | "LOW";
+            confidence: 'HIGH' | 'MEDIUM' | 'LOW';
             premise: string;
           };
           linkHref?: string;
@@ -1907,20 +2074,20 @@ export const api = {
       },
     ) => {
       const qs = new URLSearchParams();
-      if (params?.fiscalYear) qs.set("fiscalYear", String(params.fiscalYear));
-      if (params?.endMonth) qs.set("endMonth", String(params.endMonth));
-      if (params?.runwayMode) qs.set("runwayMode", params.runwayMode);
-      const suffix = qs.toString() ? `?${qs}` : "";
+      if (params?.fiscalYear) qs.set('fiscalYear', String(params.fiscalYear));
+      if (params?.endMonth) qs.set('endMonth', String(params.endMonth));
+      if (params?.runwayMode) qs.set('runwayMode', params.runwayMode);
+      const suffix = qs.toString() ? `?${qs}` : '';
       return apiFetch<{
         generatedAt: string;
-        kind: "DRAFT";
+        kind: 'DRAFT';
         period: { fiscalYear: number | null; endMonth: number | null };
         sections: Array<{
           heading: string;
           body: string;
           evidence: {
             source: string;
-            confidence: "HIGH" | "MEDIUM" | "LOW";
+            confidence: 'HIGH' | 'MEDIUM' | 'LOW';
             premise: string;
           };
         }>;
@@ -1934,15 +2101,15 @@ export const api = {
     chat: (
       orgId: string,
       payload: {
-        agentKey: "brief" | "sentinel" | "drafter" | "auditor";
-        mode: "observe" | "dialog" | "execute";
+        agentKey: 'brief' | 'sentinel' | 'drafter' | 'auditor';
+        mode: 'observe' | 'dialog' | 'execute';
         pathname: string;
         fiscalYear?: number;
         endMonth?: number;
         runwayMode?: 'worstCase' | 'netBurn' | 'actual';
         /** 業種別知識（getKnowledgeForAI で生成） */
         industryContext?: string;
-        messages: { role: "user" | "assistant"; content: string }[];
+        messages: { role: 'user' | 'assistant'; content: string }[];
       },
     ) =>
       apiFetch<{
@@ -1954,13 +2121,10 @@ export const api = {
           ok: boolean;
           summary: string;
         }>;
-      }>(
-        `/organizations/${orgId}/copilot/chat`,
-        {
-          method: "POST",
-          body: JSON.stringify(payload),
-        },
-      ),
+      }>(`/organizations/${orgId}/copilot/chat`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }),
   },
 
   // === Agent Runs (全エージェント実行履歴) ===
@@ -1968,25 +2132,25 @@ export const api = {
     list: (
       orgId: string,
       params?: {
-        agentKey?: "BRIEF" | "SENTINEL" | "DRAFTER" | "AUDITOR" | "COPILOT";
+        agentKey?: 'BRIEF' | 'SENTINEL' | 'DRAFTER' | 'AUDITOR' | 'COPILOT';
         limit?: number;
         days?: number;
       },
     ) => {
       const qs = new URLSearchParams();
-      if (params?.agentKey) qs.set("agentKey", params.agentKey);
-      if (params?.limit) qs.set("limit", String(params.limit));
-      if (params?.days) qs.set("days", String(params.days));
-      const suffix = qs.toString() ? `?${qs}` : "";
+      if (params?.agentKey) qs.set('agentKey', params.agentKey);
+      if (params?.limit) qs.set('limit', String(params.limit));
+      if (params?.days) qs.set('days', String(params.days));
+      const suffix = qs.toString() ? `?${qs}` : '';
       return apiFetch<{
         items: Array<{
           id: string;
-          agentKey: "BRIEF" | "SENTINEL" | "DRAFTER" | "AUDITOR" | "COPILOT";
-          mode: "OBSERVE" | "DIALOG" | "EXECUTE" | "CRON" | null;
+          agentKey: 'BRIEF' | 'SENTINEL' | 'DRAFTER' | 'AUDITOR' | 'COPILOT';
+          mode: 'OBSERVE' | 'DIALOG' | 'EXECUTE' | 'CRON' | null;
           generatedAt: string;
           fiscalYear: number | null;
           endMonth: number | null;
-          status: "SUCCESS" | "FALLBACK" | "FAILED";
+          status: 'SUCCESS' | 'FALLBACK' | 'FAILED';
           errorMessage: string | null;
           durationMs: number | null;
           toolCalls: unknown;
@@ -1997,8 +2161,8 @@ export const api = {
       apiFetch<{
         id: string;
         orgId: string;
-        agentKey: "BRIEF" | "SENTINEL" | "DRAFTER" | "AUDITOR" | "COPILOT";
-        mode: "OBSERVE" | "DIALOG" | "EXECUTE" | "CRON" | null;
+        agentKey: 'BRIEF' | 'SENTINEL' | 'DRAFTER' | 'AUDITOR' | 'COPILOT';
+        mode: 'OBSERVE' | 'DIALOG' | 'EXECUTE' | 'CRON' | null;
         generatedAt: string;
         fiscalYear: number | null;
         endMonth: number | null;
@@ -2006,7 +2170,7 @@ export const api = {
         input: unknown;
         output: unknown;
         toolCalls: unknown;
-        status: "SUCCESS" | "FALLBACK" | "FAILED";
+        status: 'SUCCESS' | 'FALLBACK' | 'FAILED';
         errorMessage: string | null;
         durationMs: number | null;
         createdAt: string;
@@ -2020,7 +2184,9 @@ export const api = {
       if (fromDate) qs.set('fromDate', fromDate);
       if (toDate) qs.set('toDate', toDate);
       const suffix = qs.toString() ? `?${qs}` : '';
-      return apiFetch<BusinessEvent[]>(`/organizations/${orgId}/business-events${suffix}`);
+      return apiFetch<BusinessEvent[]>(
+        `/organizations/${orgId}/business-events${suffix}`,
+      );
     },
     create: (
       orgId: string,
@@ -2037,13 +2203,19 @@ export const api = {
         body: JSON.stringify(data),
       }),
     update: (orgId: string, eventId: string, data: UpdateBusinessEventInput) =>
-      apiFetch<BusinessEvent>(`/organizations/${orgId}/business-events/${eventId}`, {
-        method: 'PATCH',
-        body: JSON.stringify(data),
-      }),
+      apiFetch<BusinessEvent>(
+        `/organizations/${orgId}/business-events/${eventId}`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify(data),
+        },
+      ),
     remove: (orgId: string, eventId: string) =>
-      apiFetch<DeletedResult>(`/organizations/${orgId}/business-events/${eventId}`, {
-        method: 'DELETE',
-      }),
+      apiFetch<DeletedResult>(
+        `/organizations/${orgId}/business-events/${eventId}`,
+        {
+          method: 'DELETE',
+        },
+      ),
   },
 };

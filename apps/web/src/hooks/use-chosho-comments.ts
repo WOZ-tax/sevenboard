@@ -66,11 +66,17 @@ export function useChoshoComments(args: {
       urls: string[];
       anomalyType: "EXPECTED_VALUE_VIOLATION" | "AGING_3M" | null;
     }) =>
-      api.chosho.upsertCellComment(orgId, versionId!, input.rowId, input.month, {
-        body: input.body,
-        urls: input.urls,
-        anomalyType: input.anomalyType,
-      }),
+      api.chosho.upsertCellComment(
+        orgId,
+        versionId!,
+        input.rowId,
+        input.month,
+        {
+          body: input.body,
+          urls: input.urls,
+          anomalyType: input.anomalyType,
+        },
+      ),
     onSuccess: () => qc.invalidateQueries({ queryKey: cellKey }),
   });
 
@@ -122,16 +128,19 @@ export function useChoshoPreviewCellComments(args: {
   orgId: string;
   fiscalYear: number | undefined;
   month: number | undefined;
+  enabled?: boolean;
 }) {
   const { orgId, fiscalYear, month } = args;
   const qc = useQueryClient();
 
-  const enabled = !!orgId && fiscalYear != null && month != null;
+  const enabled =
+    !!orgId && fiscalYear != null && month != null && (args.enabled ?? true);
   const cellKey = ["chosho", "preview-cell-comments", orgId, fiscalYear, month];
 
   const cellComments = useQuery<ChoshoCellComment[]>({
     queryKey: cellKey,
-    queryFn: () => api.chosho.listPreviewCellComments(orgId, fiscalYear!, month!),
+    queryFn: () =>
+      api.chosho.listPreviewCellComments(orgId, fiscalYear!, month!),
     enabled,
     staleTime: 30_000,
   });

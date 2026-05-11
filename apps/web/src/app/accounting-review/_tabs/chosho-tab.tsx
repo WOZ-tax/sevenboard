@@ -21,14 +21,26 @@
 import { useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronRight, Loader2, MessageSquare, Save, Settings2 } from "lucide-react";
+import {
+  BarChart3,
+  ChevronRight,
+  FileSpreadsheet,
+  Loader2,
+  MessageSquare,
+  Save,
+  Settings2,
+} from "lucide-react";
 import { toast } from "sonner";
 import { useChoshoPreview } from "@/hooks/use-chosho-preview";
-import { useChoshoComments, useChoshoPreviewCellComments } from "@/hooks/use-chosho-comments";
+import {
+  useChoshoComments,
+  useChoshoPreviewCellComments,
+} from "@/hooks/use-chosho-comments";
 import {
   api,
   type ChoshoAnomaly,
   type ChoshoCellComment,
+  type ChoshoPreviewScope,
   type ChoshoPreviewRow,
   type ChoshoRowComment,
   type ChoshoVersionDetail,
@@ -56,6 +68,16 @@ interface Props {
   month: number | undefined;
 }
 
+const CHOSHO_PREVIEW_SCOPES: Array<{
+  key: ChoshoPreviewScope;
+  label: string;
+  badge: string;
+  icon: typeof FileSpreadsheet;
+}> = [
+  { key: "focused", label: "残高調書", badge: "7勘定", icon: FileSpreadsheet },
+  { key: "bs", label: "BS推移表", badge: "全勘定", icon: BarChart3 },
+];
+
 export function ChoshoTab({ orgId, fiscalYear, month }: Props) {
   const searchParams = useSearchParams();
   const versionId = searchParams.get("versionId");
@@ -71,101 +93,193 @@ export function ChoshoTab({ orgId, fiscalYear, month }: Props) {
 // ============================================================
 
 function PreviewView({ orgId, fiscalYear, month }: Props) {
-  const query = useChoshoPreview({ orgId, fiscalYear, month });
+  const [scope, setScope] = useState<ChoshoPreviewScope>("focused");
+  const query = useChoshoPreview({ orgId, fiscalYear, month, scope });
+  const isFocusedScope = scope === "focused";
   // preview モードでも (org, fy, month, rowKey) ベースで cell コメントを直接書き読みできる。
-  const previewComments = useChoshoPreviewCellComments({ orgId, fiscalYear, month });
+  const previewComments = useChoshoPreviewCellComments({
+    orgId,
+    fiscalYear,
+    month,
+    enabled: isFocusedScope,
+  });
   const currentUserId = useAuthStore((s) => s.user?.id ?? null);
+  const tabHeader = (
+    <ChoshoPreviewScopeTabs value={scope} onValueChange={setScope} />
+  );
 
   if (!orgId || fiscalYear == null || month == null) {
     return (
-      <EmptyState
-        message="顧問先と対象月を選択してください"
-        sub="期間セレクターから fiscalYear / month を指定するとデータが読み込まれます。"
-      />
+      <div className="space-y-3">
+        {tabHeader}
+        <EmptyState
+          message="顧問先と対象月を選択してください"
+          sub="期間セレクターから fiscalYear / month を指定するとデータが読み込まれます。"
+        />
+      </div>
     );
   }
 
   if (query.isLoading) {
     return (
-      <ThinkingIndicator
-        stages={[
-          "MF 推移表 (BS 12 ヶ月) を取得中",
-          "補助科目を展開中",
-          "期待残高ルールを適用中",
-          "選択月の異常を検知中",
-        ]}
-      />
+      <div className="space-y-3">
+        {tabHeader}
+        <ThinkingIndicator
+          stages={[
+            "MF 推移表 (BS 12 ヶ月) を取得中",
+            scope === "bs" ? "BS全勘定を展開中" : "残高調書対象勘定を展開中",
+            "期待残高ルールを適用中",
+            "選択月の異常を検知中",
+          ]}
+        />
+      </div>
     );
   }
 
   if (query.isError) {
     return (
-      <EmptyState
-        message="残高調書の取得に失敗しました"
-        sub="MFクラウド会計の接続状態を確認してください。"
-      />
+      <div className="space-y-3">
+        {tabHeader}
+        <EmptyState
+          message="残高調書の取得に失敗しました"
+          sub="MFクラウド会計の接続状態を確認してください。"
+        />
+      </div>
     );
   }
 
   const data = query.data;
   if (!data || data.rows.length === 0) {
     return (
-      <EmptyState
-        message="表示できる残高がありません"
-        sub="MFクラウド会計を接続すると残高調書が表示されます。"
-      />
+      <div className="space-y-3">
+        {tabHeader}
+        <EmptyState
+          message="表示できる残高がありません"
+          sub="MFクラウド会計を接続すると残高調書が表示されます。"
+        />
+      </div>
     );
   }
 
   // preview モードでもセルクリック → 直接コメント可能。
   // (org, fy, month, rowKey) で書き読みするので「下書き保存」は snapshot 用途だけになる。
-  const cellComments = previewComments.cellComments.data ?? [];
+  const cellComments = isFocusedScope
+    ? (previewComments.cellComments.data ?? [])
+    : [];
   return (
-    <ChoshoTable
-      data={data}
-      commentsEnabled
-      commentsEditable
-      cellOnlyMode
-      cellComments={cellComments}
-      currentUserId={currentUserId}
-      onUpsertCellComment={(input) => {
-        // 1:1 互換: 既存があれば削除してから新規追加
-        const key = `${input.rowId}:${input.month}`;
-        const existing = cellComments.find(
-          (c) => `${c.rowKey ?? c.rowId}:${c.month}` === key && c.parentCommentId == null,
-        );
-        const writeNew = () =>
-          previewComments.addCellComment.mutate({
-            rowKey: input.rowId, // PreviewView は rowKey を rowId 引数に流している
-            body: input.body,
-            urls: input.urls,
-            anomalyType: input.anomalyType,
-          });
-        if (existing) {
-          previewComments.deleteCellCommentById.mutate(existing.id, { onSuccess: writeNew });
-        } else {
-          writeNew();
+    <div className="space-y-3">
+      {tabHeader}
+      <ChoshoTable
+        data={data}
+        title={scope === "bs" ? "BS推移表" : "残高調書"}
+        description={
+          scope === "bs"
+            ? "MFクラウド会計のBS推移表を全勘定で表示"
+            : "補助科目展開: 売掛金・買掛金・未収金・未払金・前受金・前払金・立替金"
         }
-      }}
-      onDeleteCellComment={(input) => {
-        const key = `${input.rowId}:${input.month}`;
-        const existing = cellComments.find(
-          (c) => `${c.rowKey ?? c.rowId}:${c.month}` === key && c.parentCommentId == null,
+        commentsEnabled={isFocusedScope}
+        commentsEditable={isFocusedScope}
+        cellOnlyMode={isFocusedScope}
+        cellComments={cellComments}
+        currentUserId={currentUserId}
+        onUpsertCellComment={(input) => {
+          // 1:1 互換: 既存があれば削除してから新規追加
+          const key = `${input.rowId}:${input.month}`;
+          const existing = cellComments.find(
+            (c) =>
+              `${c.rowKey ?? c.rowId}:${c.month}` === key &&
+              c.parentCommentId == null,
+          );
+          const writeNew = () =>
+            previewComments.addCellComment.mutate({
+              rowKey: input.rowId, // PreviewView は rowKey を rowId 引数に流している
+              body: input.body,
+              urls: input.urls,
+              anomalyType: input.anomalyType,
+            });
+          if (existing) {
+            previewComments.deleteCellCommentById.mutate(existing.id, {
+              onSuccess: writeNew,
+            });
+          } else {
+            writeNew();
+          }
+        }}
+        onDeleteCellComment={(input) => {
+          const key = `${input.rowId}:${input.month}`;
+          const existing = cellComments.find(
+            (c) =>
+              `${c.rowKey ?? c.rowId}:${c.month}` === key &&
+              c.parentCommentId == null,
+          );
+          if (existing)
+            previewComments.deleteCellCommentById.mutate(existing.id);
+        }}
+        isUpsertingCellComment={
+          previewComments.addCellComment.isPending ||
+          previewComments.deleteCellCommentById.isPending
+        }
+        isDeletingCellComment={previewComments.deleteCellCommentById.isPending}
+        headerSlot={
+          isFocusedScope ? (
+            <SaveDraftButton
+              orgId={orgId}
+              fiscalYear={data.fiscalYear}
+              month={data.selectedMonth}
+            />
+          ) : null
+        }
+      />
+    </div>
+  );
+}
+
+function ChoshoPreviewScopeTabs({
+  value,
+  onValueChange,
+}: {
+  value: ChoshoPreviewScope;
+  onValueChange: (value: ChoshoPreviewScope) => void;
+}) {
+  return (
+    <div
+      role="tablist"
+      aria-label="残高調書の表示切り替え"
+      className="grid grid-cols-2 gap-1 rounded-md border border-[var(--color-border)] bg-card p-1 shadow-sm"
+    >
+      {CHOSHO_PREVIEW_SCOPES.map((item) => {
+        const selected = value === item.key;
+        const Icon = item.icon;
+        return (
+          <button
+            key={item.key}
+            type="button"
+            role="tab"
+            aria-selected={selected}
+            onClick={() => onValueChange(item.key)}
+            className={cn(
+              "relative flex h-11 items-center justify-center gap-2 rounded border px-3 text-sm font-semibold transition-all",
+              selected
+                ? "border-[var(--color-primary)] bg-[var(--color-primary)]/10 text-[var(--color-primary)] shadow-sm ring-1 ring-[var(--color-primary)]/20 before:absolute before:inset-x-3 before:top-0 before:h-0.5 before:rounded-full before:bg-[var(--color-primary)]"
+                : "border-transparent text-muted-foreground hover:border-[var(--color-border)] hover:bg-muted/50 hover:text-[var(--color-text-primary)]",
+            )}
+          >
+            <Icon className="h-4 w-4" />
+            <span>{item.label}</span>
+            <span
+              className={cn(
+                "rounded-full border px-1.5 py-0.5 text-[10px] font-medium",
+                selected
+                  ? "border-[var(--color-primary)]/30 bg-background text-[var(--color-primary)]"
+                  : "border-transparent bg-muted-foreground/10 text-muted-foreground",
+              )}
+            >
+              {item.badge}
+            </span>
+          </button>
         );
-        if (existing) previewComments.deleteCellCommentById.mutate(existing.id);
-      }}
-      isUpsertingCellComment={
-        previewComments.addCellComment.isPending || previewComments.deleteCellCommentById.isPending
-      }
-      isDeletingCellComment={previewComments.deleteCellCommentById.isPending}
-      headerSlot={
-        <SaveDraftButton
-          orgId={orgId}
-          fiscalYear={data.fiscalYear}
-          month={data.selectedMonth}
-        />
-      }
-    />
+      })}
+    </div>
   );
 }
 
@@ -173,7 +287,13 @@ function PreviewView({ orgId, fiscalYear, month }: Props) {
 // 保存済 version モード (URL に ?versionId= があるとき)
 // ============================================================
 
-function SavedVersionView({ orgId, versionId }: { orgId: string; versionId: string }) {
+function SavedVersionView({
+  orgId,
+  versionId,
+}: {
+  orgId: string;
+  versionId: string;
+}) {
   const router = useRouter();
   const qc = useQueryClient();
   const query = useQuery<ChoshoVersionDetail>({
@@ -246,10 +366,15 @@ function SavedVersionView({ orgId, versionId }: { orgId: string; versionId: stri
             variant="outline"
             className={cn(
               "font-mono text-[10px]",
-              data.status === "APPROVED" && "border-emerald-500 bg-emerald-50 text-emerald-700",
+              data.status === "APPROVED" &&
+                "border-emerald-500 bg-emerald-50 text-emerald-700",
             )}
           >
-            {data.status === "DRAFT" ? "下書き" : data.status === "APPROVED" ? "承認済" : "保管"}
+            {data.status === "DRAFT"
+              ? "下書き"
+              : data.status === "APPROVED"
+                ? "承認済"
+                : "保管"}
           </Badge>
           {editable && (
             <Button
@@ -257,7 +382,11 @@ function SavedVersionView({ orgId, versionId }: { orgId: string; versionId: stri
               variant="default"
               className="h-7 bg-emerald-600 text-xs hover:bg-emerald-700"
               onClick={() => {
-                if (window.confirm("この残高調書を承認しますか? 承認後は編集できません。")) {
+                if (
+                  window.confirm(
+                    "この残高調書を承認しますか? 承認後は編集できません。",
+                  )
+                ) {
                   approveMutation.mutate();
                 }
               }}
@@ -336,6 +465,8 @@ interface ChoshoTableProps {
     monthOrder: number[];
     rows: ChoshoPreviewRow[];
   };
+  title?: string;
+  description?: string | null;
   /** 右上のアクション領域 (保存ボタン or バッジ等)。 */
   headerSlot?: React.ReactNode;
   /** saved version モードのみ true。コメント機能 (閲覧+編集) の表示判定。 */
@@ -348,7 +479,11 @@ interface ChoshoTableProps {
   rowComments?: ChoshoRowComment[];
   cellComments?: ChoshoCellComment[];
   currentUserId?: string | null;
-  onAddRowComment?: (input: { rowId: string; body: string; urls: string[] }) => void;
+  onAddRowComment?: (input: {
+    rowId: string;
+    body: string;
+    urls: string[];
+  }) => void;
   onDeleteRowComment?: (commentId: string) => void;
   onUpsertCellComment?: (input: {
     rowId: string;
@@ -383,6 +518,8 @@ interface ChoshoTableProps {
 
 function ChoshoTable({
   data,
+  title = "残高調書 (BS)",
+  description = "補助科目展開可能なのは 売掛金・買掛金・未収金・未払金・前受金・前払金・立替金 のみ",
   headerSlot,
   commentsEnabled = false,
   commentsEditable = true,
@@ -517,14 +654,15 @@ function ChoshoTable({
       <div className="flex items-center justify-between text-xs text-muted-foreground">
         <div>
           <span className="font-semibold text-[var(--color-text-primary)]">
-            残高調書 (BS)
+            {title}
           </span>
           <span className="ml-2">
-            {data.fiscalYear}年度 / {data.selectedMonth}月度時点 (期首{data.fyStartMonth}月)
+            {data.fiscalYear}年度 / {data.selectedMonth}月度時点 (期首
+            {data.fyStartMonth}月)
           </span>
-          <span className="ml-2 text-[10px]">
-            ※ 補助科目展開可能なのは 売掛金・買掛金・未収金・未払金・前受金・前払金・立替金 のみ
-          </span>
+          {description ? (
+            <span className="ml-2 text-[10px]">※ {description}</span>
+          ) : null}
         </div>
         <div className="flex items-center gap-3">
           {headerSlot}
@@ -596,7 +734,12 @@ function ChoshoTable({
                   onOpenCellComment={(month, anomaly) =>
                     // anomaly null = 任意セルへのメモ。 mfType !== 'account' (大区分・中区分) は
                     // ChoshoRow 側で suppress するので、ここではそのまま open する。
-                    setOpenCellComment({ rowId: r.rowKey, month, anomaly, rowName: r.name })
+                    setOpenCellComment({
+                      rowId: r.rowKey,
+                      month,
+                      anomaly,
+                      rowName: r.name,
+                    })
                   }
                   onOpenRowRule={() => setOpenRowRule(r)}
                   onDrilldownToJournal={drilldownToJournal}
@@ -613,9 +756,13 @@ function ChoshoTable({
       {commentsEnabled && openRowComment != null && (
         <RowCommentDialog
           open={openRowComment != null}
-          onOpenChange={(v) => { if (!v) setOpenRowComment(null); }}
+          onOpenChange={(v) => {
+            if (!v) setOpenRowComment(null);
+          }}
           rowId={openRowComment}
-          rowName={data.rows.find((r) => r.rowKey === openRowComment)?.name ?? ""}
+          rowName={
+            data.rows.find((r) => r.rowKey === openRowComment)?.name ?? ""
+          }
           comments={rowCommentsByRow.get(openRowComment) ?? []}
           onAdd={(input) => onAddRowComment?.(input)}
           onDelete={(commentId) => onDeleteRowComment?.(commentId)}
@@ -629,7 +776,9 @@ function ChoshoTable({
       {commentsEnabled && openRowRule && (
         <RuleEditDialog
           open={!!openRowRule}
-          onOpenChange={(v) => { if (!v) setOpenRowRule(null); }}
+          onOpenChange={(v) => {
+            if (!v) setOpenRowRule(null);
+          }}
           rowName={openRowRule.name}
           initial={{
             expectedRule: openRowRule.expectedRule,
@@ -654,7 +803,9 @@ function ChoshoTable({
       {commentsEnabled && openCellComment && (
         <CellCommentDialog
           open={!!openCellComment}
-          onOpenChange={(v) => { if (!v) setOpenCellComment(null); }}
+          onOpenChange={(v) => {
+            if (!v) setOpenCellComment(null);
+          }}
           rowId={openCellComment.rowId}
           rowName={openCellComment.rowName}
           month={openCellComment.month}
@@ -793,7 +944,11 @@ function ChoshoRow({
                 <div className="space-y-0.5 text-xs">
                   <div className="font-semibold">滞留判定を抑制</div>
                   <div className="text-muted-foreground">
-                    残高は3ヶ月同額ですが、直近3ヶ月で借方 ¥{Math.round(row.agingSuppressedBy.debit).toLocaleString()} / 貸方 ¥{Math.round(row.agingSuppressedBy.credit).toLocaleString()} の発生があるため正常 (相殺パターン)。
+                    残高は3ヶ月同額ですが、直近3ヶ月で借方 ¥
+                    {Math.round(row.agingSuppressedBy.debit).toLocaleString()} /
+                    貸方 ¥
+                    {Math.round(row.agingSuppressedBy.credit).toLocaleString()}{" "}
+                    の発生があるため正常 (相殺パターン)。
                   </div>
                 </div>
               </TooltipContent>
@@ -819,18 +974,33 @@ function ChoshoRow({
         // preview モード (commentsEnabled=false) でも level > 0 の数値セルは
         // クリックで「下書き保存してください」と toast 通知する hint モードに。
         const isPreviewHintable =
-          !commentsEnabled && !!previewCellHint && row.level > 0 && !outOfRange && v != null;
+          !commentsEnabled &&
+          !!previewCellHint &&
+          row.level > 0 &&
+          !outOfRange &&
+          v != null;
         const cellClass = cn(
           "px-2 py-1.5 text-right tabular-nums",
           v != null && v < 0 && "text-[var(--color-negative)]",
           outOfRange && "bg-muted/20 text-muted-foreground/50",
-          hasAnomaly && "border-l-2 border-red-500 bg-red-50 font-semibold text-red-700",
-          hasCellComment && !hasAnomaly && "border-l-2 border-blue-500 bg-blue-100/80 font-semibold ring-1 ring-inset ring-blue-200",
+          hasAnomaly &&
+            "border-l-2 border-red-500 bg-red-50 font-semibold text-red-700",
+          hasCellComment &&
+            !hasAnomaly &&
+            "border-l-2 border-blue-500 bg-blue-100/80 font-semibold ring-1 ring-inset ring-blue-200",
           hasCellComment && hasAnomaly && "ring-2 ring-inset ring-blue-300",
           (isCommentable || isPreviewHintable) && "cursor-pointer",
-          (isCommentable || isPreviewHintable) && !hasCellComment && "hover:bg-muted/40",
-          (isCommentable || isPreviewHintable) && hasCellComment && !hasAnomaly && "hover:bg-blue-100",
-          (isCommentable || isPreviewHintable) && hasCellComment && hasAnomaly && "hover:bg-red-100",
+          (isCommentable || isPreviewHintable) &&
+            !hasCellComment &&
+            "hover:bg-muted/40",
+          (isCommentable || isPreviewHintable) &&
+            hasCellComment &&
+            !hasAnomaly &&
+            "hover:bg-blue-100",
+          (isCommentable || isPreviewHintable) &&
+            hasCellComment &&
+            hasAnomaly &&
+            "hover:bg-red-100",
         );
         const content = v != null ? formatYen(v) : "";
         if (isCommentable) {
@@ -846,12 +1016,13 @@ function ChoshoRow({
                     className="bg-transparent p-0 text-inherit underline decoration-red-300 decoration-dotted underline-offset-2"
                   >
                     {content}
-                    {hasCellComment && (
-                      <CommentCellBadge />
-                    )}
+                    {hasCellComment && <CommentCellBadge />}
                   </TooltipTrigger>
                   <TooltipContent side="top" className="max-w-xs">
-                    <AnomalyTooltipBody anomalies={cellAnomalies} hint="クリックでコメント編集" />
+                    <AnomalyTooltipBody
+                      anomalies={cellAnomalies}
+                      hint="クリックでコメント編集"
+                    />
                   </TooltipContent>
                 </Tooltip>
               </td>
@@ -865,12 +1036,14 @@ function ChoshoRow({
               onClick={handleClick}
               role="button"
               tabIndex={0}
-              title={hasCellComment ? "コメントあり (クリックで編集)" : "クリックでコメント追加"}
+              title={
+                hasCellComment
+                  ? "コメントあり (クリックで編集)"
+                  : "クリックでコメント追加"
+              }
             >
               {content}
-              {hasCellComment && (
-                <CommentCellBadge />
-              )}
+              {hasCellComment && <CommentCellBadge />}
             </td>
           );
         }
@@ -969,7 +1142,9 @@ function AnomalyTooltipBody({
           <div className="text-muted-foreground">{a.message}</div>
         </div>
       ))}
-      {hint && <div className="text-[10px] italic text-muted-foreground">{hint}</div>}
+      {hint && (
+        <div className="text-[10px] italic text-muted-foreground">{hint}</div>
+      )}
     </div>
   );
 }
@@ -1001,9 +1176,7 @@ function EmptyState({ message, sub }: { message: string; sub?: string }) {
       <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">
         {message}
       </h3>
-      {sub && (
-        <p className="mt-1.5 text-xs text-muted-foreground">{sub}</p>
-      )}
+      {sub && <p className="mt-1.5 text-xs text-muted-foreground">{sub}</p>}
     </div>
   );
 }

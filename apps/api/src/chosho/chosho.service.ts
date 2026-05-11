@@ -17,6 +17,8 @@ import type {
   ChoshoPreviewRow,
 } from './chosho-preview.types';
 
+type ChoshoPreviewScope = 'focused' | 'bs';
+
 /**
  * 残高調書 service。
  *
@@ -43,10 +45,13 @@ export class ChoshoService {
     orgId: string,
     fiscalYear: number,
     selectedMonth: number,
+    scope: ChoshoPreviewScope = 'focused',
   ): Promise<ChoshoPreviewResult> {
     const { fyStartMonth } = await this.resolveOrg(orgId);
     const bsTransition = await this.mfApi
-      .getTransitionBS(orgId, fiscalYear, selectedMonth, { withSubAccounts: true })
+      .getTransitionBS(orgId, fiscalYear, selectedMonth, {
+        withSubAccounts: true,
+      })
       .catch(() => null);
     const recentActivityByPath = await this.fetchRecentActivityByPath(
       orgId,
@@ -57,6 +62,7 @@ export class ChoshoService {
       bsTransition,
       selectedMonth,
       recentActivityByPath,
+      ...(scope === 'bs' ? { filterAccountKeywords: [] } : {}),
     });
     return { fiscalYear, selectedMonth, fyStartMonth, monthOrder, rows };
   }
@@ -83,7 +89,9 @@ export class ChoshoService {
 
     // server 側で再生成。client から渡された rows は信用しない。
     const bsTransition = await this.mfApi
-      .getTransitionBS(orgId, fiscalYear, selectedMonth, { withSubAccounts: true })
+      .getTransitionBS(orgId, fiscalYear, selectedMonth, {
+        withSubAccounts: true,
+      })
       .catch(() => null);
     const recentActivityByPath = await this.fetchRecentActivityByPath(
       orgId,
@@ -260,7 +268,9 @@ export class ChoshoService {
     });
 
     // hasChildren を1パスで埋める
-    const parentIds = new Set(rows.map((r) => r.parentRowKey).filter((v): v is string => !!v));
+    const parentIds = new Set(
+      rows.map((r) => r.parentRowKey).filter((v): v is string => !!v),
+    );
     for (const r of rows) {
       r.hasChildren = parentIds.has(r.rowKey);
     }
@@ -404,7 +414,10 @@ export class ChoshoService {
     await this.prisma.choshoRow.update({
       where: { id: rowId },
       data: {
-        expectedRule: rule.expectedRule as 'NONE' | 'EXPECTED_VALUE' | 'AGING_3M',
+        expectedRule: rule.expectedRule as
+          | 'NONE'
+          | 'EXPECTED_VALUE'
+          | 'AGING_3M',
         expectedValue: expectedValueToSave,
         agingCheckEnabled: rule.agingCheckEnabled,
       },
@@ -418,7 +431,10 @@ export class ChoshoService {
   // 行コメント (1:N)
   // ============================================================
 
-  async listRowComments(orgId: string, versionId: string): Promise<RowCommentRow[]> {
+  async listRowComments(
+    orgId: string,
+    versionId: string,
+  ): Promise<RowCommentRow[]> {
     const { tenantId } = await this.resolveOrg(orgId);
     await this.assertVersionBelongsToOrg(versionId, orgId, tenantId);
     const items = await this.prisma.choshoRowComment.findMany({
@@ -506,7 +522,10 @@ export class ChoshoService {
   // セルコメント (1:1, UNIQUE(row_id, month))
   // ============================================================
 
-  async listCellComments(orgId: string, versionId: string): Promise<CellCommentRow[]> {
+  async listCellComments(
+    orgId: string,
+    versionId: string,
+  ): Promise<CellCommentRow[]> {
     const { tenantId } = await this.resolveOrg(orgId);
     await this.assertVersionBelongsToOrg(versionId, orgId, tenantId);
     const items = await this.prisma.choshoCellComment.findMany({
@@ -752,7 +771,14 @@ export class ChoshoService {
     }
     if (parentCommentId) {
       const parent = await this.prisma.choshoCellComment.findFirst({
-        where: { id: parentCommentId, tenantId, orgId, fiscalYear, month, rowKey },
+        where: {
+          id: parentCommentId,
+          tenantId,
+          orgId,
+          fiscalYear,
+          month,
+          rowKey,
+        },
         select: { id: true, parentCommentId: true },
       });
       if (!parent) throw new NotFoundException('Parent comment not found');
@@ -898,7 +924,11 @@ export class ChoshoService {
   ): Promise<RecentCellCommentPage> {
     const page = normalizeMemoPage(pageRaw);
     const limit = normalizeMemoLimit(limitRaw);
-    const items = await this.listRecentCellCommentsForPeriod(orgId, fiscalYear, selectedMonth);
+    const items = await this.listRecentCellCommentsForPeriod(
+      orgId,
+      fiscalYear,
+      selectedMonth,
+    );
     const groups = groupRecentCellComments(items);
     const total = groups.length;
     const unresolvedTotal = groups.filter((g) => !g.resolved).length;
@@ -1018,7 +1048,9 @@ export class ChoshoService {
     return map;
   }
 
-  private async resolveOrg(orgId: string): Promise<{ tenantId: string; fyStartMonth: number }> {
+  private async resolveOrg(
+    orgId: string,
+  ): Promise<{ tenantId: string; fyStartMonth: number }> {
     const org = await this.prisma.organization.findUniqueOrThrow({
       where: { id: orgId },
       select: { tenantId: true, fiscalMonthEnd: true },
@@ -1167,7 +1199,12 @@ function wasMonthlyAmountSameForLast3(
   const v0 = monthlyBalances[m0];
   const v1 = monthlyBalances[m1];
   const v2 = monthlyBalances[m2];
-  if (typeof v0 !== 'number' || typeof v1 !== 'number' || typeof v2 !== 'number') return false;
+  if (
+    typeof v0 !== 'number' ||
+    typeof v1 !== 'number' ||
+    typeof v2 !== 'number'
+  )
+    return false;
   return v2 !== 0 && v0 === v1 && v1 === v2;
 }
 
@@ -1184,7 +1221,9 @@ export function buildNamePathByIdFromSavedRows(
   const out = new Map<string, string>();
   for (const r of rows) {
     const parts: string[] = [r.accountName];
-    let cur: { id: string; accountName: string; parentRowId: string | null } | undefined = r;
+    let cur:
+      | { id: string; accountName: string; parentRowId: string | null }
+      | undefined = r;
     while (cur && cur.parentRowId) {
       const parent = byId.get(cur.parentRowId);
       if (!parent) break;
@@ -1210,8 +1249,14 @@ export function flattenTrialForActivity(
   if (!rows) return;
   for (const r of rows) {
     const path = [...parentNames, r.name].join('/');
-    const debit = typeof r.values[TB_COL.DEBIT] === 'number' ? (r.values[TB_COL.DEBIT] as number) : 0;
-    const credit = typeof r.values[TB_COL.CREDIT] === 'number' ? (r.values[TB_COL.CREDIT] as number) : 0;
+    const debit =
+      typeof r.values[TB_COL.DEBIT] === 'number'
+        ? (r.values[TB_COL.DEBIT] as number)
+        : 0;
+    const credit =
+      typeof r.values[TB_COL.CREDIT] === 'number'
+        ? (r.values[TB_COL.CREDIT] as number)
+        : 0;
     if (debit > 0 || credit > 0) {
       out.set(path, { debit, credit });
     }
@@ -1244,7 +1289,15 @@ function groupRecentCellComments(items: RecentCellCommentItem[]): {
   month: number;
   resolved: boolean;
 }[] {
-  const map = new Map<string, { key: string; rowName: string; month: number; roots: RecentCellCommentItem[] }>();
+  const map = new Map<
+    string,
+    {
+      key: string;
+      rowName: string;
+      month: number;
+      roots: RecentCellCommentItem[];
+    }
+  >();
   for (const item of items) {
     const key = recentCellGroupKey(item);
     if (!key) continue;
@@ -1265,7 +1318,9 @@ function groupRecentCellComments(items: RecentCellCommentItem[]): {
       key: group.key,
       rowName: group.rowName,
       month: group.month,
-      resolved: group.roots.length > 0 && group.roots.every((root) => root.resolvedAt != null),
+      resolved:
+        group.roots.length > 0 &&
+        group.roots.every((root) => root.resolvedAt != null),
     }))
     .sort((a, b) => {
       if (a.rowName === b.rowName) return a.month - b.month;
@@ -1282,8 +1337,11 @@ function normalizeMemoLimit(value: number): number {
   return Math.min(Math.max(value, 1), 100);
 }
 
-export function parseMonthlyBalances(value: Prisma.JsonValue | unknown): Record<number, number> {
-  if (value == null || typeof value !== 'object' || Array.isArray(value)) return {};
+export function parseMonthlyBalances(
+  value: Prisma.JsonValue | unknown,
+): Record<number, number> {
+  if (value == null || typeof value !== 'object' || Array.isArray(value))
+    return {};
   const out: Record<number, number> = {};
   for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
     const month = parseInt(k, 10);
@@ -1321,7 +1379,13 @@ export function computeAnomaliesFromSaved(input: {
   /** 直近3ヶ月の借方/貸方発生額。null/undefined なら抑制なし。 */
   recentActivity?: { debit: number; credit: number } | null;
 }): ChoshoAnomaly[] {
-  const { monthlyBalances, expectedRule, expectedValue, agingCheckEnabled, selectedMonth } = input;
+  const {
+    monthlyBalances,
+    expectedRule,
+    expectedValue,
+    agingCheckEnabled,
+    selectedMonth,
+  } = input;
   const recentActivity = input.recentActivity ?? null;
   const out: ChoshoAnomaly[] = [];
 
@@ -1348,7 +1412,11 @@ export function computeAnomaliesFromSaved(input: {
     const v0 = monthlyBalances[m0];
     const v1 = monthlyBalances[m1];
     const v2 = monthlyBalances[m2];
-    if (typeof v0 === 'number' && typeof v1 === 'number' && typeof v2 === 'number') {
+    if (
+      typeof v0 === 'number' &&
+      typeof v1 === 'number' &&
+      typeof v2 === 'number'
+    ) {
       if (v2 !== 0 && v0 === v1 && v1 === v2) {
         // activity 抑制: 直近3ヶ月で debit > 0 OR credit > 0 なら「動きあり」 → 滞留扱いしない
         const hasActivity =

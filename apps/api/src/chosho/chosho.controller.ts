@@ -47,8 +47,14 @@ export class ChoshoController {
     @Param('orgId', ParseUUIDPipe) orgId: string,
     @Query('fiscalYear', ParseIntPipe) fiscalYear: number,
     @Query('month', ParseIntPipe) month: number,
+    @Query('scope') scope?: string,
   ) {
-    return this.service.preview(orgId, fiscalYear, month);
+    return this.service.preview(
+      orgId,
+      fiscalYear,
+      month,
+      scope === 'bs' ? 'bs' : 'focused',
+    );
   }
 
   @Post('versions')
@@ -164,7 +170,12 @@ export class ChoshoController {
     @Param('versionId', ParseUUIDPipe) versionId: string,
     @Param('commentId', ParseUUIDPipe) commentId: string,
   ): Promise<void> {
-    await this.service.deleteRowComment(orgId, versionId, commentId, req.user.id);
+    await this.service.deleteRowComment(
+      orgId,
+      versionId,
+      commentId,
+      req.user.id,
+    );
   }
 
   // ============================================================
@@ -258,7 +269,12 @@ export class ChoshoController {
     @Param('commentId', ParseUUIDPipe) commentId: string,
     @Body() dto: { resolved: boolean },
   ) {
-    return this.service.resolveCellComment(orgId, commentId, dto.resolved, req.user.id);
+    return this.service.resolveCellComment(
+      orgId,
+      commentId,
+      dto.resolved,
+      req.user.id,
+    );
   }
 
   /** commentId 指定での編集 (本人のみ)。本文+URL を上書き、 author/createdAt は不変。 */
@@ -305,7 +321,12 @@ export class ChoshoController {
     @Query('month', ParseIntPipe) month: number,
     @Query('rowKey') rowKey?: string,
   ) {
-    return this.service.listPreviewCellComments(orgId, fiscalYear, month, rowKey);
+    return this.service.listPreviewCellComments(
+      orgId,
+      fiscalYear,
+      month,
+      rowKey,
+    );
   }
 
   /** POST /preview-cell-comments — 任意セルにコメント追加 (root or 返信)。 */
@@ -348,7 +369,11 @@ export class ChoshoController {
   ) {
     // month 省略時は fiscalYear 内全月の最新 version cell comments を集約
     const month = monthRaw ? parseInt(monthRaw, 10) : undefined;
-    return this.service.listRecentCellCommentsForPeriod(orgId, fiscalYear, month);
+    return this.service.listRecentCellCommentsForPeriod(
+      orgId,
+      fiscalYear,
+      month,
+    );
   }
 
   @Get('recent-cell-comment-groups')
