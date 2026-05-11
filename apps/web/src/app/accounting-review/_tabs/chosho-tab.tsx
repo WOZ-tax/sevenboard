@@ -18,7 +18,7 @@
  *   - draft → approved 承認フロー
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -68,6 +68,11 @@ interface Props {
   month: number | undefined;
 }
 
+interface FocusCellParams {
+  rowId: string;
+  month: number | null;
+}
+
 const CHOSHO_PREVIEW_SCOPES: Array<{
   key: ChoshoPreviewScope;
   label: string;
@@ -81,19 +86,60 @@ const CHOSHO_PREVIEW_SCOPES: Array<{
 export function ChoshoTab({ orgId, fiscalYear, month }: Props) {
   const searchParams = useSearchParams();
   const versionId = searchParams.get("versionId");
+  const focusCell = readFocusCellParams(searchParams);
 
   if (versionId) {
-    return <SavedVersionView orgId={orgId} versionId={versionId} />;
+    return (
+      <SavedVersionView
+        orgId={orgId}
+        versionId={versionId}
+        focusCell={focusCell}
+      />
+    );
   }
-  return <PreviewView orgId={orgId} fiscalYear={fiscalYear} month={month} />;
+  return (
+    <PreviewView
+      orgId={orgId}
+      fiscalYear={fiscalYear}
+      month={month}
+      focusCell={focusCell}
+    />
+  );
+}
+
+function readFocusCellParams(searchParams: {
+  get(name: string): string | null;
+}): FocusCellParams | null {
+  const rowId = searchParams.get("focusChoshoRow");
+  if (!rowId) return null;
+  const rawMonth = searchParams.get("focusChoshoMonth");
+  const parsedMonth = rawMonth ? Number(rawMonth) : NaN;
+  return {
+    rowId,
+    month:
+      Number.isInteger(parsedMonth) && parsedMonth >= 1 && parsedMonth <= 12
+        ? parsedMonth
+        : null,
+  };
 }
 
 // ============================================================
 // preview モード (URL に ?versionId= が無いとき)
 // ============================================================
 
-function PreviewView({ orgId, fiscalYear, month }: Props) {
-  const [scope, setScope] = useState<ChoshoPreviewScope>("bs");
+function PreviewView({
+  orgId,
+  fiscalYear,
+  month,
+  focusCell,
+}: Props & { focusCell: FocusCellParams | null }) {
+  const searchParams = useSearchParams();
+  const scopeFromUrl: ChoshoPreviewScope =
+    searchParams.get("scope") === "pl" ? "pl" : "bs";
+  const [scope, setScope] = useState<ChoshoPreviewScope>(scopeFromUrl);
+  useEffect(() => {
+    setScope(scopeFromUrl);
+  }, [scopeFromUrl]);
   const query = useChoshoPreview({ orgId, fiscalYear, month, scope });
   const isBsScope = scope === "bs";
   // preview モードでも (org, fy, month, rowKey) ベースで cell コメントを直接書き読みできる。
@@ -223,6 +269,7 @@ function PreviewView({ orgId, fiscalYear, month }: Props) {
           previewComments.deleteCellCommentById.isPending
         }
         isDeletingCellComment={previewComments.deleteCellCommentById.isPending}
+        focusCell={focusCell}
         headerSlot={
           isBsScope ? (
             <SaveDraftButton
@@ -293,9 +340,11 @@ function ChoshoPreviewScopeTabs({
 function SavedVersionView({
   orgId,
   versionId,
+  focusCell,
 }: {
   orgId: string;
   versionId: string;
+  focusCell: FocusCellParams | null;
 }) {
   const router = useRouter();
   const qc = useQueryClient();
@@ -363,6 +412,7 @@ function SavedVersionView({
       isUpsertingCellComment={comments.upsertCellComment.isPending}
       isDeletingCellComment={comments.deleteCellComment.isPending}
       isUpdatingRowRule={comments.updateRowRule.isPending}
+      focusCell={focusCell}
       headerSlot={
         <div className="flex items-center gap-2">
           <Badge
@@ -474,6 +524,8 @@ interface ChoshoTableProps {
   summaryColumnValue?: "settlementBalance" | "total";
   /** 右上のアクション領域 (保存ボタン or バッジ等)。 */
   headerSlot?: React.ReactNode;
+  /** レビューメモから戻るときに開く対象セル。 */
+  focusCell?: FocusCellParams | null;
   /** saved version モードのみ true。コメント機能 (閲覧+編集) の表示判定。 */
   commentsEnabled?: boolean;
   /**
@@ -528,6 +580,7 @@ function ChoshoTable({
   summaryColumnLabel = "決算整理",
   summaryColumnValue = "settlementBalance",
   headerSlot,
+  focusCell = null,
   commentsEnabled = false,
   commentsEditable = true,
   rowComments = [],
@@ -655,6 +708,35 @@ function ChoshoTable({
   } | null>(null);
   // ルール編集 Dialog (Unit 2B-5b)。saved + DRAFT のみ開ける
   const [openRowRule, setOpenRowRule] = useState<ChoshoPreviewRow | null>(null);
+
+  useEffect(() => {
+    if (!focusCell?.rowId) return;
+    const row = data.rows.find((r) => r.rowKey === focusCell.rowId);
+    if (!row) return;
+
+    const byKey = new Map(data.rows.map((r) => [r.rowKey, r]));
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      let cur: ChoshoPreviewRow | undefined = row;
+      while (cur?.parentRowKey) {
+        const parent = byKey.get(cur.parentRowKey);
+        if (!parent) break;
+        next.add(parent.rowKey);
+        cur = parent;
+      }
+      return next;
+    });
+
+    if (focusCell.month == null) return;
+    const anomaly =
+      row.anomalies.find((item) => item.month === focusCell.month) ?? null;
+    setOpenCellComment({
+      rowId: row.rowKey,
+      month: focusCell.month,
+      anomaly,
+      rowName: row.name,
+    });
+  }, [data.rows, focusCell?.rowId, focusCell?.month]);
 
   return (
     <div className="space-y-3">
