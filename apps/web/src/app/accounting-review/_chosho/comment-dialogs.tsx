@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, Plus, Trash2, X, Link as LinkIcon } from "lucide-react";
+import { Loader2, Plus, Trash2, X } from "lucide-react";
 import {
   Dialog,
   DialogClose,
@@ -25,8 +25,6 @@ import { cn } from "@/lib/utils";
 import {
   CommentUrlLink,
   LinkedCommentText,
-  navigableUrl,
-  shortenUrlForDisplay,
 } from "../_components/comment-url-link";
 
 // ============================================================
@@ -63,16 +61,10 @@ export function UrlChipsEditor({
             title={u}
             className="inline-grid min-w-0 max-w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-1 overflow-hidden rounded bg-muted/60 px-1.5 py-0.5 text-[10px] text-muted-foreground"
           >
-            <LinkIcon className="h-2.5 w-2.5 shrink-0" />
-            <a
-              href={navigableUrl(u)}
-              target="_blank"
-              rel="noreferrer"
-              onClick={(event) => event.stopPropagation()}
-              className="min-w-0 truncate text-[var(--color-primary)] hover:underline"
-            >
-              {shortenUrlForDisplay(u)}
-            </a>
+            <CommentUrlLink
+              url={u}
+              className="col-span-2 bg-transparent px-0 py-0 text-[10px]"
+            />
             <button
               type="button"
               onClick={() => onChange(urls.filter((x) => x !== u))}

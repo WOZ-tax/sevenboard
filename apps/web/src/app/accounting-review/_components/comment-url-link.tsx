@@ -1,6 +1,7 @@
 "use client";
 
-import { Link as LinkIcon } from "lucide-react";
+import { Copy, FolderOpen, Link as LinkIcon } from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 const DEFAULT_URL_DISPLAY_LIMIT = 44;
@@ -8,6 +9,7 @@ const DEFAULT_URL_DISPLAY_LIMIT = 44;
 export function navigableUrl(rawUrl: string): string {
   const trimmed = rawUrl.trim();
   if (!trimmed) return "#";
+  if (isLocalFolderPath(trimmed)) return "#";
   if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) return trimmed;
   if (trimmed.startsWith("//")) return `https:${trimmed}`;
   return `https://${trimmed}`;
@@ -19,6 +21,7 @@ export function shortenUrlForDisplay(
 ): string {
   const trimmed = rawUrl.trim();
   const fallback = shortenMiddle(trimmed || rawUrl, limit);
+  if (isLocalFolderPath(trimmed)) return fallback;
   try {
     const parsed = new URL(navigableUrl(trimmed));
     const host = parsed.hostname.replace(/^www\./, "");
@@ -26,6 +29,20 @@ export function shortenUrlForDisplay(
     return shortenMiddle(`${host}${rest}` || host, limit);
   } catch {
     return fallback;
+  }
+}
+
+export function isLocalFolderPath(value: string): boolean {
+  const trimmed = value.trim();
+  return /^[a-zA-Z]:[\\/]/.test(trimmed) || /^\\\\[^\\]+\\[^\\]+/.test(trimmed);
+}
+
+async function copyPath(value: string) {
+  try {
+    await navigator.clipboard.writeText(value);
+    toast.success("フォルダパスをコピーしました");
+  } catch {
+    toast.error("コピーに失敗しました");
   }
 }
 
@@ -43,6 +60,28 @@ export function CommentUrlLink({
   url: string;
   className?: string;
 }) {
+  if (isLocalFolderPath(url)) {
+    return (
+      <button
+        type="button"
+        title={`${url}\nクリックでコピー`}
+        aria-label={`フォルダパスをコピー: ${url}`}
+        onClick={(event) => {
+          event.stopPropagation();
+          void copyPath(url);
+        }}
+        className={cn(
+          "inline-grid min-w-0 max-w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-0.5 overflow-hidden rounded bg-muted/60 px-1.5 py-0.5 text-[10px] text-[var(--color-primary)] align-middle hover:bg-muted hover:underline",
+          className,
+        )}
+      >
+        <FolderOpen className="h-2.5 w-2.5 shrink-0" />
+        <span className="min-w-0 truncate">{shortenUrlForDisplay(url)}</span>
+        <Copy className="h-2.5 w-2.5 shrink-0 text-muted-foreground" />
+      </button>
+    );
+  }
+
   return (
     <a
       href={navigableUrl(url)}
@@ -63,7 +102,7 @@ export function CommentUrlLink({
 }
 
 const URL_TOKEN_PATTERN =
-  /((?:https?:\/\/|www\.)[^\s<>"']+|[a-z0-9][a-z0-9.-]+\.[a-z]{2,}(?:[/?#][^\s<>"']*)?)/gi;
+  /([a-zA-Z]:[\\/][^\r\n<>"']+|\\\\[^\r\n<>"']+|(?:https?:\/\/|www\.)[^\s<>"']+|[a-z0-9][a-z0-9.-]+\.[a-z]{2,}(?:[/?#][^\s<>"']*)?)/gi;
 
 export function LinkedCommentText({
   text,
@@ -77,17 +116,32 @@ export function LinkedCommentText({
     <div className={cn("whitespace-pre-wrap break-words", className)}>
       {parts.map((part, index) =>
         part.kind === "url" ? (
-          <a
-            key={`${part.value}-${index}`}
-            href={navigableUrl(part.value)}
-            target="_blank"
-            rel="noreferrer"
-            title={part.value}
-            onClick={(event) => event.stopPropagation()}
-            className="inline max-w-full break-all text-[var(--color-primary)] underline underline-offset-2 hover:opacity-80"
-          >
-            {shortenUrlForDisplay(part.value, 52)}
-          </a>
+          isLocalFolderPath(part.value) ? (
+            <button
+              key={`${part.value}-${index}`}
+              type="button"
+              title={`${part.value}\nクリックでコピー`}
+              onClick={(event) => {
+                event.stopPropagation();
+                void copyPath(part.value);
+              }}
+              className="inline max-w-full break-all text-[var(--color-primary)] underline underline-offset-2 hover:opacity-80"
+            >
+              {shortenUrlForDisplay(part.value, 52)}
+            </button>
+          ) : (
+            <a
+              key={`${part.value}-${index}`}
+              href={navigableUrl(part.value)}
+              target="_blank"
+              rel="noreferrer"
+              title={part.value}
+              onClick={(event) => event.stopPropagation()}
+              className="inline max-w-full break-all text-[var(--color-primary)] underline underline-offset-2 hover:opacity-80"
+            >
+              {shortenUrlForDisplay(part.value, 52)}
+            </a>
+          )
         ) : (
           <span key={`${index}-${part.value.slice(0, 8)}`}>
             {part.value}
