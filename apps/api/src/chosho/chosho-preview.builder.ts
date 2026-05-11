@@ -35,10 +35,12 @@ interface BuildInput {
    *   - 非対象勘定 (棚卸資産・短期借入金 等) の補助科目・取引先は drop
    *     (親勘定の行自体は残るので BS 残高は読める)
    *
-   * 省略時は TARGET_ACCOUNT_KEYWORDS (売掛金/買掛金/未収金/未払金/前受金/前払金/立替金)。
-   * 空配列 [] を渡すと全補助科目を残す (BS 完全展開、テスト用)。
+   * 省略時 / 空配列 [] は全補助科目を残す。
+   * 指定時だけ、その勘定の補助科目・取引先を展開する。
    */
   filterAccountKeywords?: string[];
+  /** rowKeyの先頭prefix。BS/PLを同じUIで扱うため、コメント用keyの衝突を防ぐ。 */
+  rowKeyPrefix?: string;
   /**
    * 直近3ヶ月の各勘定の借方/貸方発生額。AGING_3M 誤検知抑制に使う。
    * key = '/' 区切りの name path (例: "資産の部/流動資産/売掛金/株式会社サンプル")。
@@ -76,23 +78,6 @@ const RECEIVABLE_ACCOUNT_KEYWORDS = [
   '立替金',
 ] as const;
 
-/**
- * 残高調書の表示対象勘定。これらの勘定だけ抽出し、補助科目を折りたたみで展開する。
- * filterAccountKeywords 省略時のデフォルト。
- *
- * 中小企業の月次・決算レビューで内訳チェックが必須な定番科目。
- * BS 全体ではなくフォーカスを絞ることで、顧問のレビュー集中度を上げる。
- */
-export const TARGET_ACCOUNT_KEYWORDS = [
-  '売掛金',
-  '買掛金',
-  '未収金',
-  '未払金',
-  '前受金',
-  '前払金',
-  '立替金',
-] as const;
-
 export function buildChoshoPreviewRows(input: BuildInput): BuildOutput {
   if (!input.bsTransition) {
     return { rows: [], monthOrder: [] };
@@ -105,7 +90,7 @@ export function buildChoshoPreviewRows(input: BuildInput): BuildOutput {
     .map((c) => parseInt(c, 10));
 
   const out: ChoshoPreviewRow[] = [];
-  flattenMfRows(input.bsTransition.rows, null, 0, monthOrder, out, 'bs');
+  flattenMfRows(input.bsTransition.rows, null, 0, monthOrder, out, input.rowKeyPrefix ?? 'bs');
 
   // 階層情報 (祖先 name list) を解決してから rule defaults / anomalies を埋める。
   applyRulesAndDetectAnomalies(
@@ -116,11 +101,8 @@ export function buildChoshoPreviewRows(input: BuildInput): BuildOutput {
     input.recentActivityByPath,
   );
 
-  // BS 全体は残し、非対象勘定の補助科目以下だけ drop。
-  const keywords =
-    input.filterAccountKeywords === undefined
-      ? Array.from(TARGET_ACCOUNT_KEYWORDS)
-      : input.filterAccountKeywords;
+  // BS/PL 全体は残す。filterAccountKeywords 指定時だけ、非対象勘定の補助科目以下を drop。
+  const keywords = input.filterAccountKeywords ?? [];
   const filtered =
     keywords.length > 0 ? filterSubAccountsToTargetAccounts(out, keywords) : out;
 

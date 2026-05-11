@@ -23,7 +23,7 @@ export function useChoshoPreview({
   orgId,
   fiscalYear,
   month,
-  scope = "focused",
+  scope = "bs",
   enabled,
 }: UseChoshoPreviewArgs) {
   return useQuery<ChoshoPreviewResult>({

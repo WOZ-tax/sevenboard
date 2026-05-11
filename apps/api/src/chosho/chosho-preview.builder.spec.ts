@@ -363,11 +363,11 @@ describe('buildChoshoPreviewRows / outOfRange independence', () => {
 });
 
 // ============================================================
-// 補助科目フィルタ (TARGET_ACCOUNT_KEYWORDS)
+// 補助科目フィルタ (filterAccountKeywords 明示指定時)
 //
 // 仕様:
 //   - BS全体 (大区分・中区分・全勘定) は残す
-//   - 7勘定 (売掛金/買掛金/未収金/未払金/前受金/前払金/立替金) の補助科目だけ展開
+//   - 指定した勘定の補助科目だけ展開
 //   - それ以外の勘定の補助科目・取引先は drop
 //   - 親勘定の行自体は drop しない (BS残高は崩れない)
 // ============================================================
@@ -380,7 +380,10 @@ describe('buildChoshoPreviewRows / sub-account filter', () => {
       subaccountName: '株式会社サンプル',
       subaccountValues: Array(12).fill(100),
     });
-    const { rows } = buildChoshoPreviewRows({ bsTransition: bs });
+    const { rows } = buildChoshoPreviewRows({
+      bsTransition: bs,
+      filterAccountKeywords: ['売掛金'],
+    });
     // 4階層すべて残る (大区分・中区分・親勘定・補助)
     expect(rows.map((r) => r.name)).toEqual([
       '資産の部',
@@ -398,7 +401,10 @@ describe('buildChoshoPreviewRows / sub-account filter', () => {
       subaccountName: '在庫1',
       subaccountValues: Array(12).fill(100),
     });
-    const { rows } = buildChoshoPreviewRows({ bsTransition: bs });
+    const { rows } = buildChoshoPreviewRows({
+      bsTransition: bs,
+      filterAccountKeywords: ['売掛金'],
+    });
     // 大区分・中区分・親勘定 (商品) は残る、補助 (在庫1) は drop
     expect(rows.map((r) => r.name)).toEqual(['資産の部', '流動資産', '商品']);
     // 親勘定 商品 は補助が drop されたので hasChildren = false に再計算
@@ -406,7 +412,7 @@ describe('buildChoshoPreviewRows / sub-account filter', () => {
     expect(shohin.hasChildren).toBe(false);
   });
 
-  it('keeps sub-accounts for all 7 target accounts', () => {
+  it('keeps sub-accounts for explicitly filtered accounts', () => {
     for (const accountName of [
       '売掛金',
       '買掛金',
@@ -421,7 +427,10 @@ describe('buildChoshoPreviewRows / sub-account filter', () => {
         subaccountName: '取引先A',
         subaccountValues: Array(12).fill(0),
       });
-      const { rows } = buildChoshoPreviewRows({ bsTransition: bs });
+      const { rows } = buildChoshoPreviewRows({
+        bsTransition: bs,
+        filterAccountKeywords: [accountName],
+      });
       // 大区分・中区分・親勘定・補助 = 4 件
       expect(rows.map((r) => r.name)).toContain('取引先A');
       expect(rows).toHaveLength(4);
@@ -502,4 +511,3 @@ describe('buildChoshoPreviewRows / sub-account filter', () => {
     expect(leaf.anomalies[0].type).toBe('AGING_3M');
   });
 });
-

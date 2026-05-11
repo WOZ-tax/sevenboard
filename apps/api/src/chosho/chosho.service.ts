@@ -17,7 +17,7 @@ import type {
   ChoshoPreviewRow,
 } from './chosho-preview.types';
 
-type ChoshoPreviewScope = 'focused' | 'bs';
+type ChoshoPreviewScope = 'bs' | 'pl';
 
 /**
  * 残高調書 service。
@@ -45,24 +45,29 @@ export class ChoshoService {
     orgId: string,
     fiscalYear: number,
     selectedMonth: number,
-    scope: ChoshoPreviewScope = 'focused',
+    scope: ChoshoPreviewScope = 'bs',
   ): Promise<ChoshoPreviewResult> {
     const { fyStartMonth } = await this.resolveOrg(orgId);
-    const bsTransition = await this.mfApi
-      .getTransitionBS(orgId, fiscalYear, selectedMonth, {
-        withSubAccounts: true,
-      })
-      .catch(() => null);
-    const recentActivityByPath = await this.fetchRecentActivityByPath(
-      orgId,
-      fiscalYear,
-      selectedMonth,
-    );
+    const transition =
+      scope === 'pl'
+        ? await this.mfApi
+            .getTransitionPL(orgId, fiscalYear, selectedMonth)
+            .catch(() => null)
+        : await this.mfApi
+            .getTransitionBS(orgId, fiscalYear, selectedMonth, {
+              withSubAccounts: true,
+            })
+            .catch(() => null);
+    const recentActivityByPath =
+      scope === 'bs'
+        ? await this.fetchRecentActivityByPath(orgId, fiscalYear, selectedMonth)
+        : undefined;
     const { rows, monthOrder } = buildChoshoPreviewRows({
-      bsTransition,
+      bsTransition: transition,
       selectedMonth,
       recentActivityByPath,
-      ...(scope === 'bs' ? { filterAccountKeywords: [] } : {}),
+      filterAccountKeywords: [],
+      rowKeyPrefix: scope,
     });
     return { fiscalYear, selectedMonth, fyStartMonth, monthOrder, rows };
   }
@@ -102,6 +107,8 @@ export class ChoshoService {
       bsTransition,
       selectedMonth,
       recentActivityByPath,
+      filterAccountKeywords: [],
+      rowKeyPrefix: 'bs',
     });
 
     const versionId = await this.prisma.$transaction(async (tx) => {

@@ -53,7 +53,7 @@ export class ChoshoController {
       orgId,
       fiscalYear,
       month,
-      scope === 'bs' ? 'bs' : 'focused',
+      scope === 'pl' ? 'pl' : 'bs',
     );
   }
 

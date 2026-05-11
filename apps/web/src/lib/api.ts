@@ -299,7 +299,7 @@ export interface ChoshoPreviewResult {
   rows: ChoshoPreviewRow[];
 }
 
-export type ChoshoPreviewScope = 'focused' | 'bs';
+export type ChoshoPreviewScope = 'bs' | 'pl';
 
 // === Journal Review ===
 export interface JournalReviewFlagItem {
@@ -1422,13 +1422,13 @@ export const api = {
       orgId: string,
       fiscalYear: number,
       month: number,
-      scope: ChoshoPreviewScope = 'focused',
+      scope: ChoshoPreviewScope = 'bs',
     ) => {
       const qs = new URLSearchParams({
         fiscalYear: String(fiscalYear),
         month: String(month),
       });
-      if (scope === 'bs') qs.set('scope', scope);
+      if (scope !== 'bs') qs.set('scope', scope);
       return apiFetch<ChoshoPreviewResult>(
         `/organizations/${orgId}/chosho/preview?${qs.toString()}`,
       );

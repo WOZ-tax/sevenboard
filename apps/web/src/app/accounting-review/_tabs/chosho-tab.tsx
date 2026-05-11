@@ -74,8 +74,8 @@ const CHOSHO_PREVIEW_SCOPES: Array<{
   badge: string;
   icon: typeof FileSpreadsheet;
 }> = [
-  { key: "focused", label: "残高調書", badge: "7勘定", icon: FileSpreadsheet },
-  { key: "bs", label: "BS推移表", badge: "全勘定", icon: BarChart3 },
+  { key: "bs", label: "BS推移表", badge: "全勘定", icon: FileSpreadsheet },
+  { key: "pl", label: "PL推移表", badge: "全勘定", icon: BarChart3 },
 ];
 
 export function ChoshoTab({ orgId, fiscalYear, month }: Props) {
@@ -93,15 +93,15 @@ export function ChoshoTab({ orgId, fiscalYear, month }: Props) {
 // ============================================================
 
 function PreviewView({ orgId, fiscalYear, month }: Props) {
-  const [scope, setScope] = useState<ChoshoPreviewScope>("focused");
+  const [scope, setScope] = useState<ChoshoPreviewScope>("bs");
   const query = useChoshoPreview({ orgId, fiscalYear, month, scope });
-  const isFocusedScope = scope === "focused";
+  const isBsScope = scope === "bs";
   // preview モードでも (org, fy, month, rowKey) ベースで cell コメントを直接書き読みできる。
   const previewComments = useChoshoPreviewCellComments({
     orgId,
     fiscalYear,
     month,
-    enabled: isFocusedScope,
+    enabled: true,
   });
   const currentUserId = useAuthStore((s) => s.user?.id ?? null);
   const tabHeader = (
@@ -126,8 +126,10 @@ function PreviewView({ orgId, fiscalYear, month }: Props) {
         {tabHeader}
         <ThinkingIndicator
           stages={[
-            "MF 推移表 (BS 12 ヶ月) を取得中",
-            scope === "bs" ? "BS全勘定を展開中" : "残高調書対象勘定を展開中",
+            scope === "bs"
+              ? "MF 推移表 (BS 12 ヶ月) を取得中"
+              : "MF 推移表 (PL 12 ヶ月) を取得中",
+            scope === "bs" ? "BS全勘定を展開中" : "PL全勘定を展開中",
             "期待残高ルールを適用中",
             "選択月の異常を検知中",
           ]}
@@ -163,23 +165,21 @@ function PreviewView({ orgId, fiscalYear, month }: Props) {
 
   // preview モードでもセルクリック → 直接コメント可能。
   // (org, fy, month, rowKey) で書き読みするので「下書き保存」は snapshot 用途だけになる。
-  const cellComments = isFocusedScope
-    ? (previewComments.cellComments.data ?? [])
-    : [];
+  const cellComments = previewComments.cellComments.data ?? [];
   return (
     <div className="space-y-3">
       {tabHeader}
       <ChoshoTable
         data={data}
-        title={scope === "bs" ? "BS推移表" : "残高調書"}
+        title={scope === "bs" ? "BS推移表" : "PL推移表"}
         description={
           scope === "bs"
             ? "MFクラウド会計のBS推移表を全勘定で表示"
-            : "補助科目展開: 売掛金・買掛金・未収金・未払金・前受金・前払金・立替金"
+            : "MFクラウド会計のPL推移表を全勘定で表示"
         }
-        commentsEnabled={isFocusedScope}
-        commentsEditable={isFocusedScope}
-        cellOnlyMode={isFocusedScope}
+        commentsEnabled
+        commentsEditable
+        cellOnlyMode
         cellComments={cellComments}
         currentUserId={currentUserId}
         onUpsertCellComment={(input) => {
@@ -221,7 +221,7 @@ function PreviewView({ orgId, fiscalYear, month }: Props) {
         }
         isDeletingCellComment={previewComments.deleteCellCommentById.isPending}
         headerSlot={
-          isFocusedScope ? (
+          isBsScope ? (
             <SaveDraftButton
               orgId={orgId}
               fiscalYear={data.fiscalYear}
@@ -518,8 +518,8 @@ interface ChoshoTableProps {
 
 function ChoshoTable({
   data,
-  title = "残高調書 (BS)",
-  description = "補助科目展開可能なのは 売掛金・買掛金・未収金・未払金・前受金・前払金・立替金 のみ",
+  title = "BS推移表",
+  description = "MFクラウド会計のBS推移表を全勘定で表示",
   headerSlot,
   commentsEnabled = false,
   commentsEditable = true,
