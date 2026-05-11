@@ -319,11 +319,25 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-        <div>
+        <div className="flex flex-wrap items-center gap-2">
           <span className="font-semibold text-[var(--color-text-primary)]">レビューメモ</span>
-          <span className="ml-2">
-            {fiscalYear}年度 ・ {filterMonth === "all" ? "全期間" : `${filterMonth}月度`}
-          </span>
+          <span>{fiscalYear}年度</span>
+          <Select
+            value={filterMonth === "all" ? "all" : String(filterMonth)}
+            onValueChange={(v) => handleSetFilterMonth(v === "all" ? "all" : Number(v))}
+          >
+            <SelectTrigger className="h-7 w-32 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">全期間</SelectItem>
+              {monthsInFy.map((m) => (
+                <SelectItem key={m} value={String(m)} className="tabular-nums">
+                  {m}月度
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         {memoSource === "journal" && flagsPage ? (
           <div className="flex items-center gap-2">
@@ -333,26 +347,8 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
         ) : null}
       </div>
 
-      {/* 月別フィルタ + 更新 */}
-      <div className="flex items-center gap-2 text-xs">
-        <span className="text-muted-foreground">期間</span>
-        <Select
-          value={filterMonth === "all" ? "all" : String(filterMonth)}
-          onValueChange={(v) => handleSetFilterMonth(v === "all" ? "all" : Number(v))}
-        >
-          <SelectTrigger className="h-7 w-32 text-xs">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">全期間</SelectItem>
-            {monthsInFy.map((m) => (
-              <SelectItem key={m} value={String(m)} className="tabular-nums">
-                {m}月度
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        {memoSource === "journal" ? (
+      {memoSource === "journal" ? (
+        <div className="flex items-center gap-2 text-xs">
           <Button
             type="button"
             size="sm"
@@ -371,8 +367,8 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
             ) : null}
             更新
           </Button>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
 
       <div className="grid grid-cols-2 gap-1 rounded-md border border-[var(--color-border)] bg-card p-1 shadow-sm">
         <button
@@ -678,21 +674,14 @@ function FlaggedJournalRow({
           </Badge>
         </td>
         <td className="px-2 py-1.5 text-center">
-          <Button
-            type="button"
-            size="sm"
-            variant={isResolved ? "outline" : "default"}
+          <span
             className={cn(
-              "h-6 px-2 text-[10px]",
-              isResolved && "border-emerald-300 text-emerald-700",
-              !isResolved && "bg-blue-600 hover:bg-blue-700",
+              "rounded border px-1.5 py-0.5 text-[10px] font-medium",
+              isResolved ? "border-emerald-300 bg-emerald-50 text-emerald-700" : "border-red-300 bg-red-50 text-red-700",
             )}
-            onClick={onToggleResolve}
-            disabled={isResolving}
           >
-            {isResolving && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
             {isResolved ? "✓ 解決済" : "未解決"}
-          </Button>
+          </span>
         </td>
         <td className="px-1 py-1.5 text-center">
           <button
@@ -724,6 +713,9 @@ function FlaggedJournalRow({
               onDelete={onDelete}
               onUpdate={onUpdate}
               isUpdating={isUpdating}
+              isResolved={isResolved}
+              isResolving={isResolving}
+              onToggleResolve={onToggleResolve}
             />
           </td>
         </tr>
@@ -749,6 +741,9 @@ function CommentThread({
   onDelete,
   onUpdate,
   isUpdating,
+  isResolved,
+  isResolving,
+  onToggleResolve,
 }: {
   journalId: string;
   roots: JournalReviewCommentItem[];
@@ -762,6 +757,9 @@ function CommentThread({
   onDelete: (commentId: string) => void;
   onUpdate: (commentId: string, body: string, urls: string[]) => void;
   isUpdating: boolean;
+  isResolved: boolean;
+  isResolving: boolean;
+  onToggleResolve: () => void;
 }) {
   const repliesByRoot = useMemo(() => {
     const m = new Map<string, JournalReviewCommentItem[]>();
@@ -776,6 +774,24 @@ function CommentThread({
 
   return (
     <div className="space-y-2 rounded bg-muted/20 p-2">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[11px] text-muted-foreground">ステータス</span>
+        <button
+          type="button"
+          onClick={onToggleResolve}
+          disabled={isResolving}
+          className={cn(
+            "shrink-0 rounded border px-1.5 py-0.5 text-[10px]",
+            isResolved
+              ? "border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+              : "border-red-300 bg-red-50 text-red-700 hover:bg-red-100",
+          )}
+          title={isResolved ? "クリックで再オープン" : "クリックで解決済"}
+        >
+          {isResolving ? <Loader2 className="mr-1 inline h-3 w-3 animate-spin" /> : null}
+          {isResolved ? "✓ 解決" : "未解決"}
+        </button>
+      </div>
       {roots.length === 0 && !isComposing && (
         <p className="py-2 text-center text-[11px] text-muted-foreground">
           まだコメントはありません

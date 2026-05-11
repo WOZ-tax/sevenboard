@@ -29,12 +29,8 @@ import {
 import { ChoshoTab } from "./_tabs/chosho-tab";
 import { JournalReviewTab } from "./_tabs/journal-tab";
 import { MemoTab } from "./_tabs/memo-tab";
-import { AgentBanner } from "@/components/agent/agent-banner";
-import { AGENTS } from "@/lib/agent-voice";
-import { CopilotOpenButton } from "@/components/copilot/copilot-open-button";
 import { ActionizeButton } from "@/components/ui/actionize-button";
 import { ThinkingIndicator } from "@/components/ai/thinking-indicator";
-import { HealthSummaryCard } from "@/components/dashboard/health-summary-card";
 import type {
   KintoneMonthlyProgress,
   ReviewAlert,
@@ -265,29 +261,7 @@ function AccountingReviewPageInner() {
 
         <PeriodSegmentControl showAllPeriod={false} label="対象月（単月）" highlightRange={false} />
 
-        <div className="screen-only">
-          <AgentBanner
-            agent={AGENTS.auditor}
-            status={
-              currentStatus === "4.納品済"
-                ? "ok"
-                : currentStatus === "0.未作業"
-                  ? "idle"
-                  : "running"
-            }
-            detectionCount={0}
-            lastUpdatedAt={new Date().toISOString()}
-            actions={
-              <CopilotOpenButton
-                agentKey="auditor"
-                mode="observe"
-                seed="今月のレビュー網羅性と、再発している指摘の傾向を整理してください。"
-              />
-            }
-          />
-        </div>
-
-        {/* 調書メイン化 — 健康サマリーはダッシュボードへ移動、 要確認アイテムはタブの下に降ろす */}
+        {/* 調書メイン化 — 健康サマリーとAI質疑応答は他画面へ分離 */}
         {/* タブ */}
         <div
           role="tablist"
@@ -367,280 +341,11 @@ function AccountingReviewPageInner() {
           </div>
         )}
 
-        {/* 要確認アイテム (AI CFO の異常検知) — ページ下部に配置 */}
-        <RiskFindingsCard orgId={orgId} fiscalYear={fiscalYear} month={month} />
       </div>
     </DashboardShell>
   );
 }
 
-
-/**
- * ② 要確認アイテム (AI CFO の異常検知) カード。
- *
- * - L1+L2 検知は MF 同期完了時に自動で走るので、fiscalYear/month に紐づく結果を取得して表示
- * - L1 だけ手動再検証 (コストゼロ) と L3 「AI詳細チェック」(LLM 課金) が選べる
- * - status は OPEN + CONFIRMED を表示。DISMISSED / RESOLVED は履歴扱いで非表示
- */
-function RiskFindingsCard({
-  orgId,
-  fiscalYear,
-  month,
-}: {
-  orgId: string;
-  fiscalYear?: number;
-  month?: number;
-}) {
-  const queryClient = useQueryClient();
-  const [layerFilter, setLayerFilter] = useState<
-    "ALL" | "L1_RULE" | "L2_STATS" | "L3_LLM"
-  >("ALL");
-
-  const enabled = !!orgId && !!fiscalYear && !!month;
-  const findingsQuery = useQuery({
-    queryKey: ["risk-findings", orgId, fiscalYear, month],
-    queryFn: () => api.riskFindings.list(orgId, fiscalYear!, month!),
-    enabled,
-    staleTime: 30 * 1000,
-  });
-
-  const updateStatusMutation = useMutation({
-    mutationFn: (vars: { id: string; status: "CONFIRMED" | "DISMISSED" | "RESOLVED" }) =>
-      api.riskFindings.updateStatus(orgId, vars.id, vars.status),
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["risk-findings", orgId, fiscalYear, month],
-      });
-    },
-  });
-
-  const rescanMutation = useMutation({
-    mutationFn: (layer: "L1" | "L3") =>
-      api.riskFindings.runScan(orgId, fiscalYear!, month!, layer),
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["risk-findings", orgId, fiscalYear, month],
-      });
-    },
-  });
-
-  if (!enabled) return null;
-
-  const findings = findingsQuery.data ?? [];
-  const filtered =
-    layerFilter === "ALL"
-      ? findings
-      : findings.filter((f) => f.layer === layerFilter);
-
-  const layerLabel: Record<"L1_RULE" | "L2_STATS" | "L3_LLM", string> = {
-    L1_RULE: "L1 ルール",
-    L2_STATS: "L2 統計",
-    L3_LLM: "L3 AI",
-  };
-
-  return (
-    <Card className="screen-only">
-      <CardHeader className="flex flex-row items-center justify-between pb-2">
-        <CardTitle className="text-base font-semibold text-[var(--color-text-primary)]">
-          要確認アイテム
-          {findings.length > 0 && (
-            <span className="ml-2 text-xs font-normal text-muted-foreground">
-              {findings.length} 件
-            </span>
-          )}
-        </CardTitle>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={rescanMutation.isPending}
-            onClick={() => rescanMutation.mutate("L1")}
-            title="MF データから決定的ルール (L1) を再実行 (コストゼロ)"
-          >
-            {rescanMutation.isPending && rescanMutation.variables === "L1" ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : null}
-            <span className="ml-1">再検証</span>
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={rescanMutation.isPending}
-            onClick={() => rescanMutation.mutate("L3")}
-            title="LLM で摘要・パターンの意味的異常を検知 (トークン消費あり)"
-          >
-            {rescanMutation.isPending && rescanMutation.variables === "L3" ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : null}
-            <span className="ml-1">AI詳細チェック</span>
-          </Button>
-        </div>
-      </CardHeader>
-      <CardContent>
-        <div className="mb-3 flex flex-wrap gap-1">
-          {(["ALL", "L1_RULE", "L2_STATS", "L3_LLM"] as const).map((key) => {
-            const selected = layerFilter === key;
-            const label =
-              key === "ALL" ? "全て" : layerLabel[key as keyof typeof layerLabel];
-            return (
-              <button
-                key={key}
-                onClick={() => setLayerFilter(key)}
-                className={cn(
-                  "whitespace-nowrap rounded-full border px-3 py-1 text-xs font-medium",
-                  selected
-                    ? "border-[var(--color-primary)] bg-[var(--color-primary)]/10 text-[var(--color-primary)]"
-                    : "border-input text-muted-foreground hover:bg-muted/50",
-                )}
-              >
-                {label}
-              </button>
-            );
-          })}
-        </div>
-
-        {findingsQuery.isLoading ? (
-          <div className="space-y-2">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <div key={i} className="h-16 animate-pulse rounded bg-muted" />
-            ))}
-          </div>
-        ) : filtered.length === 0 ? (
-          <div className="rounded-md border border-dashed py-6 text-center text-sm text-muted-foreground">
-            要確認アイテムはありません。
-            <br />
-            <span className="text-xs">
-              {findings.length === 0
-                ? "MF 同期後に AI CFO が自動でチェックします。"
-                : "選択中のフィルタに該当するアイテムがありません。"}
-            </span>
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {filtered.map((f) => (
-              <RiskFindingRow
-                key={f.id}
-                finding={f}
-                onMarkConfirmed={() =>
-                  updateStatusMutation.mutate({ id: f.id, status: "CONFIRMED" })
-                }
-                onMarkDismissed={() =>
-                  updateStatusMutation.mutate({ id: f.id, status: "DISMISSED" })
-                }
-                onMarkResolved={() =>
-                  updateStatusMutation.mutate({ id: f.id, status: "RESOLVED" })
-                }
-                isUpdating={updateStatusMutation.isPending}
-              />
-            ))}
-          </div>
-        )}
-
-        {rescanMutation.isError && (
-          <p className="mt-2 text-xs text-red-600">
-            再検証に失敗しました: {String(rescanMutation.error)}
-          </p>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-function RiskFindingRow({
-  finding,
-  onMarkConfirmed,
-  onMarkDismissed,
-  onMarkResolved,
-  isUpdating,
-}: {
-  finding: import("@/lib/api").RiskFindingItem;
-  onMarkConfirmed: () => void;
-  onMarkDismissed: () => void;
-  onMarkResolved: () => void;
-  isUpdating: boolean;
-}) {
-  const layerColor: Record<string, string> = {
-    L1_RULE: "bg-blue-100 text-blue-700 border-blue-300",
-    L2_STATS: "bg-purple-100 text-purple-700 border-purple-300",
-    L3_LLM: "bg-amber-100 text-amber-700 border-amber-300",
-  };
-  const layerLabel: Record<string, string> = {
-    L1_RULE: "L1",
-    L2_STATS: "L2",
-    L3_LLM: "L3",
-  };
-  const scoreColor =
-    finding.riskScore >= 80
-      ? "bg-red-100 text-red-700 border-red-300"
-      : finding.riskScore >= 60
-        ? "bg-orange-100 text-orange-700 border-orange-300"
-        : "bg-yellow-50 text-yellow-700 border-yellow-200";
-  const isConfirmed = finding.status === "CONFIRMED";
-
-  return (
-    <div
-      className={cn(
-        "rounded-md border px-3 py-2.5",
-        isConfirmed ? "bg-muted/30 border-[var(--color-border)]" : "",
-      )}
-    >
-      <div className="flex items-start gap-2">
-        <Badge className={cn("border text-[10px]", scoreColor)}>
-          ⚠ {finding.riskScore}
-        </Badge>
-        <Badge className={cn("border text-[10px]", layerColor[finding.layer])}>
-          {layerLabel[finding.layer] ?? finding.layer}
-        </Badge>
-        <div className="flex-1 min-w-0">
-          <div className="text-sm font-medium text-[var(--color-text-primary)]">
-            {finding.title}
-          </div>
-          <div className="mt-1 text-xs text-muted-foreground whitespace-pre-wrap">
-            {finding.body}
-          </div>
-          {finding.recommendedAction && (
-            <div className="mt-1.5 rounded bg-[var(--color-primary)]/5 px-2 py-1 text-xs text-[var(--color-text-primary)]">
-              <span className="font-medium">推奨: </span>
-              {finding.recommendedAction}
-            </div>
-          )}
-        </div>
-      </div>
-
-      <div className="mt-2 flex justify-end gap-1.5">
-        {!isConfirmed && (
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled={isUpdating}
-            onClick={onMarkConfirmed}
-            className="h-6 text-[10px] text-muted-foreground hover:text-[var(--color-text-primary)]"
-          >
-            確認済
-          </Button>
-        )}
-        <Button
-          variant="ghost"
-          size="sm"
-          disabled={isUpdating}
-          onClick={onMarkDismissed}
-          className="h-6 text-[10px] text-muted-foreground hover:text-[var(--color-text-primary)]"
-        >
-          対応不要
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          disabled={isUpdating}
-          onClick={onMarkResolved}
-          className="h-6 text-[10px] text-[var(--color-success)] hover:bg-[var(--color-success)]/10"
-        >
-          対応完了
-        </Button>
-      </div>
-    </div>
-  );
-}
 
 function ChecklistTab({
   progress,
@@ -1144,4 +849,3 @@ function ReviewTab({
     </div>
   );
 }
-
