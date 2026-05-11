@@ -177,6 +177,8 @@ function PreviewView({ orgId, fiscalYear, month }: Props) {
             ? "MFクラウド会計のBS推移表を全勘定で表示"
             : "MFクラウド会計のPL推移表を全勘定で表示"
         }
+        summaryColumnLabel={scope === "pl" ? "合計" : "決算整理"}
+        summaryColumnValue={scope === "pl" ? "total" : "settlementBalance"}
         commentsEnabled
         commentsEditable
         cellOnlyMode
@@ -468,6 +470,8 @@ interface ChoshoTableProps {
   };
   title?: string;
   description?: string | null;
+  summaryColumnLabel?: string;
+  summaryColumnValue?: "settlementBalance" | "total";
   /** 右上のアクション領域 (保存ボタン or バッジ等)。 */
   headerSlot?: React.ReactNode;
   /** saved version モードのみ true。コメント機能 (閲覧+編集) の表示判定。 */
@@ -521,6 +525,8 @@ function ChoshoTable({
   data,
   title = "BS推移表",
   description = "MFクラウド会計のBS推移表を全勘定で表示",
+  summaryColumnLabel = "決算整理",
+  summaryColumnValue = "settlementBalance",
   headerSlot,
   commentsEnabled = false,
   commentsEditable = true,
@@ -700,7 +706,7 @@ function ChoshoTable({
                 );
               })}
               <th className="min-w-[96px] px-2 py-2 text-right font-semibold text-[var(--color-text-primary)] tabular-nums">
-                決算整理
+                {summaryColumnLabel}
               </th>
               {commentsEnabled && !cellOnlyMode && (
                 <>
@@ -730,6 +736,7 @@ function ChoshoTable({
                   commentsEnabled={commentsEnabled}
                   commentsEditable={commentsEditable}
                   rowCommentCount={rowCommentList.length}
+                  summaryColumnValue={summaryColumnValue}
                   onOpenRowComment={() => setOpenRowComment(r.rowKey)}
                   cellCommentLookup={cellCommentLookup}
                   onOpenCellComment={(month, anomaly) =>
@@ -843,6 +850,7 @@ function ChoshoRow({
   commentsEnabled,
   commentsEditable,
   rowCommentCount,
+  summaryColumnValue,
   onOpenRowComment,
   cellCommentLookup,
   onOpenCellComment,
@@ -860,6 +868,7 @@ function ChoshoRow({
   /** false = 閲覧のみ (APPROVED 時)。Dialog は開けるが追加/削除は無効 */
   commentsEditable: boolean;
   rowCommentCount: number;
+  summaryColumnValue: "settlementBalance" | "total";
   onOpenRowComment: () => void;
   cellCommentLookup: (month: number) => ChoshoCellComment | null;
   /** anomaly=null は「任意セルへのメモ」 (異常検知なし) */
@@ -874,6 +883,10 @@ function ChoshoRow({
   // 大区分 (level 0) は太字背景、勘定 (level 1) は通常太字、補助以降 (level 2+) は通常文字。
   const isHeader = row.level === 0;
   const isAccountRow = row.level === 1;
+  const summaryValue =
+    summaryColumnValue === "total"
+      ? (row.total ?? row.settlementBalance)
+      : row.settlementBalance;
 
   return (
     <tr
@@ -1069,7 +1082,7 @@ function ChoshoRow({
         );
       })}
       <td className="px-2 py-1.5 text-right tabular-nums">
-        {row.settlementBalance != null ? formatYen(row.settlementBalance) : ""}
+        {summaryValue != null ? formatYen(summaryValue) : ""}
       </td>
       {commentsEnabled && !cellOnlyMode && (
         <>

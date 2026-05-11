@@ -122,6 +122,35 @@ describe('buildChoshoPreviewRows / flatten', () => {
     expect(leaf.total).toBe(780);
   });
 
+  it('extracts total by column name when PL transition has no settlement_balance column', () => {
+    const pl: MfTransition = {
+      report_type: 'monthly_transition_profit_loss',
+      columns: ['4', '5', '6', 'total'],
+      rows: [
+        {
+          name: '売上高',
+          type: 'account',
+          values: [100, 200, 300, 600],
+          rows: null,
+        },
+      ],
+      fiscal_year: 2026,
+      start_date: '2026-04-01',
+      end_date: '2027-03-31',
+      start_month: 4,
+      end_month: 3,
+    };
+    const { rows, monthOrder } = buildChoshoPreviewRows({
+      bsTransition: pl,
+      filterAccountKeywords: [],
+      rowKeyPrefix: 'pl',
+    });
+    expect(monthOrder).toEqual([4, 5, 6]);
+    expect(rows[0].monthlyBalances).toEqual({ 4: 100, 5: 200, 6: 300 });
+    expect(rows[0].settlementBalance).toBeNull();
+    expect(rows[0].total).toBe(600);
+  });
+
   it('skips months with null values (MF 未取得月)', () => {
     const bs = makeBsFixture({ subaccountValues: [100, 100, null, null, null, null, null, null, null, null, null, null] });
     const { rows } = buildChoshoPreviewRows({ bsTransition: bs, filterAccountKeywords: [] });

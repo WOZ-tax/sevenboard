@@ -63,6 +63,16 @@ interface BuildOutput {
   monthOrder: number[];
 }
 
+interface MonthColumn {
+  month: number;
+  index: number;
+}
+
+interface MetricColumnIndexes {
+  settlementBalance: number;
+  total: number;
+}
+
 /**
  * 回転性勘定の親キーワード。これらが祖先 row.name に含まれ、かつ自身が level >= 2 (補助 or 取引先)
  * の行は agingCheckEnabled = true をデフォルト適用する。
@@ -84,13 +94,27 @@ export function buildChoshoPreviewRows(input: BuildInput): BuildOutput {
   }
 
   // columns 例: ["4","5","6","7","8","9","10","11","12","1","2","3","settlement_balance","total"]
-  // 数字 column のみ拾って月配列を作る。残りは settlement / total として扱う。
-  const monthOrder: number[] = input.bsTransition.columns
-    .filter((c) => /^\d+$/.test(c))
-    .map((c) => parseInt(c, 10));
+  // 数字 column の index を保持し、PL の total-only 形式にも耐える。
+  const monthColumns: MonthColumn[] = input.bsTransition.columns
+    .map((column, index) => ({ column, index }))
+    .filter(({ column }) => /^\d+$/.test(column))
+    .map(({ column, index }) => ({ month: parseInt(column, 10), index }));
+  const monthOrder = monthColumns.map(({ month }) => month);
+  const metricIndexes: MetricColumnIndexes = {
+    settlementBalance: input.bsTransition.columns.indexOf('settlement_balance'),
+    total: input.bsTransition.columns.indexOf('total'),
+  };
 
   const out: ChoshoPreviewRow[] = [];
-  flattenMfRows(input.bsTransition.rows, null, 0, monthOrder, out, input.rowKeyPrefix ?? 'bs');
+  flattenMfRows(
+    input.bsTransition.rows,
+    null,
+    0,
+    monthColumns,
+    metricIndexes,
+    out,
+    input.rowKeyPrefix ?? 'bs',
+  );
 
   // 階層情報 (祖先 name list) を解決してから rule defaults / anomalies を埋める。
   applyRulesAndDetectAnomalies(
@@ -179,22 +203,29 @@ function flattenMfRows(
   rows: MfReportRow[],
   parentKey: string | null,
   level: number,
-  monthOrder: number[],
+  monthColumns: MonthColumn[],
+  metricIndexes: MetricColumnIndexes,
   out: ChoshoPreviewRow[],
   pathSeed: string,
 ): void {
   rows.forEach((row, idx) => {
     const rowKey = makeRowKey(pathSeed, idx, row.name);
     const monthlyBalances: Record<number, number> = {};
-    monthOrder.forEach((m, i) => {
-      const v = row.values[i];
+    monthColumns.forEach(({ month, index }) => {
+      const v = row.values[index];
       if (typeof v === 'number') {
-        monthlyBalances[m] = v;
+        monthlyBalances[month] = v;
       }
     });
 
-    const settlementBalance = numberOrNull(row.values[monthOrder.length]);
-    const total = numberOrNull(row.values[monthOrder.length + 1]);
+    const settlementBalance = numberOrNull(
+      metricIndexes.settlementBalance >= 0
+        ? row.values[metricIndexes.settlementBalance]
+        : undefined,
+    );
+    const total = numberOrNull(
+      metricIndexes.total >= 0 ? row.values[metricIndexes.total] : undefined,
+    );
     const hasChildren = Array.isArray(row.rows) && row.rows.length > 0;
 
     out.push({
@@ -217,7 +248,15 @@ function flattenMfRows(
     });
 
     if (hasChildren && row.rows) {
-      flattenMfRows(row.rows, rowKey, level + 1, monthOrder, out, rowKey);
+      flattenMfRows(
+        row.rows,
+        rowKey,
+        level + 1,
+        monthColumns,
+        metricIndexes,
+        out,
+        rowKey,
+      );
     }
   });
 }
