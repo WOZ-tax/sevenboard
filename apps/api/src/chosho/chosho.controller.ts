@@ -350,4 +350,25 @@ export class ChoshoController {
     const month = monthRaw ? parseInt(monthRaw, 10) : undefined;
     return this.service.listRecentCellCommentsForPeriod(orgId, fiscalYear, month);
   }
+
+  @Get('recent-cell-comment-groups')
+  @RequirePermission('org:chosho:read')
+  async listRecentCellCommentGroups(
+    @Param('orgId', ParseUUIDPipe) orgId: string,
+    @Query('fiscalYear', ParseIntPipe) fiscalYear: number,
+    @Query('month') monthRaw?: string,
+    @Query('page') pageRaw?: string,
+    @Query('limit') limitRaw?: string,
+  ) {
+    const month = monthRaw ? parseInt(monthRaw, 10) : undefined;
+    const page = pageRaw ? Number(pageRaw) : 1;
+    const limit = limitRaw ? Number(limitRaw) : 50;
+    return this.service.listRecentCellCommentGroupsForPeriod(
+      orgId,
+      fiscalYear,
+      month,
+      page,
+      limit,
+    );
+  }
 }

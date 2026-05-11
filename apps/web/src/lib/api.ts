@@ -305,6 +305,16 @@ export interface JournalReviewFlagItem {
   resolvedById: string | null;
 }
 
+export interface JournalReviewFlagPage {
+  items: JournalReviewFlagItem[];
+  total: number;
+  unresolvedTotal: number;
+  resolvedTotal: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
+
 export interface JournalReviewCommentItem {
   id: string;
   journalId: string;
@@ -379,6 +389,16 @@ export interface ChoshoCellComment {
 export interface ChoshoRecentCellComment extends ChoshoCellComment {
   versionId: string;
   rowName: string;
+}
+
+export interface ChoshoRecentCellCommentPage {
+  items: ChoshoRecentCellComment[];
+  total: number;
+  unresolvedTotal: number;
+  resolvedTotal: number;
+  page: number;
+  limit: number;
+  totalPages: number;
 }
 
 /**
@@ -1395,6 +1415,19 @@ export const api = {
         `/organizations/${orgId}/chosho/recent-cell-comments?${qs.toString()}`,
       );
     },
+    listRecentCellCommentGroups: (
+      orgId: string,
+      fiscalYear: number,
+      input: { month?: number; page?: number; limit?: number } = {},
+    ) => {
+      const qs = new URLSearchParams({ fiscalYear: String(fiscalYear) });
+      if (input.month != null) qs.set('month', String(input.month));
+      if (input.page != null) qs.set('page', String(input.page));
+      if (input.limit != null) qs.set('limit', String(input.limit));
+      return apiFetch<ChoshoRecentCellCommentPage>(
+        `/organizations/${orgId}/chosho/recent-cell-comment-groups?${qs.toString()}`,
+      );
+    },
 
     // === 新 API: preview/saved 共通の cell コメント (rowKey ベース) ===
     /** GET /preview-cell-comments?fiscalYear=&month=[&rowKey=] */
@@ -1441,6 +1474,19 @@ export const api = {
         `/organizations/${orgId}/journal-flags?${qs.toString()}`,
       );
     },
+    listFlagsPage: (
+      orgId: string,
+      fiscalYear: number,
+      input: { month?: number; page?: number; limit?: number } = {},
+    ) => {
+      const qs = new URLSearchParams({ fiscalYear: String(fiscalYear) });
+      if (input.month != null) qs.set('month', String(input.month));
+      if (input.page != null) qs.set('page', String(input.page));
+      if (input.limit != null) qs.set('limit', String(input.limit));
+      return apiFetch<JournalReviewFlagPage>(
+        `/organizations/${orgId}/journal-review/memo-flags?${qs.toString()}`,
+      );
+    },
     upsertFlag: (
       orgId: string,
       journalId: string,
@@ -1465,11 +1511,12 @@ export const api = {
     },
     listSnapshots: (
       orgId: string,
-      input: { fiscalYear: number; month?: number; throughMonth?: number },
+      input: { fiscalYear: number; month?: number; throughMonth?: number; journalIds?: string[] },
     ) => {
       const qs = new URLSearchParams({ fiscalYear: String(input.fiscalYear) });
       if (input.month != null) qs.set('month', String(input.month));
       if (input.throughMonth != null) qs.set('throughMonth', String(input.throughMonth));
+      if (input.journalIds && input.journalIds.length > 0) qs.set('journalIds', input.journalIds.join(','));
       return apiFetch<JournalReviewSnapshotItem[]>(
         `/organizations/${orgId}/journal-review/snapshots?${qs.toString()}`,
       );

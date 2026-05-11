@@ -889,6 +889,36 @@ export class ChoshoService {
     );
   }
 
+  async listRecentCellCommentGroupsForPeriod(
+    orgId: string,
+    fiscalYear: number,
+    selectedMonth: number | undefined,
+    pageRaw: number,
+    limitRaw: number,
+  ): Promise<RecentCellCommentPage> {
+    const page = normalizeMemoPage(pageRaw);
+    const limit = normalizeMemoLimit(limitRaw);
+    const items = await this.listRecentCellCommentsForPeriod(orgId, fiscalYear, selectedMonth);
+    const groups = groupRecentCellComments(items);
+    const total = groups.length;
+    const unresolvedTotal = groups.filter((g) => !g.resolved).length;
+    const resolvedTotal = total - unresolvedTotal;
+    const pageGroups = groups.slice((page - 1) * limit, page * limit);
+    const pageKeys = new Set(pageGroups.map((g) => g.key));
+    return {
+      items: items.filter((item) => {
+        const key = recentCellGroupKey(item);
+        return key != null && pageKeys.has(key);
+      }),
+      total,
+      unresolvedTotal,
+      resolvedTotal,
+      page,
+      limit,
+      totalPages: Math.max(1, Math.ceil(total / limit)),
+    };
+  }
+
   // ============================================================
   // helpers
   // ============================================================
@@ -1069,6 +1099,16 @@ export interface RecentCellCommentItem extends CellCommentRow {
   rowName: string;
 }
 
+export interface RecentCellCommentPage {
+  items: RecentCellCommentItem[];
+  total: number;
+  unresolvedTotal: number;
+  resolvedTotal: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
+
 // ============================================================
 // 共通変換: Prisma row → CellCommentRow
 // ============================================================
@@ -1191,6 +1231,55 @@ function rowNameFromRowKey(rowKey: string | null): string {
   if (!rowKey) return '';
   const tail = rowKey.split('/').filter(Boolean).at(-1) ?? rowKey;
   return tail.replace(/^\d+-/, '').replace(/_/g, ' ') || rowKey;
+}
+
+function recentCellGroupKey(item: RecentCellCommentItem): string | null {
+  const targetKey = item.rowId ?? item.rowKey;
+  return targetKey ? `${targetKey}:${item.month}` : null;
+}
+
+function groupRecentCellComments(items: RecentCellCommentItem[]): {
+  key: string;
+  rowName: string;
+  month: number;
+  resolved: boolean;
+}[] {
+  const map = new Map<string, { key: string; rowName: string; month: number; roots: RecentCellCommentItem[] }>();
+  for (const item of items) {
+    const key = recentCellGroupKey(item);
+    if (!key) continue;
+    let group = map.get(key);
+    if (!group) {
+      group = {
+        key,
+        rowName: item.rowName || rowNameFromRowKey(item.rowKey) || key,
+        month: item.month,
+        roots: [],
+      };
+      map.set(key, group);
+    }
+    if (item.parentCommentId == null) group.roots.push(item);
+  }
+  return Array.from(map.values())
+    .map((group) => ({
+      key: group.key,
+      rowName: group.rowName,
+      month: group.month,
+      resolved: group.roots.length > 0 && group.roots.every((root) => root.resolvedAt != null),
+    }))
+    .sort((a, b) => {
+      if (a.rowName === b.rowName) return a.month - b.month;
+      return a.rowName.localeCompare(b.rowName);
+    });
+}
+
+function normalizeMemoPage(value: number): number {
+  return Number.isInteger(value) && value > 0 ? value : 1;
+}
+
+function normalizeMemoLimit(value: number): number {
+  if (!Number.isInteger(value) || value <= 0) return 50;
+  return Math.min(Math.max(value, 1), 100);
 }
 
 export function parseMonthlyBalances(value: Prisma.JsonValue | unknown): Record<number, number> {

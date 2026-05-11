@@ -16,6 +16,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   Loader2,
   Pencil,
@@ -55,6 +56,8 @@ interface Props {
 }
 
 type MfJournalRefItem = JournalReviewSnapshotItem;
+type MemoSource = "chosho" | "journal";
+const MEMO_PAGE_SIZE = 50;
 
 export function MemoTab({ orgId, fiscalYear, month }: Props) {
   const router = useRouter();
@@ -62,6 +65,9 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
   const focusJournal = searchParams.get("focusJournal");
   const composeOnLoad = searchParams.get("compose") === "1";
   const currentUserId = useAuthStore((s) => s.user?.id ?? null);
+  const [memoSource, setMemoSource] = useState<MemoSource>(focusJournal ? "journal" : "chosho");
+  const [journalPage, setJournalPage] = useState(1);
+  const [choshoPage, setChoshoPage] = useState(1);
 
   // 期間フィルタ: 「全期間 (会計年度全体)」or 「特定月度」
   // 初期表示は fiscalYear 内の全期間。グローバル期間セレクターの後続変更だけ追従する。
@@ -74,20 +80,33 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
     observedFiscalYearRef.current = fiscalYear;
     setFilterMonth("all");
     setUserOverride(false);
+    setJournalPage(1);
+    setChoshoPage(1);
   }, [fiscalYear]);
   useEffect(() => {
     const prev = observedGlobalMonthRef.current;
     observedGlobalMonthRef.current = month;
     if (prev == null || month == null || month === prev || userOverride) return;
     setFilterMonth(month);
+    setJournalPage(1);
+    setChoshoPage(1);
   }, [month, userOverride]);
   const handleSetFilterMonth = (next: number | "all") => {
     setFilterMonth(next);
     setUserOverride(true);
+    setJournalPage(1);
+    setChoshoPage(1);
   };
 
   const monthFilterValue = filterMonth === "all" ? undefined : filterMonth;
-  const flagsQueryKey = ["journal-flags", orgId, fiscalYear, monthFilterValue ?? "all"] as const;
+  const flagsQueryKey = [
+    "journal-flags-page",
+    orgId,
+    fiscalYear,
+    monthFilterValue ?? "all",
+    journalPage,
+    MEMO_PAGE_SIZE,
+  ] as const;
   const { fyStartMonth } = useFyElapsed();
   const monthsInFy = useMemo(() => {
     // 期首から12ヶ月分のカレンダー月を順に並べる (例: fyStart=4 → [4..12, 1..3])
@@ -99,11 +118,17 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
   // フラグ立った journal 一覧 (フィルタ反映)
   const flagsQuery = useQuery({
     queryKey: flagsQueryKey,
-    queryFn: () => api.journalReview.listFlags(orgId, fiscalYear!, monthFilterValue),
-    enabled: !!orgId && fiscalYear != null,
+    queryFn: () =>
+      api.journalReview.listFlagsPage(orgId, fiscalYear!, {
+        month: monthFilterValue,
+        page: journalPage,
+        limit: MEMO_PAGE_SIZE,
+      }),
+    enabled: memoSource === "journal" && !!orgId && fiscalYear != null,
     staleTime: 30_000,
   });
-  const flags = flagsQuery.data ?? [];
+  const flagsPage = flagsQuery.data;
+  const flags = flagsPage?.items ?? [];
   const flaggedJournalIds = flags.map((f) => f.journalId);
   const flaggedJournalKey = flaggedJournalIds.slice().sort().join(",");
 
@@ -123,8 +148,10 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
         fiscalYear: fiscalYear!,
         month: monthFilterValue,
         throughMonth: monthFilterValue == null ? month : undefined,
+        journalIds: flaggedJournalIds,
       }),
     enabled:
+      memoSource === "journal" &&
       !!orgId &&
       fiscalYear != null &&
       flagsQuery.isSuccess &&
@@ -141,7 +168,7 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
   const commentsQuery = useQuery({
     queryKey: ["journal-comments", orgId, flaggedJournalKey],
     queryFn: () => api.journalReview.listComments(orgId, flaggedJournalIds),
-    enabled: !!orgId && flaggedJournalIds.length > 0,
+    enabled: memoSource === "journal" && !!orgId && flaggedJournalIds.length > 0,
     staleTime: 30_000,
   });
   const commentsByJournal = useMemo(() => {
@@ -153,6 +180,11 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
     }
     return m;
   }, [commentsQuery.data]);
+
+  useEffect(() => {
+    if (memoSource !== "journal" || !flagsPage) return;
+    if (journalPage > flagsPage.totalPages) setJournalPage(flagsPage.totalPages);
+  }, [memoSource, flagsPage, journalPage]);
 
   // mutations
   const qc = useQueryClient();
@@ -196,6 +228,7 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
     onSuccess: () => {
       // フラグ自体 + 紐づく全コメントが消えるので両方の cache を invalidate
       qc.invalidateQueries({ queryKey: ["journal-flags", orgId] });
+      qc.invalidateQueries({ queryKey: ["journal-flags-page", orgId] });
       qc.invalidateQueries({ queryKey: ["journal-comments", orgId] });
     },
     onError: () => toast.error("レビューメモ削除に失敗しました"),
@@ -226,6 +259,7 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
   // URL ?focusJournal=&compose=1 で来たら自動展開 + 新規入力モード
   useEffect(() => {
     if (focusJournal) {
+      setMemoSource("journal");
       setExpanded((prev) => new Set(prev).add(focusJournal));
       if (composeOnLoad) {
         setComposing((prev) => new Set(prev).add(focusJournal));
@@ -249,7 +283,7 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
   // 初回 snapshot 取得は MF を 12 ヶ月分叩くため数〜十数秒。 ThinkingIndicator で
   // 段階表示する (AI 生成中と同じ感じ)。 cache hit 時は ms オーダーで終わるので、
   // この分岐に来ない。
-  if (flagsQuery.isLoading || journalsQuery.isLoading) {
+  if (memoSource === "journal" && (flagsQuery.isLoading || journalsQuery.isLoading)) {
     return (
       <ThinkingIndicator
         stages={[
@@ -259,14 +293,6 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
           "コメントスレッドと紐付け中",
         ]}
       />
-    );
-  }
-
-  if (flags.length === 0) {
-    return (
-      <div className="rounded-md border border-dashed bg-muted/20 p-8 text-center text-sm text-muted-foreground">
-        この期間にフラグ立った仕訳はありません。仕訳レビュータブで気になる仕訳をクリックしてフラグを立ててください。
-      </div>
     );
   }
 
@@ -296,13 +322,15 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
         <div>
           <span className="font-semibold text-[var(--color-text-primary)]">レビューメモ</span>
           <span className="ml-2">
-            {fiscalYear}年度 ／ {filterMonth === "all" ? "全期間" : `${filterMonth}月度`} ／ フラグ {flags.length} 件
+            {fiscalYear}年度 ・ {filterMonth === "all" ? "全期間" : `${filterMonth}月度`}
           </span>
         </div>
-        <div className="flex items-center gap-2">
-          <Badge variant="secondary" className="text-[10px]">未解決 {flags.filter((f) => f.resolvedAt == null).length}</Badge>
-          <Badge variant="outline" className="text-[10px]">解決済 {flags.filter((f) => f.resolvedAt != null).length}</Badge>
-        </div>
+        {memoSource === "journal" && flagsPage ? (
+          <div className="flex items-center gap-2">
+            <Badge variant="secondary" className="text-[10px]">未解決 {flagsPage.unresolvedTotal}</Badge>
+            <Badge variant="outline" className="text-[10px]">全体 {flagsPage.total}</Badge>
+          </div>
+        ) : null}
       </div>
 
       {/* 月別フィルタ + 更新 */}
@@ -324,26 +352,73 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
             ))}
           </SelectContent>
         </Select>
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          className="h-7 px-2 text-[11px]"
-          onClick={() => refreshSnapshotsMutation.mutate()}
-          disabled={refreshSnapshotsMutation.isPending || fiscalYear == null}
-          title={
-            monthFilterValue == null
-              ? "全期間の仕訳キャッシュを破棄して MF から取り直す"
-              : `${monthFilterValue}月度の仕訳キャッシュを破棄して MF から取り直す`
-          }
-        >
-          {refreshSnapshotsMutation.isPending ? (
-            <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-          ) : null}
-          更新
-        </Button>
+        {memoSource === "journal" ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-7 px-2 text-[11px]"
+            onClick={() => refreshSnapshotsMutation.mutate()}
+            disabled={refreshSnapshotsMutation.isPending || fiscalYear == null}
+            title={
+              monthFilterValue == null
+                ? "全期間の仕訳キャッシュを破棄して MF から取り直す"
+                : `${monthFilterValue}月度の仕訳キャッシュを破棄して MF から取り直す`
+            }
+          >
+            {refreshSnapshotsMutation.isPending ? (
+              <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+            ) : null}
+            更新
+          </Button>
+        ) : null}
       </div>
 
+      <div className="inline-flex w-fit items-center rounded-md bg-muted p-0.5 text-xs">
+        <button
+          type="button"
+          onClick={() => setMemoSource("chosho")}
+          className={cn(
+            "rounded px-3 py-1 font-medium transition-colors",
+            memoSource === "chosho"
+              ? "bg-background text-[var(--color-text-primary)] shadow-sm"
+              : "text-muted-foreground hover:text-[var(--color-text-primary)]",
+          )}
+        >
+          残高調書
+        </button>
+        <button
+          type="button"
+          onClick={() => setMemoSource("journal")}
+          className={cn(
+            "rounded px-3 py-1 font-medium transition-colors",
+            memoSource === "journal"
+              ? "bg-background text-[var(--color-text-primary)] shadow-sm"
+              : "text-muted-foreground hover:text-[var(--color-text-primary)]",
+          )}
+        >
+          仕訳レビュー
+          {flagsPage ? (
+            <span className="ml-1 rounded bg-muted-foreground/10 px-1 text-[10px]">
+              未解決 {flagsPage.unresolvedTotal}
+            </span>
+          ) : null}
+        </button>
+      </div>
+
+      {memoSource === "journal" ? (
+        flags.length === 0 ? (
+          flagsPage && flagsPage.total > 0 ? (
+            <div className="rounded-md border border-dashed bg-muted/20 p-8 text-center text-sm text-muted-foreground">
+              ページを調整中です。
+            </div>
+          ) : (
+            <div className="rounded-md border border-dashed bg-muted/20 p-8 text-center text-sm text-muted-foreground">
+              この期間にフラグ立った仕訳はありません。仕訳レビュータブで気になる仕訳をクリックしてフラグを立ててください。
+            </div>
+          )
+        ) : (
+          <>
       <div className="overflow-x-auto rounded-md border bg-card">
         <table className="w-full text-xs">
           <thead>
@@ -416,18 +491,95 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
         </table>
       </div>
 
+      {flagsPage ? (
+        <MemoPagination
+          page={journalPage}
+          limit={MEMO_PAGE_SIZE}
+          total={flagsPage.total}
+          totalPages={flagsPage.totalPages}
+          unresolvedTotal={flagsPage.unresolvedTotal}
+          onPageChange={setJournalPage}
+        />
+      ) : null}
+          </>
+        )
+      ) : (
       <ChoshoCellMemoSection
         orgId={orgId}
         fiscalYear={fiscalYear}
         month={monthFilterValue}
         fyStartMonth={fyStartMonth}
         currentUserId={currentUserId}
+        page={choshoPage}
+        pageSize={MEMO_PAGE_SIZE}
+        onPageChange={setChoshoPage}
       />
+      )}
 
       <p className="text-[10px] italic text-muted-foreground">
         ▶ をクリックでスレッド展開。「コメント追加」で root、各 root の「返信」で reply。
         URL は貼ると chip 化。削除は本人のみ + 確認ポップアップあり。
       </p>
+    </div>
+  );
+}
+
+function MemoPagination({
+  page,
+  limit,
+  total,
+  totalPages,
+  unresolvedTotal,
+  onPageChange,
+}: {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+  unresolvedTotal: number;
+  onPageChange: (page: number) => void;
+}) {
+  const safeTotalPages = Math.max(1, totalPages);
+  const clampedPage = Math.min(Math.max(page, 1), safeTotalPages);
+  const start = total === 0 ? 0 : (clampedPage - 1) * limit + 1;
+  const end = Math.min(total, clampedPage * limit);
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+      <div>
+        全体 {total} 件 / 未解決 {unresolvedTotal} 件
+        {total > 0 ? (
+          <span className="ml-2 tabular-nums">
+            {start}-{end} 件を表示
+          </span>
+        ) : null}
+      </div>
+      <div className="flex items-center gap-2">
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="h-7 px-2 text-[11px]"
+          onClick={() => onPageChange(clampedPage - 1)}
+          disabled={clampedPage <= 1}
+        >
+          <ChevronLeft className="mr-1 h-3 w-3" />
+          前へ
+        </Button>
+        <span className="min-w-16 text-center tabular-nums">
+          {clampedPage} / {safeTotalPages}
+        </span>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="h-7 px-2 text-[11px]"
+          onClick={() => onPageChange(clampedPage + 1)}
+          disabled={clampedPage >= safeTotalPages}
+        >
+          次へ
+          <ChevronRight className="ml-1 h-3 w-3" />
+        </Button>
+      </div>
     </div>
   );
 }
@@ -972,6 +1124,9 @@ function ChoshoCellMemoSection({
   month,
   fyStartMonth,
   currentUserId,
+  page,
+  pageSize,
+  onPageChange,
 }: {
   orgId: string;
   fiscalYear: number | undefined;
@@ -979,16 +1134,25 @@ function ChoshoCellMemoSection({
   month: number | undefined;
   fyStartMonth: number;
   currentUserId: string | null;
+  page: number;
+  pageSize: number;
+  onPageChange: (page: number) => void;
 }) {
   const qc = useQueryClient();
-  const queryKey = ["chosho-recent-cell-comments", orgId, fiscalYear, month ?? "all"];
+  const queryKey = ["chosho-recent-cell-comment-groups", orgId, fiscalYear, month ?? "all", page, pageSize];
   const cellQuery = useQuery({
     queryKey,
-    queryFn: () => api.chosho.listRecentCellComments(orgId, fiscalYear!, month),
+    queryFn: () =>
+      api.chosho.listRecentCellCommentGroups(orgId, fiscalYear!, {
+        month,
+        page,
+        limit: pageSize,
+      }),
     enabled: !!orgId && fiscalYear != null,
     staleTime: 30_000,
   });
-  const items = cellQuery.data ?? [];
+  const pageData = cellQuery.data;
+  const items = pageData?.items ?? [];
 
   const addCell = useMutation({
     mutationFn: (input: {
@@ -1094,13 +1258,38 @@ function ChoshoCellMemoSection({
     });
   }, [items]);
 
-  if (cellQuery.isLoading) return null;
-  if (cellsGroup.length === 0) return null; // セルコメントが無い期間は section 自体非表示
+  useEffect(() => {
+    if (!pageData) return;
+    if (page > pageData.totalPages) onPageChange(pageData.totalPages);
+  }, [onPageChange, page, pageData]);
 
   const periodLabel =
     month == null
       ? `${fiscalYear}年度 全期間`
       : `${formatYyyyMm(fiscalYear, month, fyStartMonth)}時点`;
+
+  if (cellQuery.isLoading) {
+    return (
+      <div className="rounded-md border border-dashed bg-muted/20 p-8 text-center text-sm text-muted-foreground">
+        残高調書セルのコメントを読み込み中です。
+      </div>
+    );
+  }
+
+  if (cellsGroup.length === 0) {
+    if (pageData && pageData.total > 0) {
+      return (
+        <div className="rounded-md border border-dashed bg-muted/20 p-8 text-center text-sm text-muted-foreground">
+          ページを調整中です。
+        </div>
+      );
+    }
+    return (
+      <div className="rounded-md border border-dashed bg-muted/20 p-8 text-center text-sm text-muted-foreground">
+        {periodLabel}に残高調書セルのコメントはありません。
+      </div>
+    );
+  }
 
   const handleToggleExpand = (key: string) => {
     setExpanded((prev) => {
@@ -1115,7 +1304,13 @@ function ChoshoCellMemoSection({
     <div className="space-y-2">
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <span className="font-semibold text-[var(--color-text-primary)]">残高調書セル</span>
-        <span>{periodLabel}で {cellsGroup.length} 件のセルにコメント</span>
+        <span>{periodLabel}で {pageData?.total ?? cellsGroup.length} 件のセルにコメント</span>
+        {pageData ? (
+          <>
+            <Badge variant="secondary" className="text-[10px]">未解決 {pageData.unresolvedTotal}</Badge>
+            <Badge variant="outline" className="text-[10px]">全体 {pageData.total}</Badge>
+          </>
+        ) : null}
       </div>
       <div className="overflow-x-auto rounded-md border bg-card">
         <table className="w-full text-xs">
@@ -1166,6 +1361,16 @@ function ChoshoCellMemoSection({
           </tbody>
         </table>
       </div>
+      {pageData ? (
+        <MemoPagination
+          page={page}
+          limit={pageSize}
+          total={pageData.total}
+          totalPages={pageData.totalPages}
+          unresolvedTotal={pageData.unresolvedTotal}
+          onPageChange={onPageChange}
+        />
+      ) : null}
     </div>
   );
 }

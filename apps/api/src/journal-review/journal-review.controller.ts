@@ -84,6 +84,21 @@ export class JournalReviewController {
 export class JournalReviewSnapshotsController {
   constructor(private service: JournalReviewService) {}
 
+  @Get('memo-flags')
+  @RequirePermission('org:journal_review:read')
+  async listMemoFlags(
+    @Param('orgId', ParseUUIDPipe) orgId: string,
+    @Query('fiscalYear', ParseIntPipe) fiscalYear: number,
+    @Query('month') monthRaw?: string,
+    @Query('page') pageRaw?: string,
+    @Query('limit') limitRaw?: string,
+  ) {
+    const month = parseOptionalMonth(monthRaw, 'month');
+    const page = pageRaw ? Number(pageRaw) : 1;
+    const limit = limitRaw ? Number(limitRaw) : 50;
+    return this.service.listFlagsPage(orgId, fiscalYear, month, page, limit);
+  }
+
   @Get('snapshots')
   @RequirePermission('org:journal_review:read')
   async listSnapshots(
@@ -91,10 +106,14 @@ export class JournalReviewSnapshotsController {
     @Query('fiscalYear', ParseIntPipe) fiscalYear: number,
     @Query('month') monthRaw?: string,
     @Query('throughMonth') throughMonthRaw?: string,
+    @Query('journalIds') journalIdsCsv?: string,
   ) {
     const month = parseOptionalMonth(monthRaw, 'month');
     const throughMonth = parseOptionalMonth(throughMonthRaw, 'throughMonth');
-    return this.service.listSnapshots(orgId, fiscalYear, month, throughMonth);
+    const journalIds = journalIdsCsv
+      ? journalIdsCsv.split(',').map((s) => s.trim()).filter(Boolean)
+      : undefined;
+    return this.service.listSnapshots(orgId, fiscalYear, month, throughMonth, journalIds);
   }
 
   /** 指定月 (省略時は fy 全月) の snapshot cache を破棄して MF から再取得させる。 */

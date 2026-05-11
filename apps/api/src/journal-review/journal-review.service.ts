@@ -51,6 +51,48 @@ export class JournalReviewService {
     }));
   }
 
+  async listFlagsPage(
+    orgId: string,
+    fiscalYear: number,
+    month: number | undefined,
+    pageRaw: number,
+    limitRaw: number,
+  ): Promise<JournalReviewFlagPage> {
+    const { tenantId } = await this.resolveOrg(orgId);
+    const page = normalizePage(pageRaw);
+    const limit = normalizeLimit(limitRaw);
+    const where: Prisma.JournalReviewFlagWhereInput = {
+      tenantId,
+      orgId,
+      fiscalYear,
+      ...(month != null ? { month } : {}),
+    };
+    const [items, total, unresolvedTotal, resolvedTotal] = await this.prisma.$transaction([
+      this.prisma.journalReviewFlag.findMany({
+        where,
+        orderBy: { flaggedAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      this.prisma.journalReviewFlag.count({ where }),
+      this.prisma.journalReviewFlag.count({
+        where: { ...where, resolvedAt: null },
+      }),
+      this.prisma.journalReviewFlag.count({
+        where: { ...where, resolvedAt: { not: null } },
+      }),
+    ]);
+    return {
+      items: items.map(toFlagItem),
+      total,
+      unresolvedTotal,
+      resolvedTotal,
+      page,
+      limit,
+      totalPages: Math.max(1, Math.ceil(total / limit)),
+    };
+  }
+
   /**
    * 指定 journal の flag を toggle (upsert)。
    *
@@ -261,6 +303,7 @@ export class JournalReviewService {
     fiscalYear: number,
     month?: number,
     throughMonth?: number,
+    journalIdsFilter?: string[],
   ): Promise<JournalReviewSnapshotItem[]> {
     const { tenantId, fiscalMonthEnd } = await this.resolveOrg(orgId);
     const fyStartMonth = fiscalMonthEnd === 12 ? 1 : fiscalMonthEnd + 1;
@@ -277,6 +320,9 @@ export class JournalReviewService {
         orgId,
         fiscalYear,
         month: { in: targetMonths },
+        ...(journalIdsFilter && journalIdsFilter.length > 0
+          ? { journalId: { in: journalIdsFilter } }
+          : {}),
       },
       select: { journalId: true, month: true },
     });
@@ -427,6 +473,16 @@ export interface JournalReviewFlagItem {
   resolvedById: string | null;
 }
 
+export interface JournalReviewFlagPage {
+  items: JournalReviewFlagItem[];
+  total: number;
+  unresolvedTotal: number;
+  resolvedTotal: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
+
 export interface JournalReviewCommentItem {
   id: string;
   journalId: string;
@@ -457,6 +513,28 @@ export interface JournalReviewSnapshotItem {
   fiscalYear: number;
   month: number;
   fetchedAt: string;
+}
+
+function toFlagItem(f: {
+  id: string;
+  journalId: string;
+  fiscalYear: number;
+  month: number;
+  flaggedAt: Date;
+  flaggedById: string | null;
+  resolvedAt: Date | null;
+  resolvedById: string | null;
+}): JournalReviewFlagItem {
+  return {
+    id: f.id,
+    journalId: f.journalId,
+    fiscalYear: f.fiscalYear,
+    month: f.month,
+    flaggedAt: f.flaggedAt.toISOString(),
+    flaggedById: f.flaggedById,
+    resolvedAt: f.resolvedAt?.toISOString() ?? null,
+    resolvedById: f.resolvedById,
+  };
 }
 
 function toCommentItem(c: {
@@ -627,6 +705,15 @@ function monthsForFiscalPeriod(fyStartMonth: number, throughMonth?: number): num
   if (throughMonth == null) return months;
   const idx = months.indexOf(throughMonth);
   return idx >= 0 ? months.slice(0, idx + 1) : months;
+}
+
+function normalizePage(value: number): number {
+  return Number.isInteger(value) && value > 0 ? value : 1;
+}
+
+function normalizeLimit(value: number): number {
+  if (!Number.isInteger(value) || value <= 0) return 50;
+  return Math.min(Math.max(value, 1), 100);
 }
 
 function monthRange(year: number, month: number): { start: string; end: string } {
