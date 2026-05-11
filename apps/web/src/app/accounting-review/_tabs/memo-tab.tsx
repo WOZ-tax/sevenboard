@@ -338,6 +338,26 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
               ))}
             </SelectContent>
           </Select>
+          {memoSource === "journal" ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-7 px-2 text-[11px]"
+              onClick={() => refreshSnapshotsMutation.mutate()}
+              disabled={refreshSnapshotsMutation.isPending || fiscalYear == null}
+              title={
+                monthFilterValue == null
+                  ? "全期間の仕訳キャッシュを破棄して MF から取り直す"
+                  : `${monthFilterValue}月度の仕訳キャッシュを破棄して MF から取り直す`
+              }
+            >
+              {refreshSnapshotsMutation.isPending ? (
+                <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+              ) : null}
+              更新
+            </Button>
+          ) : null}
         </div>
         {memoSource === "journal" && flagsPage ? (
           <div className="flex items-center gap-2">
@@ -346,29 +366,6 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
           </div>
         ) : null}
       </div>
-
-      {memoSource === "journal" ? (
-        <div className="flex items-center gap-2 text-xs">
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            className="h-7 px-2 text-[11px]"
-            onClick={() => refreshSnapshotsMutation.mutate()}
-            disabled={refreshSnapshotsMutation.isPending || fiscalYear == null}
-            title={
-              monthFilterValue == null
-                ? "全期間の仕訳キャッシュを破棄して MF から取り直す"
-                : `${monthFilterValue}月度の仕訳キャッシュを破棄して MF から取り直す`
-            }
-          >
-            {refreshSnapshotsMutation.isPending ? (
-              <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-            ) : null}
-            更新
-          </Button>
-        </div>
-      ) : null}
 
       <div className="grid grid-cols-2 gap-1 rounded-md border border-[var(--color-border)] bg-card p-1 shadow-sm">
         <button
