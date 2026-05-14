@@ -14,8 +14,8 @@ import {
 import type { TaxLineRow } from "@/lib/payroll-tax-calc";
 import { cn } from "@/lib/utils";
 
-// :v3 — 新スキーマ (税目別 中間納付 + 地方税率上書き + 均等割手入力)
-const STORAGE_BASE = "sevenboard:tax-forecast-input:v3";
+// :v4 — 入力欄をすべて「円」単位に統一 (中間納付・均等割年税額)
+const STORAGE_BASE = "sevenboard:tax-forecast-input:v4";
 const storageKeyFor = (orgId: string, fy: number | undefined) =>
   `${STORAGE_BASE}:${orgId || "_"}:${fy ?? "_"}`;
 
@@ -50,23 +50,23 @@ interface FormState {
   pretaxProfit: string;
   capital: string;
   items: AddSubItem[];
-  /** 地方税率 (%) — 空文字なら東京都標準を使う */
+  /** 地方税率 (%) — 空文字なら東京都標準を使う。小数第2位までで保持 */
   residentTaxRatePct: string;
   bizTaxLv1RatePct: string;
   bizTaxLv2RatePct: string;
   bizTaxLv3RatePct: string;
   specialBizTaxRatePct: string;
-  /** 均等割 年税額 (万円、手入力) */
-  kintowariManYen: string;
-  /** 税目別 中間納付額 (万円) */
-  midPayments: Record<MidKey, string>;
+  /** 均等割 年税額 (円、手入力) */
+  kintowariYen: string;
+  /** 税目別 中間納付額 (円) */
+  midPaymentsYen: Record<MidKey, string>;
   /** 消費税 */
   vatReceived: string;
   vatPaid: string;
   vatMid: string;
 }
 
-const defaultMidPayments = (): Record<MidKey, string> => ({
+const defaultMidPaymentsYen = (): Record<MidKey, string> => ({
   corpLow: "0",
   corpHigh: "0",
   localCorp: "0",
@@ -79,17 +79,19 @@ const defaultMidPayments = (): Record<MidKey, string> => ({
   specialBiz: "0",
 });
 
+const fmtPct = (rate: number): string => (rate * 100).toFixed(2);
+
 const DEFAULT_FORM: FormState = {
   pretaxProfit: "0",
   capital: "1000000",
   items: DEFAULT_ITEMS,
-  residentTaxRatePct: String(DEFAULT_LOCAL_TAX_RATES.residentTaxRate * 100),
-  bizTaxLv1RatePct: String(DEFAULT_LOCAL_TAX_RATES.bizTaxLv1Rate * 100),
-  bizTaxLv2RatePct: String(DEFAULT_LOCAL_TAX_RATES.bizTaxLv2Rate * 100),
-  bizTaxLv3RatePct: String(DEFAULT_LOCAL_TAX_RATES.bizTaxLv3Rate * 100),
-  specialBizTaxRatePct: String(DEFAULT_LOCAL_TAX_RATES.specialBizTaxRate * 100),
-  kintowariManYen: String(DEFAULT_LOCAL_TAX_RATES.kintowariManYen),
-  midPayments: defaultMidPayments(),
+  residentTaxRatePct: fmtPct(DEFAULT_LOCAL_TAX_RATES.residentTaxRate),
+  bizTaxLv1RatePct: fmtPct(DEFAULT_LOCAL_TAX_RATES.bizTaxLv1Rate),
+  bizTaxLv2RatePct: fmtPct(DEFAULT_LOCAL_TAX_RATES.bizTaxLv2Rate),
+  bizTaxLv3RatePct: fmtPct(DEFAULT_LOCAL_TAX_RATES.bizTaxLv3Rate),
+  specialBizTaxRatePct: fmtPct(DEFAULT_LOCAL_TAX_RATES.specialBizTaxRate),
+  kintowariYen: String(DEFAULT_LOCAL_TAX_RATES.kintowariManYen * 10000),
+  midPaymentsYen: defaultMidPaymentsYen(),
   vatReceived: "0",
   vatPaid: "0",
   vatMid: "0",
@@ -111,14 +113,18 @@ export function TaxForecastSection() {
   const [hydrated, setHydrated] = useState(false);
   const userEditedRef = useRef(false);
 
-  // v3 スキーマ移行時の旧 v2 LocalStorage クリーンアップ (1回のみ)
+  // v4 スキーマ移行時の旧 LocalStorage クリーンアップ (1回のみ)
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
       const keysToRemove: string[] = [];
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
-        if (key && key.startsWith("sevenboard:tax-forecast-input:v2:")) {
+        if (
+          key &&
+          (key.startsWith("sevenboard:tax-forecast-input:v2:") ||
+            key.startsWith("sevenboard:tax-forecast-input:v3:"))
+        ) {
           keysToRemove.push(key);
         }
       }
@@ -142,7 +148,10 @@ export function TaxForecastSection() {
         setForm((p) => ({
           ...p,
           ...parsed,
-          midPayments: { ...defaultMidPayments(), ...(parsed.midPayments ?? {}) },
+          midPaymentsYen: {
+            ...defaultMidPaymentsYen(),
+            ...(parsed.midPaymentsYen ?? {}),
+          },
         }));
         userEditedRef.current = true;
       }
@@ -212,6 +221,7 @@ export function TaxForecastSection() {
   }, [form.pretaxProfit, form.items]);
 
   // 地方税率を form から組み立て (空欄や不正値は標準値にフォールバック)
+  // 入力は「円」単位なので /10000 で内部の万円単位に揃える。
   const localRates: LocalTaxRates = useMemo(() => {
     const pct = (s: string, def: number) => {
       const n = parseFloat(s);
@@ -223,7 +233,7 @@ export function TaxForecastSection() {
       bizTaxLv2Rate: pct(form.bizTaxLv2RatePct, DEFAULT_LOCAL_TAX_RATES.bizTaxLv2Rate),
       bizTaxLv3Rate: pct(form.bizTaxLv3RatePct, DEFAULT_LOCAL_TAX_RATES.bizTaxLv3Rate),
       specialBizTaxRate: pct(form.specialBizTaxRatePct, DEFAULT_LOCAL_TAX_RATES.specialBizTaxRate),
-      kintowariManYen: parseNum(form.kintowariManYen),
+      kintowariManYen: parseNum(form.kintowariYen) / 10000,
     };
   }, [form]);
 
@@ -243,7 +253,7 @@ export function TaxForecastSection() {
     return { annual, periodEnd: Math.max(0, annual - mid) };
   }, [form.vatReceived, form.vatPaid, form.vatMid]);
 
-  // テーブル行データ組み立て
+  // テーブル行データ組み立て (annual/mid/periodEnd は内部は万円、UI で formatYenFromManYen で「円」表示)
   const rows = useMemo(() => {
     const mk = (
       key: MidKey,
@@ -253,7 +263,8 @@ export function TaxForecastSection() {
       opts?: { rateEditable?: boolean },
     ) => {
       const annual = line.tax;
-      const mid = parseNum(form.midPayments[key]);
+      // ユーザー入力 (円) → 万円換算
+      const midManYen = parseNum(form.midPaymentsYen[key]) / 10000;
       return {
         key,
         label,
@@ -261,13 +272,13 @@ export function TaxForecastSection() {
         base: line.base,
         ratePct: line.rate * 100,
         annual,
-        mid,
-        periodEnd: annual - mid,
+        mid: midManYen,
+        periodEnd: annual - midManYen,
         rateEditable: !!opts?.rateEditable,
       };
     };
-    const kintowariMid = parseNum(form.midPayments.kintowari);
-    const kintowariAnnual = parseNum(form.kintowariManYen);
+    const kintowariMidManYen = parseNum(form.midPaymentsYen.kintowari) / 10000;
+    const kintowariAnnualManYen = parseNum(form.kintowariYen) / 10000;
     const all = [
       // 国税 — 税率固定
       mk("corpLow", "法人税 (軽減)", "課税所得 800万円以下部分", corpTax.corporateTaxLow),
@@ -289,9 +300,9 @@ export function TaxForecastSection() {
         baseLabel: "—",
         base: null,
         ratePct: null,
-        annual: kintowariAnnual,
-        mid: kintowariMid,
-        periodEnd: kintowariAnnual - kintowariMid,
+        annual: kintowariAnnualManYen,
+        mid: kintowariMidManYen,
+        periodEnd: kintowariAnnualManYen - kintowariMidManYen,
         rateEditable: false,
         isKintowari: true,
       },
@@ -317,14 +328,17 @@ export function TaxForecastSection() {
       return all.filter((r) => !["corpLow", "bizLv1", "bizLv2"].includes(r.key));
     }
     return all;
-  }, [corpTax, form.kintowariManYen, form.midPayments, isSmb]);
+  }, [corpTax, form.kintowariYen, form.midPaymentsYen, isSmb]);
 
   const totalAnnual = rows.reduce((acc, r) => acc + r.annual, 0);
   const totalMid = rows.reduce((acc, r) => acc + r.mid, 0);
   const totalPeriodEnd = totalAnnual - totalMid;
 
-  const setMid = (key: MidKey, v: string) =>
-    updateForm((p) => ({ ...p, midPayments: { ...p.midPayments, [key]: v } }));
+  const setMidYen = (key: MidKey, v: string) =>
+    updateForm((p) => ({
+      ...p,
+      midPaymentsYen: { ...p.midPaymentsYen, [key]: v },
+    }));
 
   const setRate = (rateKey: keyof FormState, v: string) =>
     updateForm((p) => ({ ...p, [rateKey]: v }));
@@ -333,12 +347,12 @@ export function TaxForecastSection() {
     if (!confirm("地方税率と均等割をすべて東京都標準値に戻しますか？")) return;
     updateForm((p) => ({
       ...p,
-      residentTaxRatePct: String(DEFAULT_LOCAL_TAX_RATES.residentTaxRate * 100),
-      bizTaxLv1RatePct: String(DEFAULT_LOCAL_TAX_RATES.bizTaxLv1Rate * 100),
-      bizTaxLv2RatePct: String(DEFAULT_LOCAL_TAX_RATES.bizTaxLv2Rate * 100),
-      bizTaxLv3RatePct: String(DEFAULT_LOCAL_TAX_RATES.bizTaxLv3Rate * 100),
-      specialBizTaxRatePct: String(DEFAULT_LOCAL_TAX_RATES.specialBizTaxRate * 100),
-      kintowariManYen: String(DEFAULT_LOCAL_TAX_RATES.kintowariManYen),
+      residentTaxRatePct: fmtPct(DEFAULT_LOCAL_TAX_RATES.residentTaxRate),
+      bizTaxLv1RatePct: fmtPct(DEFAULT_LOCAL_TAX_RATES.bizTaxLv1Rate),
+      bizTaxLv2RatePct: fmtPct(DEFAULT_LOCAL_TAX_RATES.bizTaxLv2Rate),
+      bizTaxLv3RatePct: fmtPct(DEFAULT_LOCAL_TAX_RATES.bizTaxLv3Rate),
+      specialBizTaxRatePct: fmtPct(DEFAULT_LOCAL_TAX_RATES.specialBizTaxRate),
+      kintowariYen: String(DEFAULT_LOCAL_TAX_RATES.kintowariManYen * 10000),
     }));
   };
 
@@ -506,7 +520,7 @@ export function TaxForecastSection() {
                             className="w-14 rounded border px-1 py-0.5 text-right text-[11px] focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)]"
                           />
                         ) : (
-                          <span className="text-[11px]">{r.ratePct.toFixed(1)}</span>
+                          <span className="text-[11px]">{r.ratePct.toFixed(2)}</span>
                         )}
                         {r.ratePct !== null && (
                           <span className="ml-0.5 text-[10px] text-muted-foreground">%</span>
@@ -516,12 +530,15 @@ export function TaxForecastSection() {
                         {isKintowari ? (
                           <input
                             type="text"
-                            inputMode="decimal"
-                            value={form.kintowariManYen}
+                            inputMode="numeric"
+                            value={fmtComma(parseNum(form.kintowariYen))}
                             onChange={(e) =>
-                              updateForm((p) => ({ ...p, kintowariManYen: e.target.value }))
+                              updateForm((p) => ({
+                                ...p,
+                                kintowariYen: e.target.value.replace(/[^\d]/g, ""),
+                              }))
                             }
-                            className="w-20 rounded border px-1 py-0.5 text-right text-[11px] focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)]"
+                            className="w-24 rounded border px-1 py-0.5 text-right text-[11px] focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)]"
                           />
                         ) : (
                           <span className="text-[11px]">{formatYenFromManYen(r.annual)}</span>
@@ -530,10 +547,12 @@ export function TaxForecastSection() {
                       <td className="px-2 py-1.5 text-right tabular-nums">
                         <input
                           type="text"
-                          inputMode="decimal"
-                          value={form.midPayments[r.key]}
-                          onChange={(e) => setMid(r.key, e.target.value)}
-                          className="w-20 rounded border px-1 py-0.5 text-right text-[11px] focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)]"
+                          inputMode="numeric"
+                          value={fmtComma(parseNum(form.midPaymentsYen[r.key]))}
+                          onChange={(e) =>
+                            setMidYen(r.key, e.target.value.replace(/[^\d]/g, ""))
+                          }
+                          className="w-24 rounded border px-1 py-0.5 text-right text-[11px] focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)]"
                         />
                       </td>
                       <td

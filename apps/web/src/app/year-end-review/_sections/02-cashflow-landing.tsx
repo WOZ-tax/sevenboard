@@ -216,10 +216,26 @@ export function CashflowLandingSection() {
     <div className="space-y-3">
       <div className="grid grid-cols-3 gap-2">
         <Stat label="現預金残高" value={formatYen(summary.cashBalance)} />
-        <Stat label="月次Net Burn" value={formatYen(summary.monthlyBurn)} accent="rose" />
+        {summary.monthlyBurn > 0 ? (
+          <Stat
+            label="月次Net Burn"
+            value={`−${formatYen(summary.monthlyBurn)}`}
+            accent="rose"
+          />
+        ) : (
+          <Stat
+            label="月次CF (営業黒字)"
+            value={`+${formatYen(-summary.monthlyBurn)}`}
+            accent="emerald"
+          />
+        )}
         <Stat
           label="ランウェイ"
-          value={`${summary.runwayMonths.toFixed(1)}ヶ月`}
+          value={
+            summary.runwayMonths >= 999
+              ? "∞ (黒字)"
+              : `${summary.runwayMonths.toFixed(1)}ヶ月`
+          }
           accent={
             summary.runwayMonths >= 12
               ? "emerald"
@@ -237,7 +253,7 @@ export function CashflowLandingSection() {
             月別予定アウトフロー
           </span>
           <span className="text-[10px] text-muted-foreground">
-            (税納付・賞与・設備投資など、Net Burn に上乗せされる支出)
+            (税納付・賞与・設備投資など、Net Burn / 営業CF に上乗せされる支出)
           </span>
           <div className="ml-auto flex gap-1">
             {(["tax", "bonus", "capex"] as OutflowKind[]).map((k) => (
@@ -347,7 +363,7 @@ export function CashflowLandingSection() {
           <thead className="border-b bg-muted/40 text-[10px] text-muted-foreground">
             <tr>
               <th className="px-2 py-1.5 text-left">月</th>
-              <th className="px-2 py-1.5 text-right">通常Burn</th>
+              <th className="px-2 py-1.5 text-right">通常Burn/CF</th>
               <th className="px-2 py-1.5 text-right">税</th>
               <th className="px-2 py-1.5 text-right">賞与</th>
               <th className="px-2 py-1.5 text-right">設備投資</th>
@@ -358,10 +374,20 @@ export function CashflowLandingSection() {
           <tbody>
             {forecast.map((f) => {
               const isLow = f.balance < lowestThreshold;
+              const burnIsCash = f.burn <= 0; // 営業CFプラス (黒字)
               return (
                 <tr key={f.month} className={cn("border-b last:border-b-0", isLow && "bg-rose-50/50")}>
                   <td className="px-2 py-1.5">{f.month}</td>
-                  <td className="px-2 py-1.5 text-right text-rose-700">−{formatYen(f.burn)}</td>
+                  <td
+                    className={cn(
+                      "px-2 py-1.5 text-right",
+                      burnIsCash ? "text-emerald-700" : "text-rose-700",
+                    )}
+                  >
+                    {burnIsCash
+                      ? `+${formatYen(-f.burn)}`
+                      : `−${formatYen(f.burn)}`}
+                  </td>
                   <td className="px-2 py-1.5 text-right text-rose-700">
                     {f.tax > 0 ? `−${formatYen(f.tax)}` : "—"}
                   </td>
@@ -371,7 +397,15 @@ export function CashflowLandingSection() {
                   <td className="px-2 py-1.5 text-right text-violet-700">
                     {f.capex > 0 ? `−${formatYen(f.capex)}` : "—"}
                   </td>
-                  <td className="px-2 py-1.5 text-right text-rose-700">{formatYen(f.delta)}</td>
+                  <td
+                    className={cn(
+                      "px-2 py-1.5 text-right",
+                      f.delta < 0 ? "text-rose-700" : "text-emerald-700",
+                    )}
+                  >
+                    {f.delta >= 0 ? "+" : ""}
+                    {formatYen(f.delta)}
+                  </td>
                   <td
                     className={cn(
                       "px-2 py-1.5 text-right font-bold",
