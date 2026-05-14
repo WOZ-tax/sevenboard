@@ -115,7 +115,7 @@ export function CashflowLandingSection() {
     return { cashBalance, monthlyBurn, runwayMonths };
   }, [cf.data]);
 
-  // 月別予測残高 (6ヶ月)
+  // 月別予測残高 (12ヶ月 — 月選択肢と一致)
   const forecast = useMemo(() => {
     if (!summary) return [];
     const out: Array<{
@@ -129,7 +129,7 @@ export function CashflowLandingSection() {
     }> = [];
     const now = new Date();
     let runningBalance = summary.cashBalance;
-    for (let i = 1; i <= 6; i++) {
+    for (let i = 1; i <= 12; i++) {
       const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
       const monthKey = monthLabel(d);
       const monthOutflows = input.outflows.filter((o) => o.month === monthKey);
@@ -341,7 +341,7 @@ export function CashflowLandingSection() {
 
       <div className="overflow-hidden rounded-md border bg-white shadow-sm">
         <div className="border-b px-3 py-2 text-xs font-bold text-[var(--color-primary)]">
-          向こう6ヶ月の予測残高 (Net Burn + 予定アウトフロー)
+          向こう12ヶ月の予測残高 (Net Burn + 予定アウトフロー)
         </div>
         <table className="w-full text-xs tabular-nums">
           <thead className="border-b bg-muted/40 text-[10px] text-muted-foreground">
@@ -389,7 +389,7 @@ export function CashflowLandingSection() {
 
       {lowestBalance < 0 && (
         <div className="rounded-md border-l-4 border-l-rose-500 bg-rose-50/60 p-3 text-xs">
-          <strong className="text-rose-700">警告:</strong> 6ヶ月以内に現預金が枯渇する見込みです。
+          <strong className="text-rose-700">警告:</strong> 12ヶ月以内に現預金が枯渇する見込みです。
           <Link href="/funding-report" className="ml-1 text-[var(--color-primary)] hover:underline">
             資金調達レポート <ExternalLink className="inline h-3 w-3" />
           </Link>
