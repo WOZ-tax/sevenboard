@@ -1,7 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useMfPL, useMfOffice } from "@/hooks/use-mf-data";
+import {
+  useMfAccountTransition,
+  useMfOffice,
+  useMfPL,
+} from "@/hooks/use-mf-data";
 import { useScopedOrgId } from "@/hooks/use-scoped-org-id";
 import { useFyElapsed } from "@/hooks/use-fy-elapsed";
 import { getFyElapsedFromMonth, usePeriodStore } from "@/lib/period-store";
@@ -63,6 +67,10 @@ export function ExecCompSimulatorSection() {
   const fiscalYear = usePeriodStore((s) => s.fiscalYear);
   const { fyStartMonth } = useFyElapsed();
   const storageKey = storageKeyFor(orgId, fiscalYear);
+  // PL Statement では役員報酬・減価償却費は販管費に集約されているため、
+  // それぞれ個別に transition PL から再帰検索する。
+  const execCompTransition = useMfAccountTransition("役員報酬", fiscalYear);
+  const depreciationTransition = useMfAccountTransition("減価償却費", fiscalYear);
 
   const [form, setForm] = useState<FormState>(DEFAULT_FORM);
   const [hydrated, setHydrated] = useState(false);
@@ -107,8 +115,16 @@ export function ExecCompSimulatorSection() {
     };
     const revenue = findPl("売上高", ["原価", "総利益"]);
     const operatingProfit = findPl("営業利益");
-    const execComp = findPl("役員報酬");
-    const depreciation = findPl("減価償却費");
+    // 役員報酬・減価償却費は PL Statement の集約レベルには無いので transition から累計
+    const sumTransition = (
+      data: { month: string; amount: number }[] | undefined,
+    ): number =>
+      (data ?? []).reduce(
+        (acc, r) => acc + (Number.isFinite(r.amount) ? r.amount : 0),
+        0,
+      );
+    const execComp = sumTransition(execCompTransition.data);
+    const depreciation = sumTransition(depreciationTransition.data);
 
     if (revenue > 0) {
       const elapsed = getFyElapsedFromMonth(lockedMonth, fyStartMonth);
@@ -128,7 +144,14 @@ export function ExecCompSimulatorSection() {
         depreciation: String(annualize(depreciation)),
       }));
     }
-  }, [hydrated, pl.data, lockedMonth, fyStartMonth]);
+  }, [
+    hydrated,
+    pl.data,
+    execCompTransition.data,
+    depreciationTransition.data,
+    lockedMonth,
+    fyStartMonth,
+  ]);
 
   // ユーザーが編集した時だけ localStorage 保存
   useEffect(() => {
