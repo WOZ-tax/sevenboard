@@ -60,6 +60,39 @@ export class AiController {
     );
   }
 
+  /** ロカベン手入力データ等を添えて生成する POST バリアント (AI CFO ページが使う) */
+  @Post('summary')
+  async generateSummaryWithContext(
+    @Param('orgId') orgId: string,
+    @Body() body: {
+      fiscalYear?: number;
+      endMonth?: number;
+      runwayMode?: string;
+      focus?: string;
+      locabenOverride?: {
+        industry?: string | null;
+        values?: Record<string, number | null>;
+        nonFinancial?: Record<string, Record<string, string>>;
+      };
+    },
+  ) {
+    const validFocus: 'all' | 'revenue' | 'cost' | 'cashflow' | 'indicators' =
+      body.focus === 'revenue' ||
+      body.focus === 'cost' ||
+      body.focus === 'cashflow' ||
+      body.focus === 'indicators'
+        ? body.focus
+        : 'all';
+    return this.aiService.generateMonthlySummary(
+      orgId,
+      body.fiscalYear,
+      body.endMonth,
+      this.parseRunwayMode(body.runwayMode),
+      validFocus,
+      body.locabenOverride,
+    );
+  }
+
   @Get('talk-script')
   async getTalkScript(
     @Param('orgId') orgId: string,

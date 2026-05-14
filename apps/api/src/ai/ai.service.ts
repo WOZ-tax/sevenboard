@@ -12,6 +12,7 @@ import {
   LOCABEN_HIGHER_IS_BETTER,
   computeLocabenMetrics,
   getBenchmarkFor,
+  formatNonFinancialBlock,
   type LocabenMetricKey,
 } from '../locaben/benchmarks';
 import { normalizeIndustry } from '../common/industries';
@@ -498,10 +499,21 @@ ${plRows.map((r) => `${r.category}: ${r.current}円`).join('\n')}`;
     endMonth?: number,
     runwayMode?: 'worstCase' | 'netBurn' | 'actual',
     focus: 'all' | 'revenue' | 'cost' | 'cashflow' | 'indicators' = 'all',
+    locabenOverride?: {
+      industry?: string | null;
+      values?: Record<string, number | null>;
+      nonFinancial?: Record<string, Record<string, string>>;
+    },
   ): Promise<AiSummaryResponse> {
     // endMonth 未指定 = 全期間/通期モード
     if (endMonth === undefined || endMonth === null) {
-      return this.generateCumulativeSummary(orgId, fiscalYear, runwayMode, focus);
+      return this.generateCumulativeSummary(
+        orgId,
+        fiscalYear,
+        runwayMode,
+        focus,
+        locabenOverride,
+      );
     }
 
     const [{ targetMonthData, trend }, finCtx] = await Promise.all([
@@ -522,6 +534,12 @@ ${plRows.map((r) => `${r.category}: ${r.current}円`).join('\n')}`;
       const llm = this.ensureLlm();
       const profileBlock = await this.getCustomerProfileBlock(orgId);
       const policyBlock = await this.getOrgPolicyBlock(orgId);
+      const locabenBlock = await this.getLocabenBlock(
+        orgId,
+        fiscalYear,
+        endMonth,
+        locabenOverride,
+      );
       const trendLines = trend
         .filter((p) => p.actual)
         .map((p) => `${p.month}: 売上 ${p.revenue.toLocaleString()}円 / 営業利益 ${p.operatingProfit.toLocaleString()}円`)
@@ -546,6 +564,7 @@ ${focusInstruction}
 大企業向けの高度な財務理論や過度な専門用語は避け、中小企業のCFOが社長に説明するような実務的なトーンにしてください。
 ${profileBlock ? '\n' + profileBlock + '\n※ 上記プロファイルを踏まえ、業種・規模を断定しすぎず、読み取れる範囲で中小企業・スタートアップ寄りの観点から分析してください。\n※ 不明な情報は推測しすぎず、「確認したい論点」として自然に触れてください。\n' : ''}
 ${policyBlock ? '\n' + policyBlock + '\n' : ''}
+${locabenBlock ? '\n' + locabenBlock + '\n\n## ロカベン情報の扱い方 (大局的な経営目線)\n上記のロカベン分析は **対銀行の融資審査向け改善ではなく、経営者の構造改革判断材料** として扱う。短期的な数字操作ではなく、5-10年スパンの事業ポートフォリオ・人的資本・DX・事業承継・組織体制を見据えた視点で言及する。財務6指標で業種平均を大きく劣後している領域があれば、当月の打ち手と紐づけて1-2文 sections に織り込む。非財務シート (経営者の経歴・経営理念・主要顧客・組織体制 等) に入力があれば、それを踏まえた個別性のある提案にする (テンプレ提案禁止)。資金調達 / 銀行交渉 / 融資審査の話題は扱わない (資金調達レポートで別途扱うため)。\n' : ''}
 ## ${targetMonthData.month}単月の財務データ
 
 - 売上高: ${targetMonthData.revenue.toLocaleString()}円
@@ -679,6 +698,11 @@ ${primaryMode === 'actual'
     fiscalYear?: number,
     runwayMode?: 'worstCase' | 'netBurn' | 'actual',
     focus: AiFocus = 'all',
+    locabenOverride?: {
+      industry?: string | null;
+      values?: Record<string, number | null>;
+      nonFinancial?: Record<string, Record<string, string>>;
+    },
   ): Promise<AiSummaryResponse> {
     const [finCtx, transitionPl] = await Promise.all([
       this.getFinancialContext(orgId, fiscalYear).catch(() => null),
@@ -770,6 +794,12 @@ ${primaryMode === 'actual'
       const llm = this.ensureLlm();
       const profileBlock = await this.getCustomerProfileBlock(orgId);
       const policyBlock = await this.getOrgPolicyBlock(orgId);
+      const locabenBlock = await this.getLocabenBlock(
+        orgId,
+        fiscalYear,
+        undefined,
+        locabenOverride,
+      );
       const trendLines = trend
         .filter((p) => p.actual)
         .map(
@@ -798,6 +828,7 @@ ${focusInstruction}
 大企業向けの高度な財務理論や過度な専門用語は避け、中小企業のCFOが社長に説明するような実務的なトーンにしてください。
 ${profileBlock ? '\n' + profileBlock + '\n※ 上記プロファイルを踏まえ、業種・規模を断定しすぎず、読み取れる範囲で中小企業・スタートアップ寄りの観点から分析してください。\n※ 不明な情報は推測しすぎず、「確認したい論点」として自然に触れてください。\n' : ''}
 ${policyBlock ? '\n' + policyBlock + '\n' : ''}
+${locabenBlock ? '\n' + locabenBlock + '\n\n## ロカベン情報の扱い方 (大局的な経営目線)\n上記のロカベン分析は **対銀行の融資審査向け改善ではなく、経営者の構造改革判断材料** として扱う。短期的な数字操作ではなく、5-10年スパンの事業ポートフォリオ・人的資本・DX・事業承継・組織体制を見据えた視点で言及する。財務6指標で業種平均を大きく劣後している領域があれば、当期の打ち手と紐づけて1-2文 sections に織り込む。非財務シート (経営者の経歴・経営理念・主要顧客・組織体制 等) に入力があれば、それを踏まえた個別性のある提案にする (テンプレ提案禁止)。資金調達 / 銀行交渉 / 融資審査の話題は扱わない (資金調達レポートで別途扱うため)。\n' : ''}
 ## ${periodLabel} 累計財務データ
 
 - 売上高(累計): ${cumRevenue.toLocaleString()}円
@@ -1172,6 +1203,7 @@ ${paramBlock}
     locabenOverride?: {
       industry?: string | null;
       values?: Record<string, number | null>;
+      nonFinancial?: Record<string, Record<string, string>>;
     },
   ): Promise<string> {
     try {
@@ -1235,6 +1267,12 @@ ${paramBlock}
         '※ 単位 — 売上増加率/営業利益率/自己資本比率: %、労働生産性: 千円/人、EBITDA有利子負債倍率: 倍、運転資本回転期間: ヶ月。',
         'EBITDA有利子負債倍率と運転資本回転期間は「低いほど良い」。',
       );
+
+      // 非財務4シート (入力されたもののみ追加)
+      const nonFinBlock = formatNonFinancialBlock(locabenOverride?.nonFinancial);
+      if (nonFinBlock) {
+        lines.push('', nonFinBlock);
+      }
       return lines.join('\n');
     } catch (err) {
       this.logger.warn(

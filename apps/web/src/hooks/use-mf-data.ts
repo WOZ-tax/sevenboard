@@ -107,7 +107,18 @@ export function useAiSummary(
   const focus = options?.focus ?? 'all';
   return useQuery<AiSummaryResponse>({
     queryKey: ["ai", "summary", orgId, fiscalYear, month, runwayMode, focus],
-    queryFn: () => api.ai.getSummary(orgId, fiscalYear, month, runwayMode, focus),
+    queryFn: () => {
+      // ロカベンページの 6指標上書き + 非財務4シートをコンテキストとして送る
+      const locabenOverride = loadLocabenOverride(orgId);
+      return api.ai.getSummary(
+        orgId,
+        fiscalYear,
+        month,
+        runwayMode,
+        focus,
+        locabenOverride,
+      );
+    },
     enabled: !!orgId && (options?.enabled ?? true),
     staleTime: 30 * 60 * 1000,
   });

@@ -770,15 +770,27 @@ export const api = {
       month?: number,
       runwayMode?: 'worstCase' | 'netBurn' | 'actual',
       focus?: 'all' | 'revenue' | 'cost' | 'cashflow' | 'indicators',
+      locabenOverride?: {
+        industry?: string | null;
+        values?: Record<string, number | null>;
+        nonFinancial?: Record<string, Record<string, string>>;
+      },
     ) => {
-      const qs = new URLSearchParams();
-      if (fiscalYear) qs.set('fiscalYear', String(fiscalYear));
-      if (month) qs.set('endMonth', String(month));
-      if (runwayMode) qs.set('runwayMode', runwayMode);
-      if (focus && focus !== 'all') qs.set('focus', focus);
-      const suffix = qs.toString() ? `?${qs}` : '';
+      // ロカベン定性情報を渡す必要があるので POST 経路。
+      // 何も渡さない場合も同じ endpoint で動く (GET endpoint は互換維持で残置)。
       return apiFetch<AiSummaryResponse>(
-        `/organizations/${orgId}/ai/summary${suffix}`,
+        `/organizations/${orgId}/ai/summary`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            fiscalYear,
+            endMonth: month,
+            runwayMode,
+            focus,
+            locabenOverride,
+          }),
+        },
       );
     },
     getTalkScript: (

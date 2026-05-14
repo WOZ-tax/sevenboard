@@ -161,6 +161,88 @@ export function getBenchmarkFor(
   return LOCABEN_BENCHMARKS[industry] ?? LOCABEN_DEFAULT_BENCHMARK;
 }
 
+/**
+ * 非財務4シート定義 (web 側 NON_FINANCIAL_SECTIONS と同期)。
+ * AI プロンプトでラベル変換に使う。
+ */
+export const NON_FINANCIAL_SECTIONS: ReadonlyArray<{
+  key: string;
+  label: string;
+  fields: ReadonlyArray<{ key: string; label: string }>;
+}> = [
+  {
+    key: 'manager',
+    label: '経営者',
+    fields: [
+      { key: 'career', label: '経営者の経歴' },
+      { key: 'strength', label: '経営者の強み' },
+      { key: 'weakness', label: '経営者の弱み' },
+      { key: 'philosophy', label: '経営理念・ビジョン' },
+      { key: 'successor', label: '後継者の有無・育成状況' },
+    ],
+  },
+  {
+    key: 'stakeholders',
+    label: '事業を取り巻く環境・関係者',
+    fields: [
+      { key: 'shareholders', label: '株主構成' },
+      { key: 'customers', label: '主要顧客・販売先' },
+      { key: 'suppliers', label: '主要仕入先' },
+      { key: 'employees', label: '従業員構成 (人数・年齢・スキル)' },
+      { key: 'banks', label: '取引金融機関' },
+    ],
+  },
+  {
+    key: 'business',
+    label: '事業',
+    fields: [
+      { key: 'products', label: '商品・サービス' },
+      { key: 'customerNeeds', label: '顧客のニーズ・対応方針' },
+      { key: 'deliveryMethod', label: '提供方法・販路' },
+      { key: 'competitors', label: '競合との差別化要因' },
+      { key: 'valueChain', label: 'バリューチェーン上の位置' },
+    ],
+  },
+  {
+    key: 'internal',
+    label: '内部管理体制',
+    fields: [
+      { key: 'orgStructure', label: '組織体制・組織図' },
+      { key: 'decisionMaking', label: '意思決定プロセス' },
+      { key: 'humanResources', label: '人事評価・育成制度' },
+      { key: 'ITSystems', label: '情報システム・DX取り組み' },
+      { key: 'compliance', label: '内部統制・コンプライアンス' },
+    ],
+  },
+];
+
+/** 非財務シート (定性情報) を prompt 用テキストに整形。1項目も入力が無ければ空文字を返す。 */
+export function formatNonFinancialBlock(
+  nonFinancial:
+    | Record<string, Record<string, string>>
+    | undefined,
+): string {
+  if (!nonFinancial) return '';
+  const lines: string[] = [];
+  for (const section of NON_FINANCIAL_SECTIONS) {
+    const data = nonFinancial[section.key];
+    if (!data) continue;
+    const entries = section.fields
+      .map((f) => ({ label: f.label, value: (data[f.key] ?? '').trim() }))
+      .filter((e) => e.value.length > 0);
+    if (entries.length === 0) continue;
+    lines.push(`### ${section.label}`);
+    for (const e of entries) {
+      lines.push(`- ${e.label}: ${e.value}`);
+    }
+    lines.push('');
+  }
+  if (lines.length === 0) return '';
+  return ['## ロカベン非財務シート (ユーザー入力済みの定性情報)', ...lines].join(
+    '\n',
+  );
+}
+
 /** SourceData (千円単位) から6指標を計算 */
 export function computeLocabenMetrics(
   d: LocabenSourceData,
