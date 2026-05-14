@@ -17,6 +17,7 @@ import {
   FileBarChart,
   Gauge,
   CalendarClock,
+  Building2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
@@ -40,6 +41,7 @@ const menuItems = [
   { label: "資金繰り", href: "/cashflow", icon: Wallet },
   { label: "資金調達レポート", href: "/funding-report", icon: FileBarChart },
   { label: "変動損益", href: "/variable-cost", icon: TrendingDown },
+  { label: "ロカベン", href: "/locaben", icon: Building2 },
   { label: "決算検討", href: "/year-end-review", icon: CalendarClock },
   { label: "トークスクリプト", href: "/talk-script", icon: Mic },
   { label: "アラート", href: "/alerts", icon: Bell },
