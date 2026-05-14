@@ -18,33 +18,55 @@ import type { SourceData } from "./metrics";
 
 type Rows = readonly FinancialStatementRow[];
 
+/**
+ * BS の category は「  買掛金」(leaf、先頭スペース2つ) と「買掛金合計」(subtotal) の
+ * 両方が存在しうる。leaf だけを対象にしたいので isTotal / isHeader を除外し、
+ * 先頭の空白を除いた純粋な勘定名で比較する。
+ */
+function leafRows(rows: Rows): { name: string; current: number }[] {
+  return rows
+    .filter((r) => !r.isTotal && !r.isHeader)
+    .map((r) => ({ name: r.category.trim(), current: r.current }))
+    .filter((r) => Number.isFinite(r.current));
+}
+
+function totalRows(rows: Rows): { name: string; current: number }[] {
+  return rows
+    .filter((r) => r.isTotal && !r.isHeader)
+    .map((r) => ({ name: r.category.trim(), current: r.current }))
+    .filter((r) => Number.isFinite(r.current));
+}
+
 function findCurrent(rows: Rows, names: readonly string[]): number | null {
+  const leaves = leafRows(rows);
   for (const name of names) {
-    const exact = rows.find((r) => r.category === name);
-    if (exact && Number.isFinite(exact.current)) return exact.current;
+    const exact = leaves.find((r) => r.name === name);
+    if (exact) return exact.current;
   }
   for (const name of names) {
-    const partial = rows.find(
-      (r) => r.category.includes(name) && Number.isFinite(r.current),
-    );
+    const partial = leaves.find((r) => r.name.includes(name));
     if (partial) return partial.current;
+  }
+  // leaf に見つからなければ subtotal にもフォールバック (純資産合計など)
+  const totals = totalRows(rows);
+  for (const name of names) {
+    const t = totals.find((r) => r.name === name || r.name.includes(name));
+    if (t) return t.current;
   }
   return null;
 }
 
 function sumCurrent(rows: Rows, names: readonly string[]): number | null {
+  const leaves = leafRows(rows);
   let sum = 0;
   let found = false;
-  const seen = new Set<string>();
+  const matched = new Set<string>();
   for (const name of names) {
-    for (const r of rows) {
-      if (seen.has(r.category)) continue;
-      if (
-        (r.category === name || r.category.includes(name)) &&
-        Number.isFinite(r.current)
-      ) {
+    for (const r of leaves) {
+      if (matched.has(r.name)) continue;
+      if (r.name === name || r.name.includes(name)) {
         sum += r.current;
-        seen.add(r.category);
+        matched.add(r.name);
         found = true;
       }
     }
@@ -77,9 +99,12 @@ export function extractMfSourceData(input: {
     }
   }
 
+  // 減価償却費は PL Statement の集約レベルには含まれていないため
+  // page 側で `useMfAccountTransition("減価償却費")` を呼んで個別取得する。
+  // ここでは PL から探すフォールバックだけ残す (科目別 PL が来ている場合に備えて)。
   if (input.pl) {
     const dep = findCurrent(input.pl, ["減価償却費"]);
-    r.depreciation = yenToThousand(dep);
+    if (dep !== null) r.depreciation = yenToThousand(dep);
   }
 
   if (input.bs) {

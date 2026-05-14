@@ -23,7 +23,14 @@ import {
   ResponsiveContainer,
   Legend,
 } from "recharts";
-import { Download, Building2, RotateCcw, RefreshCw } from "lucide-react";
+import {
+  Download,
+  Building2,
+  RotateCcw,
+  RefreshCw,
+  ChevronDown,
+  ChevronUp,
+} from "lucide-react";
 
 import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -38,7 +45,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useCurrentOrg } from "@/contexts/current-org";
-import { useMfBS, useMfDashboard, useMfPL } from "@/hooks/use-mf-data";
+import {
+  useMfAccountTransition,
+  useMfBS,
+  useMfDashboard,
+  useMfPL,
+} from "@/hooks/use-mf-data";
 import { usePeriodStore, getPeriodLabel } from "@/lib/period-store";
 import { normalizeIndustry, INDUSTRIES, type IndustryCode } from "@/lib/industries";
 import {
@@ -137,19 +149,40 @@ export default function LocabenPage() {
   const dashboard = useMfDashboard();
   const pl = useMfPL();
   const bs = useMfBS();
+  // 減価償却費は PL 集約には含まれないので個別取得
+  const depreciation = useMfAccountTransition("減価償却費", fiscalYear);
 
-  const mfExtracted = useMemo(
-    () =>
-      extractMfSourceData({
-        dashboard: dashboard.data,
-        pl: pl.data,
-        bs: bs.data,
-      }),
-    [dashboard.data, pl.data, bs.data],
-  );
+  const mfExtracted = useMemo(() => {
+    const base = extractMfSourceData({
+      dashboard: dashboard.data,
+      pl: pl.data,
+      bs: bs.data,
+    });
+    if (depreciation.data && depreciation.data.length > 0) {
+      const sumYen = depreciation.data.reduce(
+        (acc, r) => acc + (Number.isFinite(r.amount) ? r.amount : 0),
+        0,
+      );
+      if (sumYen > 0) {
+        base.depreciation = Math.round(sumYen / 1000);
+      }
+    }
+    return base;
+  }, [dashboard.data, pl.data, bs.data, depreciation.data]);
+
+  /** MF から取得可能な項目 (UI で「MF値に戻す」を表示する対象) */
+  const mfFetchableKeys = useMemo(() => {
+    const set = new Set<SourceDataKey>();
+    for (const k of SOURCE_DATA_KEYS) {
+      const v = mfExtracted[k];
+      if (v !== undefined && v !== null) set.add(k);
+    }
+    return set;
+  }, [mfExtracted]);
 
   const [state, setState] = useState<LocabenFormState>(() => emptyForm());
   const [hydrated, setHydrated] = useState(false);
+  const [sourceExpanded, setSourceExpanded] = useState(true);
 
   /* eslint-disable react-hooks/set-state-in-effect */
 
@@ -208,6 +241,7 @@ export default function LocabenPage() {
       const mfVal = mfExtracted[key];
       return {
         ...prev,
+        // MF から取れる項目は MF 値に、取れない項目は null (空) に戻す
         values: { ...prev.values, [key]: mfVal ?? null },
         manualKeys: nextManual,
       };
@@ -244,6 +278,7 @@ export default function LocabenPage() {
     dashboard.refetch();
     pl.refetch();
     bs.refetch();
+    depreciation.refetch();
   };
 
   const effectiveIndustry = state.industryOverride ?? orgIndustry;
@@ -288,8 +323,13 @@ export default function LocabenPage() {
     });
   }, [metrics, benchmarks]);
 
-  const mfLoading = dashboard.isLoading || pl.isLoading || bs.isLoading;
-  const mfFetching = dashboard.isFetching || pl.isFetching || bs.isFetching;
+  const mfLoading =
+    dashboard.isLoading || pl.isLoading || bs.isLoading || depreciation.isLoading;
+  const mfFetching =
+    dashboard.isFetching ||
+    pl.isFetching ||
+    bs.isFetching ||
+    depreciation.isFetching;
 
   if (!currentOrg) {
     return (
@@ -307,7 +347,7 @@ export default function LocabenPage() {
 
   return (
     <DashboardShell>
-      <div className="mx-auto max-w-[1200px] space-y-6 p-6">
+      <div className="mx-auto max-w-[1200px] space-y-3 p-6">
         {/* ヘッダー */}
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -403,95 +443,118 @@ export default function LocabenPage() {
 
         {/* 元データ入力 */}
         <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center justify-between text-base">
-              <span>元データ</span>
+          <button
+            type="button"
+            onClick={() => setSourceExpanded((s) => !s)}
+            className="flex w-full items-center justify-between gap-2 px-6 py-3 text-left hover:bg-[var(--color-surface)]/50"
+          >
+            <div className="flex items-center gap-3">
+              <span className="text-base font-semibold text-[var(--color-text-primary)]">
+                元データ
+              </span>
               {mfLoading ? (
                 <Badge variant="outline" className="text-[10px]">
                   MFデータ取得中...
                 </Badge>
               ) : (
                 <Badge variant="outline" className="text-[10px]">
-                  MFから自動取得 (千円単位)
+                  MF自動取得 (金額は千円)
                 </Badge>
               )}
-            </CardTitle>
-            <p className="text-xs text-muted-foreground">
-              金額は千円単位。値を入力すると優先表示されます。空欄で MF 値に戻ります。
-            </p>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {(["pl", "bs", "hr"] as SourceDataGroup[]).map((group) => {
-              const fields = SOURCE_DATA_FIELDS.filter((f) => f.group === group);
-              return (
-                <div key={group}>
-                  <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    {SOURCE_GROUP_LABELS[group]}
-                  </h3>
-                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                    {fields.map((field) => {
-                      const v = state.values[field.key];
-                      const isManual = !!state.manualKeys[field.key];
-                      const hasMf =
-                        mfExtracted[field.key] !== undefined &&
-                        mfExtracted[field.key] !== null;
-                      return (
-                        <div
-                          key={field.key}
-                          className="rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] p-2.5"
-                        >
-                          <div className="mb-1 flex items-center justify-between gap-2">
-                            <label className="text-xs font-medium text-[var(--color-text-primary)]">
-                              {field.label}
-                            </label>
-                            {isManual ? (
-                              <button
-                                type="button"
-                                onClick={() => clearSourceValue(field.key)}
-                                className="text-[10px] text-[var(--color-primary)] hover:underline"
-                                title="MFから取得した値に戻す"
-                              >
-                                MF値に戻す
-                              </button>
-                            ) : hasMf ? (
-                              <span className="text-[10px] text-[var(--color-success)]">
-                                MF自動
+              <span className="text-xs text-muted-foreground">
+                {Object.values(state.values).filter((v) => v !== null).length}/
+                {SOURCE_DATA_KEYS.length} 入力済
+              </span>
+            </div>
+            {sourceExpanded ? (
+              <ChevronUp className="h-4 w-4 text-muted-foreground" />
+            ) : (
+              <ChevronDown className="h-4 w-4 text-muted-foreground" />
+            )}
+          </button>
+          {sourceExpanded && (
+            <CardContent className="space-y-3 pt-0">
+              {(["pl", "bs", "hr"] as SourceDataGroup[]).map((group) => {
+                const fields = SOURCE_DATA_FIELDS.filter(
+                  (f) => f.group === group,
+                );
+                return (
+                  <div key={group}>
+                    <h3 className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      {SOURCE_GROUP_LABELS[group]}
+                    </h3>
+                    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                      {fields.map((field) => {
+                        const v = state.values[field.key];
+                        const isManual = !!state.manualKeys[field.key];
+                        const hasMf = mfFetchableKeys.has(field.key);
+                        return (
+                          <div
+                            key={field.key}
+                            className="rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] p-2"
+                          >
+                            <div className="mb-1 flex items-center justify-between gap-2">
+                              <label className="text-xs font-medium text-[var(--color-text-primary)]">
+                                {field.label}
+                              </label>
+                              {isManual && hasMf ? (
+                                <button
+                                  type="button"
+                                  onClick={() => clearSourceValue(field.key)}
+                                  className="text-[10px] text-[var(--color-primary)] hover:underline"
+                                  title="MFから取得した値に戻す"
+                                >
+                                  MF値に戻す
+                                </button>
+                              ) : isManual ? (
+                                <button
+                                  type="button"
+                                  onClick={() => clearSourceValue(field.key)}
+                                  className="text-[10px] text-muted-foreground hover:underline"
+                                  title="入力をクリア"
+                                >
+                                  クリア
+                                </button>
+                              ) : hasMf ? (
+                                <span className="text-[10px] text-[var(--color-success)]">
+                                  MF自動
+                                </span>
+                              ) : (
+                                <span className="text-[10px] text-amber-600">
+                                  要入力
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-baseline gap-1.5">
+                              <Input
+                                type="number"
+                                inputMode="decimal"
+                                step="any"
+                                value={v ?? ""}
+                                onChange={(e) =>
+                                  setSourceValue(field.key, e.target.value)
+                                }
+                                placeholder="--"
+                                className="h-8 flex-1 text-right tabular-nums"
+                              />
+                              <span className="text-[10px] text-muted-foreground">
+                                {field.unit}
                               </span>
-                            ) : (
-                              <span className="text-[10px] text-amber-600">
-                                要入力
-                              </span>
+                            </div>
+                            {field.hint && (
+                              <div className="mt-0.5 text-[10px] text-muted-foreground">
+                                {field.hint}
+                              </div>
                             )}
                           </div>
-                          <div className="flex items-baseline gap-1.5">
-                            <Input
-                              type="number"
-                              inputMode="decimal"
-                              step="any"
-                              value={v ?? ""}
-                              onChange={(e) =>
-                                setSourceValue(field.key, e.target.value)
-                              }
-                              placeholder="--"
-                              className="h-8 flex-1 text-right tabular-nums"
-                            />
-                            <span className="text-[10px] text-muted-foreground">
-                              {field.unit}
-                            </span>
-                          </div>
-                          {field.hint && (
-                            <div className="mt-1 text-[10px] text-muted-foreground">
-                              {field.hint}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
+                        );
+                      })}
+                    </div>
                   </div>
-                </div>
-              );
-            })}
-          </CardContent>
+                );
+              })}
+            </CardContent>
+          )}
         </Card>
 
         {/* 6指標 + レーダー */}
