@@ -268,3 +268,90 @@ export const NON_FINANCIAL_SECTIONS = [
 ] as const;
 
 export const ALL_INDUSTRIES = INDUSTRIES;
+
+/** 6指標を導出する元データ (PL / BS / HR) */
+export const SOURCE_DATA_KEYS = [
+  "revenueCurrent",
+  "revenuePrior",
+  "operatingProfit",
+  "depreciation",
+  "totalAssets",
+  "netAssets",
+  "receivables",
+  "inventory",
+  "payables",
+  "borrowings",
+  "cashAndDeposits",
+  "employeeCount",
+] as const;
+
+export type SourceDataKey = (typeof SOURCE_DATA_KEYS)[number];
+
+export type SourceDataGroup = "pl" | "bs" | "hr";
+
+export interface SourceDataFieldDef {
+  key: SourceDataKey;
+  label: string;
+  group: SourceDataGroup;
+  unit: "千円" | "人";
+  hint?: string;
+}
+
+export const SOURCE_DATA_FIELDS: SourceDataFieldDef[] = [
+  { key: "revenueCurrent", label: "当期売上", group: "pl", unit: "千円" },
+  { key: "revenuePrior", label: "前期売上", group: "pl", unit: "千円" },
+  { key: "operatingProfit", label: "営業利益", group: "pl", unit: "千円" },
+  { key: "depreciation", label: "減価償却費", group: "pl", unit: "千円" },
+  { key: "totalAssets", label: "総資産", group: "bs", unit: "千円" },
+  { key: "netAssets", label: "純資産", group: "bs", unit: "千円" },
+  {
+    key: "receivables",
+    label: "売上債権",
+    group: "bs",
+    unit: "千円",
+    hint: "売掛金 + 受取手形",
+  },
+  { key: "inventory", label: "棚卸資産", group: "bs", unit: "千円" },
+  {
+    key: "payables",
+    label: "仕入債務",
+    group: "bs",
+    unit: "千円",
+    hint: "買掛金 + 支払手形",
+  },
+  {
+    key: "borrowings",
+    label: "借入金",
+    group: "bs",
+    unit: "千円",
+    hint: "短期借入金 + 長期借入金",
+  },
+  { key: "cashAndDeposits", label: "現預金", group: "bs", unit: "千円" },
+  { key: "employeeCount", label: "従業員数", group: "hr", unit: "人" },
+];
+
+export const SOURCE_GROUP_LABELS: Record<SourceDataGroup, string> = {
+  pl: "損益計算書 (PL)",
+  bs: "貸借対照表 (BS)",
+  hr: "人員",
+};
+
+/** 各指標がどの元データに依存するか (UI で「不足項目」表示用) */
+export const METRIC_DEPENDENCIES: Record<LocabenMetricKey, SourceDataKey[]> = {
+  revenueGrowthRate: ["revenueCurrent", "revenuePrior"],
+  operatingProfitMargin: ["operatingProfit", "revenueCurrent"],
+  laborProductivity: ["operatingProfit", "employeeCount"],
+  ebitdaInterestBearingDebtRatio: [
+    "borrowings",
+    "cashAndDeposits",
+    "operatingProfit",
+    "depreciation",
+  ],
+  workingCapitalTurnoverPeriod: [
+    "receivables",
+    "inventory",
+    "payables",
+    "revenueCurrent",
+  ],
+  equityRatio: ["netAssets", "totalAssets"],
+};
