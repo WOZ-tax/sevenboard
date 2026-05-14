@@ -291,12 +291,23 @@ export interface FundingScenarioSeed {
   interestRate: number;
 }
 
+export interface LocabenImprovement {
+  metricLabel: string;
+  current: string;
+  benchmark: string;
+  gap: string;
+  priority: 'high' | 'medium' | 'low';
+  suggestion: string;
+}
+
 export interface FundingReport {
   executiveSummary: string;
   financialHighlights: string[];
   strengthsRisks: { strengths: string[]; risks: string[] };
   projections: string;
   suggestedOptions?: FundingOption[];
+  /** ロカベン6指標に基づく改善提案 */
+  locabenImprovements?: LocabenImprovement[];
   echoedScenarios?: FundingScenarioSeed[];
   generatedAt: string;
 }

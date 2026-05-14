@@ -16,6 +16,7 @@ import {
   ArrowRight,
   Shield,
   Sparkles,
+  Building2,
 } from "lucide-react";
 import { PrintButton } from "@/components/ui/print-button";
 import { useAiFundingReport, useMfOffice } from "@/hooks/use-mf-data";
@@ -398,6 +399,81 @@ export default function FundingReportPage() {
                       );
                     })}
                   </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* ロカベン改善提案 */}
+            {report.locabenImprovements && report.locabenImprovements.length > 0 && (
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="flex items-center gap-2 text-base font-semibold text-[var(--color-text-primary)]">
+                    <Building2 className="h-5 w-5 text-[var(--color-primary)]" />
+                    ロカベン6指標の改善提案 (金融機関対話用)
+                  </CardTitle>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    業種平均との差分が大きい指標を優先。優先度高 = 融資審査で減点リスクが大きい項目
+                  </p>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2">
+                    {report.locabenImprovements.map((imp, i) => {
+                      const priorityStyle =
+                        imp.priority === "high"
+                          ? "bg-red-50 text-red-700 border-red-200"
+                          : imp.priority === "medium"
+                            ? "bg-amber-50 text-amber-700 border-amber-200"
+                            : "bg-gray-50 text-gray-600 border-gray-200";
+                      const priorityLabel =
+                        imp.priority === "high"
+                          ? "優先度高"
+                          : imp.priority === "medium"
+                            ? "優先度中"
+                            : "優先度低";
+                      return (
+                        <div
+                          key={i}
+                          className="rounded-md border border-[var(--color-border)] bg-background p-3"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-semibold text-[var(--color-text-primary)]">
+                                {imp.metricLabel}
+                              </span>
+                              <span
+                                className={cn(
+                                  "rounded border px-1.5 py-0.5 text-[10px] font-medium",
+                                  priorityStyle,
+                                )}
+                              >
+                                {priorityLabel}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2 text-[11px] tabular-nums text-muted-foreground">
+                              <span>実績 {imp.current}</span>
+                              <span>/ 平均 {imp.benchmark}</span>
+                              <span
+                                className={cn(
+                                  "font-semibold",
+                                  imp.gap.startsWith("-")
+                                    ? "text-[var(--color-error)]"
+                                    : "text-[var(--color-success)]",
+                                )}
+                              >
+                                差 {imp.gap}
+                              </span>
+                            </div>
+                          </div>
+                          <p className="mt-1.5 text-xs leading-relaxed text-[var(--color-text-primary)]">
+                            {imp.suggestion}
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p className="mt-3 text-[10px] text-muted-foreground">
+                    ※ 指標値・業種平均はロカベンメニューと同じ計算ロジックです。
+                  </p>
                 </CardContent>
               </Card>
             )}

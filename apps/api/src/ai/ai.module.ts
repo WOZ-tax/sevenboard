@@ -5,6 +5,7 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { MfModule } from '../mf/mf.module';
 import { KintoneModule } from '../kintone/kintone.module';
 import { MonthlyCloseModule } from '../monthly-close/monthly-close.module';
+import { LocabenModule } from '../locaben/locaben.module';
 import { AiController } from './ai.controller';
 import { AiService } from './ai.service';
 
@@ -16,6 +17,7 @@ import { AiService } from './ai.service';
     MfModule,
     KintoneModule,
     MonthlyCloseModule,
+    LocabenModule,
   ],
   controllers: [AiController],
   providers: [AiService],

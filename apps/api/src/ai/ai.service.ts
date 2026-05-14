@@ -5,6 +5,16 @@ import { MfTransformService } from '../mf/mf-transform.service';
 import { KintoneApiService } from '../kintone/kintone-api.service';
 import { MonthlyCloseService } from '../monthly-close/monthly-close.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { LocabenService } from '../locaben/locaben.service';
+import {
+  LOCABEN_METRIC_KEYS,
+  LOCABEN_METRIC_LABELS,
+  LOCABEN_HIGHER_IS_BETTER,
+  computeLocabenMetrics,
+  getBenchmarkFor,
+  type LocabenMetricKey,
+} from '../locaben/benchmarks';
+import { normalizeIndustry } from '../common/industries';
 import { DashboardSummary, FinancialStatementRow } from '../mf/types/mf-api.types';
 import { createLlmProvider, extractJson, LlmProvider } from './llm-provider';
 
@@ -135,6 +145,21 @@ export interface IndicatorsCommentaryResponse {
   fallbackReason?: string;
 }
 
+export interface LocabenImprovement {
+  /** 指標ラベル (例: "営業利益率(%)") */
+  metricLabel: string;
+  /** 実績値 (数値文字列、--= データなし) */
+  current: string;
+  /** 業種平均 (数値文字列) */
+  benchmark: string;
+  /** ± 差分 (数値文字列) */
+  gap: string;
+  /** 優先度: "high" | "medium" | "low" */
+  priority: 'high' | 'medium' | 'low';
+  /** 具体的な改善施策 (1-2文) */
+  suggestion: string;
+}
+
 export interface FundingReport {
   executiveSummary: string;
   financialHighlights: string[];
@@ -142,6 +167,8 @@ export interface FundingReport {
   projections: string;
   /** 具体的な資金調達オプション（融資シミュへ引き継げる） */
   suggestedOptions?: FundingOption[];
+  /** ロカベン6指標に基づく改善提案（金融機関対話・事業改善向け） */
+  locabenImprovements?: LocabenImprovement[];
   /** レポート再生成時にユーザーが検討中のシナリオ（フロントから送られた借入試算） */
   echoedScenarios?: Array<{
     name: string;
@@ -224,6 +251,7 @@ export class AiService {
     private kintoneApi: KintoneApiService,
     private monthlyClose: MonthlyCloseService,
     private prisma: PrismaService,
+    private locabenService: LocabenService,
   ) {
     this.llm = createLlmProvider(httpService);
   }
@@ -1130,6 +1158,73 @@ ${paramBlock}
   // =========================================
   // #12: 資金調達レポート
   // =========================================
+  /**
+   * ロカベン6指標を計算し、業種平均との差分を含む prompt 用テキストブロックを生成。
+   * 失敗時 (MF 未接続など) は空文字を返してプロンプトから除外する。
+   */
+  private async getLocabenBlock(
+    orgId: string,
+    fiscalYear?: number,
+    endMonth?: number,
+  ): Promise<string> {
+    try {
+      const org = await this.prisma.organization.findUnique({
+        where: { id: orgId },
+        select: { industry: true },
+      });
+      const industry = normalizeIndustry(org?.industry);
+      const sourceData = await this.locabenService.getSourceData(
+        orgId,
+        fiscalYear,
+        endMonth,
+      );
+      const metrics = computeLocabenMetrics(sourceData);
+      const benchmarks = getBenchmarkFor(industry);
+
+      const lines: string[] = [
+        '## ロカベン (経産省ローカルベンチマーク) 分析',
+        `業種ベンチマーク: ${industry ?? '(業種未設定 / 全業種平均で代替)'}`,
+        '',
+        '| 指標 | 実績 | 業種平均 | 差分 | 良し悪し |',
+        '|---|---|---|---|---|',
+      ];
+      for (const key of LOCABEN_METRIC_KEYS) {
+        const v = metrics[key];
+        const b = benchmarks[key];
+        const higher = LOCABEN_HIGHER_IS_BETTER[key];
+        const fmt = (n: number | null) =>
+          n === null || !Number.isFinite(n) ? '--' : n.toFixed(1);
+        let gap = '--';
+        let judge = '判定不可';
+        if (v !== null && Number.isFinite(v)) {
+          const diff = v - b;
+          gap = `${diff >= 0 ? '+' : ''}${diff.toFixed(1)}`;
+          judge = higher
+            ? diff >= 0
+              ? '○ 業種平均超え'
+              : '× 業種平均未満'
+            : diff <= 0
+              ? '○ 業種平均より良好'
+              : '× 業種平均より悪い';
+        }
+        lines.push(
+          `| ${LOCABEN_METRIC_LABELS[key]} | ${fmt(v)} | ${b.toFixed(1)} | ${gap} | ${judge} |`,
+        );
+      }
+      lines.push(
+        '',
+        '※ 単位 — 売上増加率/営業利益率/自己資本比率: %、労働生産性: 千円/人、EBITDA有利子負債倍率: 倍、運転資本回転期間: ヶ月。',
+        'EBITDA有利子負債倍率と運転資本回転期間は「低いほど良い」。',
+      );
+      return lines.join('\n');
+    } catch (err) {
+      this.logger.warn(
+        `Locaben block skipped: ${err instanceof Error ? err.message : err}`,
+      );
+      return '';
+    }
+  }
+
   async generateFundingReport(
     orgId: string,
     fiscalYear?: number,
@@ -1152,6 +1247,7 @@ ${paramBlock}
       const llm = this.ensureLlm();
       const profileBlock = await this.getCustomerProfileBlock(orgId);
       const policyBlock = await this.getOrgPolicyBlock(orgId);
+      const locabenBlock = await this.getLocabenBlock(orgId, fiscalYear, endMonth);
       const periodNote = endMonth
         ? `（集計期間: 期首〜${endMonth}月の累計）`
         : '（集計期間: 通期累計）';
@@ -1170,12 +1266,24 @@ ${paramBlock}
 ${profileBlock ? '\n' + profileBlock + '\n' : ''}
 ${policyBlock ? '\n' + policyBlock + '\n' : ''}
 ${this.financialDataBlock(dashboard, plRows, burnContext)}
+${locabenBlock ? '\n' + locabenBlock + '\n' : ''}
 ${scenarioBlock}
 ## 資金調達オプションの提案ルール
 - 1〜3件の具体的な調達オプションを suggestedOptions に出すこと。
 - 各オプションには type(種別)、amount(円)、rationale(根拠)を含める。
 - 借入系オプションの場合は suggestedRate(年率%)、suggestedMonths(返済月数)、repaymentType("EQUAL_INSTALLMENT"|"EQUAL_PRINCIPAL"|"BULLET")を必ず付ける。
 - 顧問が検討中のシナリオが与えられている場合は、それを踏まえて現実的な代替案 or 追加提案を出す。
+
+## ロカベン改善提案ルール
+${locabenBlock ? `- locabenImprovements に**最低3つ、最大6つ**入れる。
+- 業種平均より劣後している指標 (× 業種平均未満) を優先。
+- 「実績が業種平均を超えている」指標は改善提案には含めない (financialHighlights で言及してもよい)。
+- 各項目で metricLabel / current / benchmark / gap / priority / suggestion を埋める。
+- priority は劣後幅 × 金融機関目線での重要度で "high" / "medium" / "low" を選ぶ。
+  - 自己資本比率 / EBITDA有利子負債倍率 が大きく劣後 → high (融資審査直撃)。
+  - 営業利益率 / 売上増加率の劣後 → medium-high。
+  - 労働生産性 / 運転資本期間の劣後 → medium。
+- suggestion は具体的な打ち手 (販管費XX削減 / 在庫圧縮 / 与信短縮 / 増資 / 借入借換 等) を1-2文で。漠然と「改善する」「努力する」は禁止。` : '- ロカベンデータが取得できなかったため locabenImprovements は空配列で返してよい。'}
 
 ## 重要：提案してはいけない制度（受付終了済み）
 以下の制度は 2024 年 3 月末で受付終了しているため、絶対に提案に含めないこと:
@@ -1193,7 +1301,7 @@ ${scenarioBlock}
 - エクイティ調達（VC / 第三者割当増資）
 
 ## 出力形式（JSON）
-{"executiveSummary":"事業概要と資金ニーズ（3-5文）","financialHighlights":["財務ハイライト1","ハイライト2","ハイライト3"],"strengthsRisks":{"strengths":["強み1","強み2"],"risks":["リスク1","リスク2"]},"projections":"今後の見通し（3-5文）","suggestedOptions":[{"type":"銀行借入(運転資金)","amount":30000000,"rationale":"...","suggestedRate":2.5,"suggestedMonths":60,"repaymentType":"EQUAL_INSTALLMENT"}]}`;
+{"executiveSummary":"事業概要と資金ニーズ（3-5文）","financialHighlights":["財務ハイライト1","ハイライト2","ハイライト3"],"strengthsRisks":{"strengths":["強み1","強み2"],"risks":["リスク1","リスク2"]},"projections":"今後の見通し（3-5文）","suggestedOptions":[{"type":"銀行借入(運転資金)","amount":30000000,"rationale":"...","suggestedRate":2.5,"suggestedMonths":60,"repaymentType":"EQUAL_INSTALLMENT"}],"locabenImprovements":[{"metricLabel":"自己資本比率(%)","current":"22.0","benchmark":"40.0","gap":"-18.0","priority":"high","suggestion":"内部留保の積み増しを最優先。当期利益の社外流出（役員報酬・配当）を△500万円抑え、5年で自己資本比率35%まで回復させる計画を提示する。"}]}`;
 
       const res = await llm.generate(prompt, { maxTokens: 2500, json: true });
       const parsed = extractJson<Omit<FundingReport, 'generatedAt'>>(res.text);
@@ -1210,6 +1318,7 @@ ${scenarioBlock}
         strengthsRisks: parsed?.strengthsRisks || { strengths: [], risks: [] },
         projections: parsed?.projections || '',
         suggestedOptions: parsed?.suggestedOptions || [],
+        locabenImprovements: parsed?.locabenImprovements || [],
         echoedScenarios: scenarios,
         generatedAt: new Date().toISOString(),
       };
@@ -1221,6 +1330,7 @@ ${scenarioBlock}
         strengthsRisks: { strengths: [], risks: [] },
         projections: '',
         suggestedOptions: [],
+        locabenImprovements: [],
         echoedScenarios: scenarios,
         generatedAt: new Date().toISOString(),
       };
