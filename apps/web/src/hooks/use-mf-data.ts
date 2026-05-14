@@ -187,6 +187,17 @@ export function useMfJournals(params?: { startDate?: string; endDate?: string; a
   });
 }
 
+export function useLocabenSourceData(options?: QueryOptions) {
+  const orgId = useOrgId();
+  const { fiscalYear, month } = useGlobalPeriod();
+  return useQuery({
+    queryKey: ["locaben", "source-data", orgId, fiscalYear, month],
+    queryFn: () => api.locaben.getSourceData(orgId, fiscalYear, month),
+    enabled: !!orgId && (options?.enabled ?? true),
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
 export function useMfFinancialIndicators(options?: QueryOptions) {
   const orgId = useOrgId();
   const { fiscalYear, month } = useGlobalPeriod();

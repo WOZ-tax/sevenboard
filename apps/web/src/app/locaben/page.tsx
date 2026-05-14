@@ -45,12 +45,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useCurrentOrg } from "@/contexts/current-org";
-import {
-  useMfAccountTransition,
-  useMfBS,
-  useMfDashboard,
-  useMfPL,
-} from "@/hooks/use-mf-data";
+import { useLocabenSourceData } from "@/hooks/use-mf-data";
 import { usePeriodStore, getPeriodLabel } from "@/lib/period-store";
 import { normalizeIndustry, INDUSTRIES, type IndustryCode } from "@/lib/industries";
 import {
@@ -66,7 +61,6 @@ import {
   type SourceDataKey,
 } from "@/lib/locaben/constants";
 import { computeLocabenMetrics, type SourceData } from "@/lib/locaben/metrics";
-import { extractMfSourceData } from "@/lib/locaben/mf-mapping";
 import { downloadLocabenExcel } from "@/lib/locaben/excel";
 import { cn } from "@/lib/utils";
 
@@ -146,36 +140,26 @@ export default function LocabenPage() {
   const orgName = currentOrg?.orgName ?? "(顧問先未選択)";
   const orgIndustry = normalizeIndustry(currentOrg?.industry);
 
-  const dashboard = useMfDashboard();
-  const pl = useMfPL();
-  const bs = useMfBS();
-  // 減価償却費は PL 集約には含まれないので個別取得
-  const depreciation = useMfAccountTransition("減価償却費", fiscalYear);
+  const sourceQuery = useLocabenSourceData();
 
-  const mfExtracted = useMemo(() => {
-    const base = extractMfSourceData({
-      dashboard: dashboard.data,
-      pl: pl.data,
-      bs: bs.data,
-    });
-    if (depreciation.data && depreciation.data.length > 0) {
-      const sumYen = depreciation.data.reduce(
-        (acc, r) => acc + (Number.isFinite(r.amount) ? r.amount : 0),
-        0,
-      );
-      if (sumYen > 0) {
-        base.depreciation = Math.round(sumYen / 1000);
+  const mfExtracted = useMemo<Partial<SourceData>>(() => {
+    const d = sourceQuery.data;
+    if (!d) return {};
+    const out: Partial<SourceData> = {};
+    for (const k of SOURCE_DATA_KEYS) {
+      const v = d[k];
+      if (v !== null && v !== undefined && Number.isFinite(v)) {
+        out[k] = v;
       }
     }
-    return base;
-  }, [dashboard.data, pl.data, bs.data, depreciation.data]);
+    return out;
+  }, [sourceQuery.data]);
 
   /** MF から取得可能な項目 (UI で「MF値に戻す」を表示する対象) */
   const mfFetchableKeys = useMemo(() => {
     const set = new Set<SourceDataKey>();
     for (const k of SOURCE_DATA_KEYS) {
-      const v = mfExtracted[k];
-      if (v !== undefined && v !== null) set.add(k);
+      if (mfExtracted[k] !== undefined) set.add(k);
     }
     return set;
   }, [mfExtracted]);
@@ -275,10 +259,7 @@ export default function LocabenPage() {
   };
 
   const refetchMf = () => {
-    dashboard.refetch();
-    pl.refetch();
-    bs.refetch();
-    depreciation.refetch();
+    sourceQuery.refetch();
   };
 
   const effectiveIndustry = state.industryOverride ?? orgIndustry;
@@ -323,13 +304,8 @@ export default function LocabenPage() {
     });
   }, [metrics, benchmarks]);
 
-  const mfLoading =
-    dashboard.isLoading || pl.isLoading || bs.isLoading || depreciation.isLoading;
-  const mfFetching =
-    dashboard.isFetching ||
-    pl.isFetching ||
-    bs.isFetching ||
-    depreciation.isFetching;
+  const mfLoading = sourceQuery.isLoading;
+  const mfFetching = sourceQuery.isFetching;
 
   if (!currentOrg) {
     return (
@@ -400,78 +376,70 @@ export default function LocabenPage() {
           </div>
         </div>
 
-        {/* 業種選択 */}
+        {/* 元データ入力 (業種選択もここに統合) */}
         <Card>
-          <CardContent className="flex flex-wrap items-center gap-3 p-4">
-            <span className="text-sm font-medium text-[var(--color-text-primary)]">
-              業種
+          <div className="flex flex-wrap items-center gap-3 px-6 py-3">
+            <span className="text-base font-semibold text-[var(--color-text-primary)]">
+              元データ
             </span>
-            <Select
-              value={state.industryOverride ?? "auto"}
-              onValueChange={(v) =>
-                v && setIndustryOverride(v as IndustryCode | "auto")
-              }
-            >
-              <SelectTrigger className="w-72">
-                <SelectValue>
-                  {(v) => {
-                    if (v === "auto" || !v) {
-                      return orgIndustry
-                        ? `${orgIndustry} (顧問先設定から)`
-                        : "業種未設定";
-                    }
-                    return v as string;
-                  }}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="auto">
-                  顧問先設定から: {orgIndustry ?? "未設定"}
-                </SelectItem>
-                {INDUSTRIES.map((ind) => (
-                  <SelectItem key={ind} value={ind}>
-                    {ind}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <span className="text-[11px] text-muted-foreground">
-              業種を変えると業種平均との比較が即時に更新されます。
-            </span>
-          </CardContent>
-        </Card>
-
-        {/* 元データ入力 */}
-        <Card>
-          <button
-            type="button"
-            onClick={() => setSourceExpanded((s) => !s)}
-            className="flex w-full items-center justify-between gap-2 px-6 py-3 text-left hover:bg-[var(--color-surface)]/50"
-          >
-            <div className="flex items-center gap-3">
-              <span className="text-base font-semibold text-[var(--color-text-primary)]">
-                元データ
-              </span>
-              {mfLoading ? (
-                <Badge variant="outline" className="text-[10px]">
-                  MFデータ取得中...
-                </Badge>
-              ) : (
-                <Badge variant="outline" className="text-[10px]">
-                  MF自動取得 (金額は千円)
-                </Badge>
-              )}
-              <span className="text-xs text-muted-foreground">
-                {Object.values(state.values).filter((v) => v !== null).length}/
-                {SOURCE_DATA_KEYS.length} 入力済
-              </span>
-            </div>
-            {sourceExpanded ? (
-              <ChevronUp className="h-4 w-4 text-muted-foreground" />
+            {mfLoading ? (
+              <Badge variant="outline" className="text-[10px]">
+                MFデータ取得中...
+              </Badge>
             ) : (
-              <ChevronDown className="h-4 w-4 text-muted-foreground" />
+              <Badge variant="outline" className="text-[10px]">
+                MF自動取得 (金額は千円)
+              </Badge>
             )}
-          </button>
+            <span className="text-xs text-muted-foreground">
+              {Object.values(state.values).filter((v) => v !== null).length}/
+              {SOURCE_DATA_KEYS.length} 入力済
+            </span>
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-muted-foreground">業種:</span>
+              <Select
+                value={state.industryOverride ?? "auto"}
+                onValueChange={(v) =>
+                  v && setIndustryOverride(v as IndustryCode | "auto")
+                }
+              >
+                <SelectTrigger className="h-8 w-60">
+                  <SelectValue>
+                    {(v) => {
+                      if (v === "auto" || !v) {
+                        return orgIndustry
+                          ? `${orgIndustry} (顧問先設定)`
+                          : "業種未設定";
+                      }
+                      return v as string;
+                    }}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="auto">
+                    顧問先設定から: {orgIndustry ?? "未設定"}
+                  </SelectItem>
+                  {INDUSTRIES.map((ind) => (
+                    <SelectItem key={ind} value={ind}>
+                      {ind}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSourceExpanded((s) => !s)}
+              className="ml-auto rounded p-1 hover:bg-[var(--color-surface)]"
+              aria-label={sourceExpanded ? "折りたたむ" : "展開する"}
+            >
+              {sourceExpanded ? (
+                <ChevronUp className="h-4 w-4 text-muted-foreground" />
+              ) : (
+                <ChevronDown className="h-4 w-4 text-muted-foreground" />
+              )}
+            </button>
+          </div>
           {sourceExpanded && (
             <CardContent className="space-y-3 pt-0">
               {(["pl", "bs", "hr"] as SourceDataGroup[]).map((group) => {

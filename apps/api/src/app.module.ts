@@ -42,6 +42,7 @@ import { RiskFindingsModule } from './risk-findings/risk-findings.module';
 import { HealthSnapshotsModule } from './health-snapshots/health-snapshots.module';
 import { ChoshoModule } from './chosho/chosho.module';
 import { JournalReviewModule } from './journal-review/journal-review.module';
+import { LocabenModule } from './locaben/locaben.module';
 
 @Module({
   imports: [
@@ -86,6 +87,7 @@ import { JournalReviewModule } from './journal-review/journal-review.module';
     HealthSnapshotsModule,
     ChoshoModule,
     JournalReviewModule,
+    LocabenModule,
   ],
   providers: [
     {

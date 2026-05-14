@@ -1127,6 +1127,30 @@ export const api = {
     },
   },
 
+  // === Locaben (ローカルベンチマーク) ===
+  locaben: {
+    getSourceData: (orgId: string, fiscalYear?: number, month?: number) => {
+      const qs = new URLSearchParams();
+      if (fiscalYear) qs.set('fiscalYear', String(fiscalYear));
+      if (month) qs.set('endMonth', String(month));
+      const suffix = qs.toString() ? `?${qs}` : '';
+      return apiFetch<{
+        revenueCurrent: number | null;
+        revenuePrior: number | null;
+        operatingProfit: number | null;
+        depreciation: number | null;
+        totalAssets: number | null;
+        netAssets: number | null;
+        receivables: number | null;
+        inventory: number | null;
+        payables: number | null;
+        borrowings: number | null;
+        cashAndDeposits: number | null;
+        employeeCount: number | null;
+      }>(`/organizations/${orgId}/locaben/source-data${suffix}`);
+    },
+  },
+
   // === Alerts (異常値検知) ===
   alerts: {
     getAll: (orgId: string, fiscalYear?: number, month?: number) => {
