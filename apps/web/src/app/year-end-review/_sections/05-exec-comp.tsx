@@ -734,11 +734,14 @@ function DetailTables({ r }: { r: SimulationResult }) {
         title="法人側"
         rows={[
           { label: "課税所得", value: formatYenFromManYen(r.corpTaxableIncome), bold: true },
-          { label: "法人税", value: formatYenFromManYen(r.corpTax.corporateTax) },
-          { label: "防衛特別法人税", value: formatYenFromManYen(r.corpTax.defenseTax) },
-          { label: "法人住民税", value: formatYenFromManYen(r.corpTax.residentTax) },
-          { label: "法人事業税", value: formatYenFromManYen(r.corpTax.bizTax) },
-          { label: "特別法人事業税", value: formatYenFromManYen(r.corpTax.specialBizTax) },
+          { label: "法人税 (軽減15%)", value: formatYenFromManYen(r.corpTax.corporateTaxLow.tax) },
+          { label: "法人税 (本則23.2%)", value: formatYenFromManYen(r.corpTax.corporateTaxHigh.tax) },
+          { label: "地方法人税", value: formatYenFromManYen(r.corpTax.localCorporateTax.tax) },
+          { label: "防衛特別法人税", value: formatYenFromManYen(r.corpTax.defenseTax.tax) },
+          { label: "法人住民税 法人税割", value: formatYenFromManYen(r.corpTax.residentTaxOnIncome.tax) },
+          { label: "法人住民税 均等割", value: formatYenFromManYen(r.corpTax.kintowariManYen) },
+          { label: "法人事業税", value: formatYenFromManYen(r.corpTax.bizTaxTotal) },
+          { label: "特別法人事業税", value: formatYenFromManYen(r.corpTax.specialBizTax.tax) },
           { label: "法人税等 合計", value: formatYenFromManYen(r.corpTax.total), bold: true, sep: true },
           { label: "税引後利益", value: formatYenFromManYen(r.corpNetProfit), bold: true },
         ]}

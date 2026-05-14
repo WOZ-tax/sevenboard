@@ -9,16 +9,14 @@ import {
   CORP_TAX_RATES_SMB,
   CORP_TAX_RATES_LARGE,
   DEFENSE_TAX,
-  CORP_RESIDENT_TAX_RATE,
-  CORP_BIZ_TAX_RATES_SMB,
-  CORP_BIZ_TAX_RATE_LARGE,
-  SPECIAL_CORP_BIZ_TAX_RATE,
+  LOCAL_CORPORATE_TAX_RATE,
+  DEFAULT_LOCAL_TAX_RATES,
+  type LocalTaxRates,
   RECONSTRUCTION_TAX_RATE,
   PERSONAL_RESIDENT_TAX_RATE,
   SI_RATES,
   appliesCareInsurance,
   basicDeduction,
-  getKintowariYen,
   incomeTax,
   salaryIncomeDeduction,
   spouseDeduction,
@@ -33,104 +31,188 @@ const floor100 = (manYen: number): number => Math.floor(manYen * 100) / 100;
 // 法人税計算
 // ===========================================================
 
-export interface CorpTaxBreakdown {
-  /** 法人税 */
-  corporateTax: number;
-  /** 防衛特別法人税 */
-  defenseTax: number;
-  /** 法人住民税(税割+均等割) */
-  residentTax: number;
-  /** 法人事業税 */
-  bizTax: number;
-  /** 特別法人事業税 */
-  specialBizTax: number;
-  /** 均等割 */
-  kintowari: number;
-  /** 法人税等合計 */
-  total: number;
+/** 税目1行ぶんの内訳 (課税標準 / 税率 / 年税額) */
+export interface TaxLineRow {
+  /** 課税標準 (万円) */
+  base: number;
+  /** 適用税率 (0.15 = 15%) */
+  rate: number;
+  /** 年税額 (万円) */
+  tax: number;
 }
 
 /**
- * 法人税等の計算（万円単位）
+ * 法人税等の内訳。税目別に課税標準・税率・年税額を保持し、UI で表形式表示できる。
+ *
+ * 国税: 法人税(軽減/本則)、地方法人税、防衛特別法人税
+ * 地方税: 法人住民税(法人税割/均等割)、法人事業税(3段階)、特別法人事業税
+ */
+export interface CorpTaxBreakdown {
+  /** 法人税 軽減税率部分 (中小法人、所得800万円以下、15%) */
+  corporateTaxLow: TaxLineRow;
+  /** 法人税 本則部分 (800万円超、23.2%) */
+  corporateTaxHigh: TaxLineRow;
+  /** 地方法人税 (法人税合計 × 10.3%、国税) */
+  localCorporateTax: TaxLineRow;
+  /** 防衛特別法人税 ((法人税合計 - 500万円) × 4%、国税) */
+  defenseTax: TaxLineRow;
+  /** 法人住民税 法人税割 (法人税合計 × 税率、地方税) */
+  residentTaxOnIncome: TaxLineRow;
+  /** 法人住民税 均等割 年税額 (万円、手入力、地方税) */
+  kintowariManYen: number;
+  /** 法人事業税 軽減1 (所得400万円以下、3.5%、地方税) */
+  bizTaxLv1: TaxLineRow;
+  /** 法人事業税 軽減2 (400-800万円、5.3%、地方税) */
+  bizTaxLv2: TaxLineRow;
+  /** 法人事業税 本則 (800万円超、7.0%、地方税) */
+  bizTaxLv3: TaxLineRow;
+  /** 特別法人事業税 (事業税合計 × 37%、地方税) */
+  specialBizTax: TaxLineRow;
+  /** 法人税合計 (corporateTaxLow + corporateTaxHigh、万円) */
+  corporateTaxTotal: number;
+  /** 法人事業税合計 (bizTaxLv1 + lv2 + lv3、万円) */
+  bizTaxTotal: number;
+  /** 法人税等合計 (万円) */
+  total: number;
+}
+
+const emptyLine = (rate: number): TaxLineRow => ({ base: 0, rate, tax: 0 });
+
+/**
+ * 法人税等の計算（万円単位）。
+ *
  * @param taxableIncomeManYen 課税所得（万円）
- * @param capitalManYen 資本金（万円）
- * @param employees 従業員数
+ * @param capitalManYen 資本金（万円） — 中小法人特例の判定 (1億円以下) に使用
+ * @param localRates 地方税率 + 均等割年税額 (ユーザー編集可。省略時は東京都標準)
  */
 export function calcCorpTax(
   taxableIncomeManYen: number,
   capitalManYen: number,
-  employees: number,
+  localRates: LocalTaxRates = DEFAULT_LOCAL_TAX_RATES,
 ): CorpTaxBreakdown {
-  const ti = floor1000(taxableIncomeManYen);
-  const kw = getKintowariYen(capitalManYen, employees);
+  const ti = floor1000(Math.max(0, taxableIncomeManYen));
+  const isSmb = capitalManYen <= 10000;
+  const kw = floor100(localRates.kintowariManYen);
+
+  // 法人税 (軽減/本則) — 中小特例なら 800万円以下 15%, 超 23.2%。大法人は本則一律。
+  const lowThreshold = CORP_TAX_RATES_SMB.bracketThreshold;
+  const corporateTaxLowBase = isSmb ? Math.min(ti, lowThreshold) : 0;
+  const corporateTaxHighBase = isSmb
+    ? Math.max(0, ti - lowThreshold)
+    : ti;
+  const corporateTaxLowRate = isSmb ? CORP_TAX_RATES_SMB.lowBracket : 0;
+  const corporateTaxHighRate = isSmb
+    ? CORP_TAX_RATES_SMB.highBracket
+    : CORP_TAX_RATES_LARGE.flat;
+  const corporateTaxLowTax = floor100(corporateTaxLowBase * corporateTaxLowRate);
+  const corporateTaxHighTax = floor100(
+    corporateTaxHighBase * corporateTaxHighRate,
+  );
+  const corporateTaxTotal = corporateTaxLowTax + corporateTaxHighTax;
+
+  // 地方法人税 (国税付加税)
+  const localCorporateTax: TaxLineRow = {
+    base: corporateTaxTotal,
+    rate: LOCAL_CORPORATE_TAX_RATE,
+    tax: floor100(corporateTaxTotal * LOCAL_CORPORATE_TAX_RATE),
+  };
+
+  // 防衛特別法人税
+  const defenseBase = Math.max(0, corporateTaxTotal - DEFENSE_TAX.deduction);
+  const defenseTax: TaxLineRow = {
+    base: defenseBase,
+    rate: DEFENSE_TAX.rate,
+    tax: floor100(defenseBase * DEFENSE_TAX.rate),
+  };
+
+  // 法人住民税 法人税割
+  const residentTaxOnIncome: TaxLineRow = {
+    base: corporateTaxTotal,
+    rate: localRates.residentTaxRate,
+    tax: floor100(corporateTaxTotal * localRates.residentTaxRate),
+  };
+
+  // 法人事業税 (3段階、中小特例)。大法人は全額 本則扱い。
+  let lv1Base = 0;
+  let lv2Base = 0;
+  let lv3Base = ti;
+  if (isSmb) {
+    lv1Base = Math.min(ti, 400);
+    lv2Base = Math.min(Math.max(0, ti - 400), 400);
+    lv3Base = Math.max(0, ti - 800);
+  }
+  const bizTaxLv1: TaxLineRow = {
+    base: lv1Base,
+    rate: localRates.bizTaxLv1Rate,
+    tax: floor100(lv1Base * localRates.bizTaxLv1Rate),
+  };
+  const bizTaxLv2: TaxLineRow = {
+    base: lv2Base,
+    rate: localRates.bizTaxLv2Rate,
+    tax: floor100(lv2Base * localRates.bizTaxLv2Rate),
+  };
+  const bizTaxLv3: TaxLineRow = {
+    base: lv3Base,
+    rate: localRates.bizTaxLv3Rate,
+    tax: floor100(lv3Base * localRates.bizTaxLv3Rate),
+  };
+  const bizTaxTotal = bizTaxLv1.tax + bizTaxLv2.tax + bizTaxLv3.tax;
+
+  // 特別法人事業税
+  const specialBizTax: TaxLineRow = {
+    base: bizTaxTotal,
+    rate: localRates.specialBizTaxRate,
+    tax: floor100(bizTaxTotal * localRates.specialBizTaxRate),
+  };
+
+  // 所得が 0 以下なら均等割のみ
   if (ti <= 0) {
     return {
-      corporateTax: 0,
-      defenseTax: 0,
-      residentTax: kw,
-      bizTax: 0,
-      specialBizTax: 0,
-      kintowari: kw,
+      corporateTaxLow: emptyLine(corporateTaxLowRate),
+      corporateTaxHigh: emptyLine(corporateTaxHighRate),
+      localCorporateTax: emptyLine(LOCAL_CORPORATE_TAX_RATE),
+      defenseTax: emptyLine(DEFENSE_TAX.rate),
+      residentTaxOnIncome: emptyLine(localRates.residentTaxRate),
+      kintowariManYen: kw,
+      bizTaxLv1: emptyLine(localRates.bizTaxLv1Rate),
+      bizTaxLv2: emptyLine(localRates.bizTaxLv2Rate),
+      bizTaxLv3: emptyLine(localRates.bizTaxLv3Rate),
+      specialBizTax: emptyLine(localRates.specialBizTaxRate),
+      corporateTaxTotal: 0,
+      bizTaxTotal: 0,
       total: kw,
     };
   }
 
-  const isSmb = capitalManYen <= 10000;
-
-  // 法人税
-  const corporateTax = floor100(
-    isSmb
-      ? ti <= CORP_TAX_RATES_SMB.bracketThreshold
-        ? ti * CORP_TAX_RATES_SMB.lowBracket
-        : CORP_TAX_RATES_SMB.bracketThreshold * CORP_TAX_RATES_SMB.lowBracket +
-          (ti - CORP_TAX_RATES_SMB.bracketThreshold) *
-            CORP_TAX_RATES_SMB.highBracket
-      : ti * CORP_TAX_RATES_LARGE.flat,
-  );
-
-  // 防衛特別法人税
-  const defenseTax = floor100(
-    Math.max(0, corporateTax - DEFENSE_TAX.deduction) * DEFENSE_TAX.rate,
-  );
-
-  // 法人住民税(税割+均等割)
-  const residentTax = floor100(corporateTax * CORP_RESIDENT_TAX_RATE + kw);
-
-  // 法人事業税
-  let bizTax: number;
-  if (isSmb) {
-    if (ti <= CORP_BIZ_TAX_RATES_SMB.lv1.threshold) {
-      bizTax = ti * CORP_BIZ_TAX_RATES_SMB.lv1.rate;
-    } else if (ti <= CORP_BIZ_TAX_RATES_SMB.lv2.threshold) {
-      bizTax =
-        CORP_BIZ_TAX_RATES_SMB.lv1.threshold * CORP_BIZ_TAX_RATES_SMB.lv1.rate +
-        (ti - CORP_BIZ_TAX_RATES_SMB.lv1.threshold) *
-          CORP_BIZ_TAX_RATES_SMB.lv2.rate;
-    } else {
-      bizTax =
-        CORP_BIZ_TAX_RATES_SMB.lv1.threshold * CORP_BIZ_TAX_RATES_SMB.lv1.rate +
-        (CORP_BIZ_TAX_RATES_SMB.lv2.threshold -
-          CORP_BIZ_TAX_RATES_SMB.lv1.threshold) *
-          CORP_BIZ_TAX_RATES_SMB.lv2.rate +
-        (ti - CORP_BIZ_TAX_RATES_SMB.lv2.threshold) *
-          CORP_BIZ_TAX_RATES_SMB.lv3.rate;
-    }
-  } else {
-    bizTax = ti * CORP_BIZ_TAX_RATE_LARGE;
-  }
-  bizTax = floor100(bizTax);
-
-  // 特別法人事業税
-  const specialBizTax = floor100(bizTax * SPECIAL_CORP_BIZ_TAX_RATE);
-
   return {
-    corporateTax,
+    corporateTaxLow: {
+      base: corporateTaxLowBase,
+      rate: corporateTaxLowRate,
+      tax: corporateTaxLowTax,
+    },
+    corporateTaxHigh: {
+      base: corporateTaxHighBase,
+      rate: corporateTaxHighRate,
+      tax: corporateTaxHighTax,
+    },
+    localCorporateTax,
     defenseTax,
-    residentTax,
-    bizTax,
+    residentTaxOnIncome,
+    kintowariManYen: kw,
+    bizTaxLv1,
+    bizTaxLv2,
+    bizTaxLv3,
     specialBizTax,
-    kintowari: kw,
-    total: corporateTax + defenseTax + residentTax + bizTax + specialBizTax,
+    corporateTaxTotal,
+    bizTaxTotal,
+    total:
+      corporateTaxTotal +
+      localCorporateTax.tax +
+      defenseTax.tax +
+      residentTaxOnIncome.tax +
+      kw +
+      bizTaxTotal +
+      specialBizTax.tax,
   };
 }
 
@@ -283,7 +365,7 @@ export function simulate(p: SimulationInput): SimulationResult {
   // 法人側
   const ctiRaw = p.revenueManYen - p.expensesManYen - annualComp - si.totalCorp;
   const cti = ctiRaw >= 0 ? floor1000(ctiRaw) : ctiRaw;
-  const corpTax = calcCorpTax(Math.max(0, ctiRaw), p.capitalManYen, p.employees);
+  const corpTax = calcCorpTax(Math.max(0, ctiRaw), p.capitalManYen);
   const corpNetProfit = Math.max(0, cti) - corpTax.total;
   const corpCashflow =
     corpNetProfit + p.depreciationManYen - p.loanRepaymentManYen;

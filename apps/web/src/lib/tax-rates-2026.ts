@@ -25,6 +25,9 @@ export const CORP_TAX_RATES_LARGE = {
   flat: 0.232,
 } as const;
 
+/** 地方法人税 = 法人税額 × 10.3% (国税、法人税の付加税) */
+export const LOCAL_CORPORATE_TAX_RATE = 0.103;
+
 /** 防衛特別法人税: (法人税額 - 500万円) × 4% */
 export const DEFENSE_TAX = {
   rate: 0.04,
@@ -32,23 +35,50 @@ export const DEFENSE_TAX = {
   deduction: 500,
 } as const;
 
-/** 法人住民税(税割) — 都道府県+市区町村合計 */
-export const CORP_RESIDENT_TAX_RATE = 0.104;
+/**
+ * 地方税の標準税率 (東京都・中小法人ベース)。
+ * 各税率は自治体・所得規模・事業所複数所在地等で異なるため、
+ * ロカベンページや決算検討ページからユーザーが編集可能。
+ */
+export interface LocalTaxRates {
+  /** 法人住民税 法人税割 (法人税合計 × n) — 東京都標準 7.0% (超過税率 10.4%) */
+  residentTaxRate: number;
+  /** 法人事業税 軽減1 (所得 400万円以下、3.5%) */
+  bizTaxLv1Rate: number;
+  /** 法人事業税 軽減2 (400-800万円、5.3%) */
+  bizTaxLv2Rate: number;
+  /** 法人事業税 本則 (800万円超、7.0%) */
+  bizTaxLv3Rate: number;
+  /** 特別法人事業税 (事業税合計 × 37%) */
+  specialBizTaxRate: number;
+  /** 均等割 年税額 (万円、手入力、東京都23区・資本金1000万円以下・従業員50人以下なら 7万円) */
+  kintowariManYen: number;
+}
 
-/** 法人事業税 — 中小法人(資本金1億円以下) */
+/** 2026 年・東京都標準税率デフォルト (中小法人) */
+export const DEFAULT_LOCAL_TAX_RATES: LocalTaxRates = {
+  residentTaxRate: 0.07,
+  bizTaxLv1Rate: 0.035,
+  bizTaxLv2Rate: 0.053,
+  bizTaxLv3Rate: 0.07,
+  specialBizTaxRate: 0.37,
+  kintowariManYen: 7,
+};
+
+/** @deprecated 旧 API 互換。新しい LocalTaxRates.residentTaxRate を使用すること */
+export const CORP_RESIDENT_TAX_RATE = 0.07;
+
+/** @deprecated 旧 API 互換 */
 export const CORP_BIZ_TAX_RATES_SMB = {
-  /** 400万円以下 */
   lv1: { threshold: 400, rate: 0.035 },
-  /** 400万〜800万 */
   lv2: { threshold: 800, rate: 0.053 },
-  /** 800万円超 */
   lv3: { rate: 0.07 },
 } as const;
 
-/** 大法人の事業税は所得割のみで一律 */
+/** @deprecated 旧 API 互換 */
 export const CORP_BIZ_TAX_RATE_LARGE = 0.07;
 
-/** 特別法人事業税 = 事業税額 × 37% */
+/** @deprecated 旧 API 互換 */
 export const SPECIAL_CORP_BIZ_TAX_RATE = 0.37;
 
 /**
