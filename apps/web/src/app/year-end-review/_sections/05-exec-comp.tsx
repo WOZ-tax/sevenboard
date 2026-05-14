@@ -31,7 +31,6 @@ interface FormState {
   spouseAge: "general" | "elderly";
   otherDeduction: string;
   capital: string;
-  employees: string;
   depreciation: string;
   loanRepayment: string;
   smallBizKyosai: string;
@@ -47,7 +46,6 @@ const DEFAULT_FORM: FormState = {
   spouseAge: "general",
   otherDeduction: "0",
   capital: "1000000",
-  employees: "5",
   depreciation: "0",
   loanRepayment: "0",
   smallBizKyosai: "0",
@@ -154,7 +152,6 @@ export function ExecCompSimulatorSection() {
       spouseAge: form.spouseAge,
       otherDeductionManYen: parseYen(form.otherDeduction) / 10000,
       capitalManYen: Math.max(100, parseYen(form.capital) / 10000),
-      employees: parseInt(form.employees, 10) || 0,
       depreciationManYen: parseYen(form.depreciation) / 10000,
       loanRepaymentManYen: parseYen(form.loanRepayment) / 10000,
       smallBizKyosaiManYen: parseYen(form.smallBizKyosai) / 10000,
@@ -249,7 +246,6 @@ export function ExecCompSimulatorSection() {
               <YenField label="他の所得控除" value={form.otherDeduction} onChange={(v) => setField("otherDeduction", v)} />
               <YenField label="小規模企業共済掛金" value={form.smallBizKyosai} onChange={(v) => setField("smallBizKyosai", v)} />
               <YenField label="資本金" value={form.capital} onChange={(v) => setField("capital", v)} />
-              <NumField label="従業員数" value={parseInt(form.employees, 10) || 0} onChange={(v) => setField("employees", String(v))} max={9999} />
               <YenField label="減価償却/年" value={form.depreciation} onChange={(v) => setField("depreciation", v)} />
               <YenField label="借入返済/年" value={form.loanRepayment} onChange={(v) => setField("loanRepayment", v)} />
             </div>

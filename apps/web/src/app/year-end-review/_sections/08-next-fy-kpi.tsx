@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useMfPL } from "@/hooks/use-mf-data";
+import { useMfPL, useMfPLTransition } from "@/hooks/use-mf-data";
 import { useFyElapsed } from "@/hooks/use-fy-elapsed";
 import { getFyElapsedFromMonth, usePeriodStore } from "@/lib/period-store";
 import { cn } from "@/lib/utils";
@@ -32,6 +32,7 @@ const DEFAULT_FORM: FormState = {
 
 export function NextFyKpiSection() {
   const pl = useMfPL();
+  const plTransition = useMfPLTransition();
   const lockedMonth = usePeriodStore((s) => s.month);
   const { fyStartMonth } = useFyElapsed();
   const [form, setForm] = useState<FormState>(DEFAULT_FORM);
@@ -99,13 +100,52 @@ export function NextFyKpiSection() {
   const sgaTotal = target * sga;
   const operatingProfit = grossProfit - sgaTotal;
 
+  /**
+   * 当期の月次PL推移から「実績ある月の売上比率」を抽出し、来期目標を同じ季節パターンで配分。
+   * 実績が無い月は実績月の平均値で補完して 12 ヶ月構成にする。
+   * 当期データが全く無い場合は均等配分にフォールバック。
+   */
   const monthlyDistribution = useMemo(() => {
-    if (form.distributionMode === "even") {
+    if (form.distributionMode === "even" || !plTransition.data) {
       return Array.from({ length: 12 }, () => target / 12);
     }
-    // previous year — 単純化のため均等配分（前期月次PLが取れたら本実装）
-    return Array.from({ length: 12 }, () => target / 12);
-  }, [form.distributionMode, target]);
+    const monthlyRevenue: number[] = Array(12).fill(0);
+    let monthsWithData = 0;
+    let totalActualRev = 0;
+    for (const p of plTransition.data) {
+      // 実績判定: revenue が 0 でない月を実績月とみなす
+      if (!p.revenue || p.revenue === 0) continue;
+      // p.month は "2025-04" 形式を想定 (PlTransitionPoint)。
+      const parts = p.month.split("-");
+      const mNum =
+        parts.length >= 2
+          ? parseInt(parts[1], 10)
+          : parseInt(p.month.replace(/\D/g, ""), 10);
+      if (!Number.isFinite(mNum) || mNum < 1 || mNum > 12) continue;
+      monthlyRevenue[mNum - 1] = p.revenue;
+      if (p.revenue !== 0) {
+        totalActualRev += p.revenue;
+        monthsWithData++;
+      }
+    }
+    if (monthsWithData === 0 || totalActualRev <= 0) {
+      return Array.from({ length: 12 }, () => target / 12);
+    }
+    // 実績ある月は実額、実績ない月は平均で補完
+    const avgKnown = totalActualRev / monthsWithData;
+    const filled = monthlyRevenue.map((v, i) =>
+      monthlyRevenue[i] === 0 ? avgKnown : v,
+    );
+    const totalFilled = filled.reduce((a, b) => a + b, 0);
+    if (totalFilled <= 0) {
+      return Array.from({ length: 12 }, () => target / 12);
+    }
+    return filled.map((v) => (v / totalFilled) * target);
+  }, [form.distributionMode, target, plTransition.data]);
+
+  const hasTransitionData = useMemo(() => {
+    return plTransition.data && plTransition.data.some((p) => p.revenue > 0);
+  }, [plTransition.data]);
 
   return (
     <div className="space-y-3">
@@ -153,9 +193,16 @@ export function NextFyKpiSection() {
                   }
                   className="w-full rounded border bg-white px-2 py-1.5 text-xs"
                 >
-                  <option value="previousYear">前年同月比配分（要前期月次データ）</option>
+                  <option value="previousYear">
+                    当期月次パターン配分{!hasTransitionData ? " (推移データなし → 均等)" : ""}
+                  </option>
                   <option value="even">均等配分（1/12）</option>
                 </select>
+                {form.distributionMode === "previousYear" && hasTransitionData && (
+                  <p className="mt-0.5 text-[10px] text-muted-foreground">
+                    当期の月次売上実績パターンを来期に投影。実績がない月は実績月の平均で補完。
+                  </p>
+                )}
               </div>
             </div>
           </div>
@@ -199,8 +246,8 @@ export function NextFyKpiSection() {
       </div>
 
       <p className="text-xs text-muted-foreground">
-        ※ 月次配分の「前年同月比配分」は前期月次PLとの連携が必要なため次期実装予定。
-        現状は均等配分のみ。保存先（budget table 連携）も次期実装。
+        ※ 月次配分は当期の月次売上推移からの季節パターン投影。前期実績ベースの配分や
+        正式な予算 DB への保存（budget table 連携）は次期実装予定。
       </p>
     </div>
   );

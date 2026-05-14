@@ -310,8 +310,6 @@ export interface SimulationInput {
   otherDeductionManYen: number;
   /** 資本金(万円) */
   capitalManYen: number;
-  /** 従業員数 */
-  employees: number;
   /** 減価償却費(年・万円) */
   depreciationManYen: number;
   /** 借入金返済(年・万円) */
