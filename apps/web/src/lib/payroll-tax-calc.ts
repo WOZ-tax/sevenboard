@@ -110,26 +110,30 @@ export function calcCorpTax(
   );
   const corporateTaxTotal = corporateTaxLowTax + corporateTaxHighTax;
 
-  // 地方法人税 (国税付加税)
+  // 地方法人税 (国税付加税) — 課税標準は法人税額の千円未満切り捨て (地方法人税法 6条)
+  const localCorporateBase = floor1000(corporateTaxTotal);
   const localCorporateTax: TaxLineRow = {
-    base: corporateTaxTotal,
+    base: localCorporateBase,
     rate: LOCAL_CORPORATE_TAX_RATE,
-    tax: floor100(corporateTaxTotal * LOCAL_CORPORATE_TAX_RATE),
+    tax: floor100(localCorporateBase * LOCAL_CORPORATE_TAX_RATE),
   };
 
-  // 防衛特別法人税
-  const defenseBase = Math.max(0, corporateTaxTotal - DEFENSE_TAX.deduction);
+  // 防衛特別法人税 — 課税標準は (法人税額 - 500万円) の千円未満切り捨て
+  const defenseBase = floor1000(
+    Math.max(0, corporateTaxTotal - DEFENSE_TAX.deduction),
+  );
   const defenseTax: TaxLineRow = {
     base: defenseBase,
     rate: DEFENSE_TAX.rate,
     tax: floor100(defenseBase * DEFENSE_TAX.rate),
   };
 
-  // 法人住民税 法人税割
+  // 法人住民税 法人税割 — 課税標準は法人税額の千円未満切り捨て (地方税法 53条)
+  const residentBase = floor1000(corporateTaxTotal);
   const residentTaxOnIncome: TaxLineRow = {
-    base: corporateTaxTotal,
+    base: residentBase,
     rate: localRates.residentTaxRate,
-    tax: floor100(corporateTaxTotal * localRates.residentTaxRate),
+    tax: floor100(residentBase * localRates.residentTaxRate),
   };
 
   // 法人事業税 (3段階、中小特例)。大法人は全額 本則扱い。
@@ -158,11 +162,12 @@ export function calcCorpTax(
   };
   const bizTaxTotal = bizTaxLv1.tax + bizTaxLv2.tax + bizTaxLv3.tax;
 
-  // 特別法人事業税
+  // 特別法人事業税 — 課税標準は法人事業税(所得割)額の千円未満切り捨て
+  const specialBizBase = floor1000(bizTaxTotal);
   const specialBizTax: TaxLineRow = {
-    base: bizTaxTotal,
+    base: specialBizBase,
     rate: localRates.specialBizTaxRate,
-    tax: floor100(bizTaxTotal * localRates.specialBizTaxRate),
+    tax: floor100(specialBizBase * localRates.specialBizTaxRate),
   };
 
   // 所得が 0 以下なら均等割のみ
