@@ -22,6 +22,7 @@ import { PrintButton } from "@/components/ui/print-button";
 import { useAiFundingReport, useMfOffice } from "@/hooks/use-mf-data";
 import { usePeriodStore, getPeriodLabel } from "@/lib/period-store";
 import { api, isMfNotConnected } from "@/lib/api";
+import { loadLocabenOverride } from "@/lib/locaben/storage";
 import { useCurrentOrg } from "@/contexts/current-org";
 import { MfEmptyState } from "@/components/ui/mf-empty-state";
 import { PeriodSegmentControl } from "@/components/ui/period-segment-control";
@@ -89,6 +90,7 @@ export default function FundingReportPage() {
         fiscalYear,
         endMonth: month,
         scenarios,
+        locabenOverride: loadLocabenOverride(orgId),
       }),
     onSuccess: (data) => {
       // useAiFundingReport の queryKey に runwayMode が含まれるため一致させる

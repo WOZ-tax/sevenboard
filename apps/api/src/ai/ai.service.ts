@@ -1161,23 +1161,42 @@ ${paramBlock}
   /**
    * ロカベン6指標を計算し、業種平均との差分を含む prompt 用テキストブロックを生成。
    * 失敗時 (MF 未接続など) は空文字を返してプロンプトから除外する。
+   *
+   * locabenOverride: ロカベンページでユーザーが手入力した値で MF データを上書き
+   * (従業員数等 MF にない項目を反映するため)。
    */
   private async getLocabenBlock(
     orgId: string,
     fiscalYear?: number,
     endMonth?: number,
+    locabenOverride?: {
+      industry?: string | null;
+      values?: Record<string, number | null>;
+    },
   ): Promise<string> {
     try {
       const org = await this.prisma.organization.findUnique({
         where: { id: orgId },
         select: { industry: true },
       });
-      const industry = normalizeIndustry(org?.industry);
-      const sourceData = await this.locabenService.getSourceData(
+      const industry = normalizeIndustry(
+        locabenOverride?.industry ?? org?.industry,
+      );
+      const mfSource = await this.locabenService.getSourceData(
         orgId,
         fiscalYear,
         endMonth,
       );
+      // ユーザー入力 (override.values) で MF データを上書き
+      const sourceData = { ...mfSource };
+      if (locabenOverride?.values) {
+        for (const key of Object.keys(sourceData) as (keyof typeof sourceData)[]) {
+          const v = locabenOverride.values[key as string];
+          if (v !== undefined && v !== null && Number.isFinite(v)) {
+            sourceData[key] = v;
+          }
+        }
+      }
       const metrics = computeLocabenMetrics(sourceData);
       const benchmarks = getBenchmarkFor(industry);
 
@@ -1238,6 +1257,10 @@ ${paramBlock}
     }>,
     endMonth?: number,
     runwayMode?: 'worstCase' | 'netBurn' | 'actual',
+    locabenOverride?: {
+      industry?: string | null;
+      values?: Record<string, number | null>;
+    },
   ): Promise<FundingReport> {
     try {
       const { dashboard, plRows, cashflowDerived } = await this.getFinancialContext(orgId, fiscalYear, endMonth);
@@ -1247,7 +1270,12 @@ ${paramBlock}
       const llm = this.ensureLlm();
       const profileBlock = await this.getCustomerProfileBlock(orgId);
       const policyBlock = await this.getOrgPolicyBlock(orgId);
-      const locabenBlock = await this.getLocabenBlock(orgId, fiscalYear, endMonth);
+      const locabenBlock = await this.getLocabenBlock(
+        orgId,
+        fiscalYear,
+        endMonth,
+        locabenOverride,
+      );
       const periodNote = endMonth
         ? `（集計期間: 期首〜${endMonth}月の累計）`
         : '（集計期間: 通期累計）';

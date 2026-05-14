@@ -147,13 +147,17 @@ export class AiController {
     );
   }
 
-  /** 融資シミュレーションのシナリオを添えてレポート再生成 */
+  /**
+   * 融資シミュレーションのシナリオやロカベン手入力データを添えてレポート生成。
+   * locabenOverride はロカベンページで上書きされた SourceData (千円単位、人) と業種を含む。
+   */
   @Post('funding-report')
   async generateFundingReportWithScenarios(
     @Param('orgId') orgId: string,
     @Body() body: {
       fiscalYear?: number;
       endMonth?: number;
+      runwayMode?: string;
       scenarios?: Array<{
         name: string;
         principal: number;
@@ -162,6 +166,10 @@ export class AiController {
         termMonths: number;
         interestRate: number;
       }>;
+      locabenOverride?: {
+        industry?: string | null;
+        values?: Record<string, number | null>;
+      };
     },
   ) {
     return this.aiService.generateFundingReport(
@@ -169,6 +177,8 @@ export class AiController {
       body.fiscalYear,
       body.scenarios,
       body.endMonth,
+      this.parseRunwayMode(body.runwayMode),
+      body.locabenOverride,
     );
   }
 }

@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth";
 import { useCurrentOrg } from "@/contexts/current-org";
 import { usePeriodStore } from "@/lib/period-store";
+import { loadLocabenOverride } from "@/lib/locaben/storage";
 import type {
   CashflowData,
   DashboardSummary,
@@ -141,7 +142,17 @@ export function useAiFundingReport() {
   const runwayMode = useStoredRunwayMode();
   return useQuery({
     queryKey: ["ai", "funding-report", orgId, fiscalYear, month, runwayMode],
-    queryFn: () => api.ai.getFundingReport(orgId, fiscalYear, month, runwayMode),
+    queryFn: () => {
+      // ロカベンページで上書きされた手入力データ (従業員数等) を反映
+      const locabenOverride = loadLocabenOverride(orgId);
+      return api.ai.getFundingReport(
+        orgId,
+        fiscalYear,
+        month,
+        runwayMode,
+        locabenOverride,
+      );
+    },
     enabled: false, // manual trigger only
     staleTime: 30 * 60 * 1000,
   });

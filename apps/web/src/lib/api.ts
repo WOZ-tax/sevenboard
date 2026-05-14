@@ -871,14 +871,23 @@ export const api = {
       fiscalYear?: number,
       endMonth?: number,
       runwayMode?: 'worstCase' | 'netBurn' | 'actual',
+      locabenOverride?: {
+        industry?: string | null;
+        values?: Record<string, number | null>;
+      },
     ) => {
-      const qs = new URLSearchParams();
-      if (fiscalYear) qs.set('fiscalYear', String(fiscalYear));
-      if (endMonth) qs.set('endMonth', String(endMonth));
-      if (runwayMode) qs.set('runwayMode', runwayMode);
-      const suffix = qs.toString() ? `?${qs}` : '';
       return apiFetch<FundingReport>(
-        `/organizations/${orgId}/ai/funding-report${suffix}`,
+        `/organizations/${orgId}/ai/funding-report`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            fiscalYear,
+            endMonth,
+            runwayMode,
+            locabenOverride,
+          }),
+        },
       );
     },
 
@@ -888,6 +897,7 @@ export const api = {
       params: {
         fiscalYear?: number;
         endMonth?: number;
+        runwayMode?: 'worstCase' | 'netBurn' | 'actual';
         scenarios?: Array<{
           name: string;
           principal: number;
@@ -896,10 +906,15 @@ export const api = {
           termMonths: number;
           interestRate: number;
         }>;
+        locabenOverride?: {
+          industry?: string | null;
+          values?: Record<string, number | null>;
+        };
       },
     ) =>
       apiFetch<FundingReport>(`/organizations/${orgId}/ai/funding-report`, {
         method: 'POST',
+        headers: { 'content-type': 'application/json' },
         body: JSON.stringify(params),
       }),
   },
