@@ -148,7 +148,8 @@ export default function LocabenPage() {
     const out: Partial<SourceData> = {};
     for (const k of SOURCE_DATA_KEYS) {
       const v = d[k];
-      if (v !== null && v !== undefined && Number.isFinite(v)) {
+      // 0 は「データなし」と区別がつかないので未取得扱い (要入力)
+      if (v !== null && v !== undefined && Number.isFinite(v) && v !== 0) {
         out[k] = v;
       }
     }
