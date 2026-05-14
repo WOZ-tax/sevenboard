@@ -111,6 +111,23 @@ export function TaxForecastSection() {
   const [hydrated, setHydrated] = useState(false);
   const userEditedRef = useRef(false);
 
+  // v3 スキーマ移行時の旧 v2 LocalStorage クリーンアップ (1回のみ)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith("sevenboard:tax-forecast-input:v2:")) {
+          keysToRemove.push(key);
+        }
+      }
+      keysToRemove.forEach((k) => localStorage.removeItem(k));
+    } catch {
+      // ignore
+    }
+  }, []);
+
   /* eslint-disable react-hooks/set-state-in-effect -- orgId/fy 切替時の状態リセット + localStorage 復元 */
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -210,9 +227,12 @@ export function TaxForecastSection() {
     };
   }, [form]);
 
+  const capitalManYen = Math.max(100, parseNum(form.capital) / 10000);
+  const isSmb = capitalManYen <= 10000;
+
   const corpTax = useMemo(
-    () => calcCorpTax(taxableIncome, Math.max(100, parseNum(form.capital) / 10000), localRates),
-    [taxableIncome, form.capital, localRates],
+    () => calcCorpTax(taxableIncome, capitalManYen, localRates),
+    [taxableIncome, capitalManYen, localRates],
   );
 
   const vatPayable = useMemo(() => {
@@ -248,10 +268,15 @@ export function TaxForecastSection() {
     };
     const kintowariMid = parseNum(form.midPayments.kintowari);
     const kintowariAnnual = parseNum(form.kintowariManYen);
-    return [
+    const all = [
       // 国税 — 税率固定
       mk("corpLow", "法人税 (軽減)", "課税所得 800万円以下部分", corpTax.corporateTaxLow),
-      mk("corpHigh", "法人税 (本則)", "課税所得 800万円超部分", corpTax.corporateTaxHigh),
+      mk(
+        "corpHigh",
+        isSmb ? "法人税 (本則)" : "法人税",
+        isSmb ? "課税所得 800万円超部分" : "課税所得",
+        corpTax.corporateTaxHigh,
+      ),
       mk("localCorp", "地方法人税", "法人税合計", corpTax.localCorporateTax),
       mk("defense", "防衛特別法人税", "法人税合計 − 500万円", corpTax.defenseTax),
       // 地方税 — 税率編集可
@@ -276,14 +301,23 @@ export function TaxForecastSection() {
       mk("bizLv2", "法人事業税 (400-800万円)", "課税所得 400-800万円部分", corpTax.bizTaxLv2, {
         rateEditable: true,
       }),
-      mk("bizLv3", "法人事業税 (800万円超)", "課税所得 800万円超部分", corpTax.bizTaxLv3, {
-        rateEditable: true,
-      }),
+      mk(
+        "bizLv3",
+        isSmb ? "法人事業税 (800万円超)" : "法人事業税",
+        isSmb ? "課税所得 800万円超部分" : "課税所得",
+        corpTax.bizTaxLv3,
+        { rateEditable: true },
+      ),
       mk("specialBiz", "特別法人事業税", "法人事業税合計", corpTax.specialBizTax, {
         rateEditable: true,
       }),
     ];
-  }, [corpTax, form.kintowariManYen, form.midPayments]);
+    // 大法人 (中小特例非適用) では軽減段階を非表示にする
+    if (!isSmb) {
+      return all.filter((r) => !["corpLow", "bizLv1", "bizLv2"].includes(r.key));
+    }
+    return all;
+  }, [corpTax, form.kintowariManYen, form.midPayments, isSmb]);
 
   const totalAnnual = rows.reduce((acc, r) => acc + r.annual, 0);
   const totalMid = rows.reduce((acc, r) => acc + r.mid, 0);

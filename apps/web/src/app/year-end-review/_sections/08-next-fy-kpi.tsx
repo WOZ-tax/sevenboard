@@ -147,6 +147,19 @@ export function NextFyKpiSection() {
     return plTransition.data && plTransition.data.some((p) => p.revenue > 0);
   }, [plTransition.data]);
 
+  /** 会計年度開始月から始まる 12 ヶ月表示 (5月決算なら 6月→翌5月の順) */
+  const fyOrderedMonths = useMemo(() => {
+    const start = fyStartMonth ?? 1;
+    return Array.from({ length: 12 }, (_, i) => {
+      const monthNumber = ((start - 1 + i) % 12) + 1;
+      return {
+        monthNumber,
+        label: `${monthNumber}月`,
+        value: monthlyDistribution[monthNumber - 1] ?? 0,
+      };
+    });
+  }, [monthlyDistribution, fyStartMonth]);
+
   return (
     <div className="space-y-3">
       <div className="rounded-md border bg-white shadow-sm">
@@ -217,24 +230,24 @@ export function NextFyKpiSection() {
 
           <div className="rounded-md border bg-white shadow-sm">
             <div className="border-b px-3 py-2 text-xs font-bold text-[var(--color-primary)]">
-              月次配分（円）
+              月次配分（円） — 会計年度開始月から
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-xs tabular-nums">
                 <thead className="border-b text-[10px] text-muted-foreground">
                   <tr>
-                    {Array.from({ length: 12 }, (_, i) => (
-                      <th key={i} className="px-2 py-1.5 text-right">
-                        {i + 1}月
+                    {fyOrderedMonths.map((m) => (
+                      <th key={m.monthNumber} className="px-2 py-1.5 text-right">
+                        {m.label}
                       </th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   <tr>
-                    {monthlyDistribution.map((v, i) => (
-                      <td key={i} className="px-2 py-1.5 text-right">
-                        {fmtComma(v)}
+                    {fyOrderedMonths.map((m) => (
+                      <td key={m.monthNumber} className="px-2 py-1.5 text-right">
+                        {fmtComma(m.value)}
                       </td>
                     ))}
                   </tr>

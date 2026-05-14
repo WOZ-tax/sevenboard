@@ -65,44 +65,6 @@ export const DEFAULT_LOCAL_TAX_RATES: LocalTaxRates = {
   kintowariManYen: 7,
 };
 
-/** @deprecated 旧 API 互換。新しい LocalTaxRates.residentTaxRate を使用すること */
-export const CORP_RESIDENT_TAX_RATE = 0.07;
-
-/** @deprecated 旧 API 互換 */
-export const CORP_BIZ_TAX_RATES_SMB = {
-  lv1: { threshold: 400, rate: 0.035 },
-  lv2: { threshold: 800, rate: 0.053 },
-  lv3: { rate: 0.07 },
-} as const;
-
-/** @deprecated 旧 API 互換 */
-export const CORP_BIZ_TAX_RATE_LARGE = 0.07;
-
-/** @deprecated 旧 API 互換 */
-export const SPECIAL_CORP_BIZ_TAX_RATE = 0.37;
-
-/**
- * 法人住民税 均等割（都道府県+市区町村合計、東京都基準・万円）
- * 資本金等の額 × 従業員数 のマトリクス
- */
-export function getKintowariYen(capitalManYen: number, employees: number): number {
-  let pref: number;
-  if (capitalManYen <= 1000) pref = 2;
-  else if (capitalManYen <= 10000) pref = 5;
-  else if (capitalManYen <= 100000) pref = 13;
-  else if (capitalManYen <= 500000) pref = 54;
-  else pref = 80;
-
-  let city: number;
-  if (capitalManYen <= 1000) city = employees <= 50 ? 5 : 12;
-  else if (capitalManYen <= 10000) city = employees <= 50 ? 13 : 15;
-  else if (capitalManYen <= 100000) city = employees <= 50 ? 16 : 40;
-  else if (capitalManYen <= 500000) city = employees <= 50 ? 41 : 175;
-  else city = employees <= 50 ? 41 : 300;
-
-  return pref + city;
-}
-
 // ===========================================================
 // 外形標準課税（資本金1億円超）
 // ===========================================================
