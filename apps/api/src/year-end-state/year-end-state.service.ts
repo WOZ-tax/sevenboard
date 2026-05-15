@@ -10,12 +10,16 @@
  */
 
 import { Injectable } from '@nestjs/common';
+import { HttpService } from '@nestjs/axios';
 import { PrismaService } from '../prisma/prisma.service';
 import type { Prisma } from '@prisma/client';
 
 @Injectable()
 export class YearEndStateService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly http: HttpService,
+  ) {}
 
   private async resolveTenantId(orgId: string): Promise<string> {
     const org = await this.prisma.organization.findUniqueOrThrow({
@@ -28,6 +32,8 @@ export class YearEndStateService {
   /**
    * 設定画面で登録済の brief webhook URL に決算スケジュールを送信。
    * 既存の briefSlackWebhookUrl を流用するため、フロントは URL 入力不要。
+   * 朝サマリーと同じ axios + Content-Type 大文字 + 末尾改行除去で送信し、
+   * Workflow Webhook ではなく Incoming Webhook を前提とする。
    */
   async sendScheduleToSlack(
     orgId: string,
@@ -37,32 +43,45 @@ export class YearEndStateService {
       where: { id: orgId },
       select: { briefSlackWebhookUrl: true },
     });
-    const webhookUrl = org?.briefSlackWebhookUrl;
+    const webhookUrl = org?.briefSlackWebhookUrl?.trim();
     if (!webhookUrl) {
       return {
         ok: false,
         reason: '設定画面で Slack Webhook が未登録です',
       };
     }
+    if (!text || !text.trim()) {
+      return { ok: false, reason: '送信本文が空です' };
+    }
     try {
-      const res = await fetch(webhookUrl, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ text }),
-      });
-      if (!res.ok) {
-        const body = await res.text().catch(() => '');
-        return {
-          ok: false,
-          reason: `Slack 送信失敗: HTTP ${res.status} ${body}`.trim(),
-        };
-      }
+      await this.http.axiosRef.post(
+        webhookUrl,
+        { text },
+        {
+          headers: { 'Content-Type': 'application/json' },
+          timeout: 10_000,
+        },
+      );
       return { ok: true };
-    } catch (err) {
-      return {
-        ok: false,
-        reason: err instanceof Error ? err.message : String(err),
+    } catch (err: unknown) {
+      // axios のエラー詳細を抽出 (Slack の reason は response.data に入る)
+      let reason = err instanceof Error ? err.message : String(err);
+      const e = err as {
+        response?: { status?: number; data?: unknown };
+        message?: string;
       };
+      if (e.response) {
+        const status = e.response.status;
+        const data = e.response.data;
+        const dataStr =
+          typeof data === 'string'
+            ? data
+            : data
+              ? JSON.stringify(data)
+              : '';
+        reason = `Slack 送信失敗: HTTP ${status} ${dataStr}`.trim();
+      }
+      return { ok: false, reason };
     }
   }
 
