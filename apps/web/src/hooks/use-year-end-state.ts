@@ -269,15 +269,17 @@ export function useFeatureStateLocal<T>(
 
   const setValue = useMemo(() => {
     return (next: T | ((prev: T) => T)) => {
-      // hydrate 完了前のセットは保存しない (空 default で DB を上書きしない)
-      if (!hydrated) return;
       setLocal((prev) => {
         const resolved =
           typeof next === "function" ? (next as (p: T) => T)(prev) : next;
-        if (timerRef.current) clearTimeout(timerRef.current);
-        timerRef.current = setTimeout(() => {
-          mutation.mutate(resolved);
-        }, debounceMs);
+        // hydrate 完了前は local state だけ更新し、DB PUT は skip
+        // (default 値が来る前に MF プリセット等が走るケースを正しく扱う)
+        if (hydrated) {
+          if (timerRef.current) clearTimeout(timerRef.current);
+          timerRef.current = setTimeout(() => {
+            mutation.mutate(resolved);
+          }, debounceMs);
+        }
         return resolved;
       });
     };
