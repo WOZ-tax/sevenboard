@@ -227,19 +227,41 @@ export function useFeatureStateLocal<T>(
   isSaving: boolean;
   saveError: Error | null;
 } {
+  const orgId = useOrgId();
   const query = useFeatureState<T>(featureKey, scope);
   const mutation = useFeatureStateMutation<T>(featureKey, scope);
   const [local, setLocal] = useState<T>(defaultValue);
   const [hydrated, setHydrated] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // scope / featureKey / orgId の組合せが変わったかを検知して再 hydrate する
+  const scopeHash = `${orgId}|${featureKey}|${scope}`;
+  const lastScopeRef = useRef<string>("");
 
-  // サーバー値で初期化 (1回のみ)
-  /* eslint-disable react-hooks/set-state-in-effect -- サーバー値からの hydrate */
+  /* eslint-disable react-hooks/set-state-in-effect -- サーバー値からの hydrate + scope 切替対応 */
+  // scope 切替検知: 旧 scope の debounce タイマーを破棄して hydrated をリセット
+  useEffect(() => {
+    if (lastScopeRef.current === scopeHash) return;
+    lastScopeRef.current = scopeHash;
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+    setHydrated(false);
+    setLocal(defaultValue);
+  }, [scopeHash, defaultValue]);
+
+  // サーバー値で初期化 (scope 毎に 1 回)
   useEffect(() => {
     if (hydrated) return;
     if (query.isLoading) return;
-    if (query.data && query.data.value !== undefined && query.data.value !== null) {
+    if (
+      query.data &&
+      query.data.value !== undefined &&
+      query.data.value !== null
+    ) {
       setLocal(query.data.value);
+    } else {
+      // サーバーに記録なし → default のまま (setLocal は scope 切替時に既に default 化済)
     }
     setHydrated(true);
   }, [hydrated, query.isLoading, query.data]);
@@ -247,6 +269,8 @@ export function useFeatureStateLocal<T>(
 
   const setValue = useMemo(() => {
     return (next: T | ((prev: T) => T)) => {
+      // hydrate 完了前のセットは保存しない (空 default で DB を上書きしない)
+      if (!hydrated) return;
       setLocal((prev) => {
         const resolved =
           typeof next === "function" ? (next as (p: T) => T)(prev) : next;
@@ -258,7 +282,7 @@ export function useFeatureStateLocal<T>(
       });
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mutation は安定参照前提
-  }, [debounceMs]);
+  }, [debounceMs, hydrated]);
 
   useEffect(() => {
     return () => {
