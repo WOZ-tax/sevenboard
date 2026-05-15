@@ -173,14 +173,12 @@ export function ScheduleSection() {
 
   const orgName = (office.data as { name?: string } | undefined)?.name ?? "";
 
-  /** Slack 用テキスト整形 (mrkdwn) */
+  /** Slack 用テキスト整形 (plain text、Slack mrkdwn は最低限) */
   const buildSlackMessage = (): string => {
     const lines: string[] = [];
-    lines.push(`*決算スケジュール${orgName ? ` — ${orgName}` : ""}*`);
-    if (fyEndDate) lines.push(`決算日: \`${fyEndDate}\``);
+    lines.push(`■ 決算スケジュール${orgName ? ` (${orgName})` : ""}`);
+    if (fyEndDate) lines.push(`決算日: ${fyEndDate}`);
     lines.push("");
-    lines.push("期日 | 対応者 | タスク");
-    lines.push("---");
     for (const it of items) {
       const mark =
         it.status === "done"
@@ -197,7 +195,7 @@ export function ScheduleSection() {
             ? `${Math.abs(it.daysFromToday)}日超過`
             : `あと${it.daysFromToday}日`;
       lines.push(
-        `${mark} \`${it.dateStr}\` | *${it.responsible}* | ${it.task} (${meta})`,
+        `${mark} ${it.dateStr} [${it.responsible}] ${it.task} (${meta})`,
       );
     }
     return lines.join("\n");
@@ -207,7 +205,13 @@ export function ScheduleSection() {
     setSendingState("sending");
     setSendError("");
     try {
-      const res = await notifyMutation.mutateAsync(buildSlackMessage());
+      const text = buildSlackMessage();
+      if (!text || !text.trim()) {
+        throw new Error(
+          `本文が空です (items=${items.length}, fyEndDate=${fyEndDate ?? "null"})`,
+        );
+      }
+      const res = await notifyMutation.mutateAsync(text);
       if (!res.ok) {
         throw new Error(res.reason ?? "送信失敗");
       }

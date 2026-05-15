@@ -184,12 +184,23 @@ export default function LocabenPage() {
     }
   }, [orgId]);
 
-  // サーバーから読み込み完了時に state へ反映 (1回のみ、orgId 切替時にも再 hydrate)
+  // orgId 切替時に再 hydrate するためのリセット
+  const lastHydratedOrgRef = useRef<string>("");
   useEffect(() => {
+    if (lastHydratedOrgRef.current !== orgId) {
+      lastHydratedOrgRef.current = orgId;
+      setHydrated(false);
+    }
+  }, [orgId]);
+
+  // サーバーから読み込み完了時に state へ反映 (orgId 毎に 1 回のみ)
+  // 重要: hydrated gate がないと mutation→invalidate→refetch でループしてユーザー入力が消える
+  useEffect(() => {
+    if (hydrated) return;
     if (locabenQuery.isLoading) return;
     setState(mergeServerState(locabenQuery.data ?? null));
     setHydrated(true);
-  }, [locabenQuery.isLoading, locabenQuery.data, orgId]);
+  }, [hydrated, locabenQuery.isLoading, locabenQuery.data]);
 
   // MF から取った原データを「手入力されていない項目」だけ自動補完
   useEffect(() => {
