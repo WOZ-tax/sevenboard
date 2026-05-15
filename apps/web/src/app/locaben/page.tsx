@@ -148,8 +148,8 @@ export default function LocabenPage() {
     const out: Partial<SourceData> = {};
     for (const k of SOURCE_DATA_KEYS) {
       const v = d[k];
-      // 0 は「データなし」と区別がつかないので未取得扱い (要入力)
-      if (v !== null && v !== undefined && Number.isFinite(v) && v !== 0) {
+      // null/undefined のみ未取得扱い。0 は「MF から正規に取れた 0 円」として採用
+      if (v !== null && v !== undefined && Number.isFinite(v)) {
         out[k] = v;
       }
     }
@@ -482,6 +482,10 @@ export default function LocabenPage() {
                         const v = state.values[field.key];
                         const isManual = !!state.manualKeys[field.key];
                         const hasMf = mfFetchableKeys.has(field.key);
+                        const mfVal = mfExtracted[field.key];
+                        // MF 値とユーザー値が「実際に異なる」 ときだけ「MF値に戻す」を出す
+                        const differsFromMf =
+                          isManual && hasMf && mfVal !== v;
                         return (
                           <div
                             key={field.key}
@@ -491,7 +495,7 @@ export default function LocabenPage() {
                               <label className="text-xs font-medium text-[var(--color-text-primary)]">
                                 {field.label}
                               </label>
-                              {isManual && hasMf ? (
+                              {differsFromMf ? (
                                 <button
                                   type="button"
                                   onClick={() => clearSourceValue(field.key)}
@@ -500,7 +504,7 @@ export default function LocabenPage() {
                                 >
                                   MF値に戻す
                                 </button>
-                              ) : isManual ? (
+                              ) : isManual && !hasMf ? (
                                 <button
                                   type="button"
                                   onClick={() => clearSourceValue(field.key)}
