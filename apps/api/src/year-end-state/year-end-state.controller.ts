@@ -169,15 +169,17 @@ export class YearEndStateController {
   }
 
   /** 決算スケジュールを設定画面登録済の brief webhook に送信
-   *  注: global ValidationPipe({ whitelist: true }) が DTO class なしの
-   *  body を strip するため、@Body('text') で直接フィールドを取り出す */
+   *  注: global ValidationPipe({ whitelist: true }) が @Body() / @Body('text') の
+   *  どちらも DTO class metadata がないと strip するため、@Req() で req.body を
+   *  直接読み出して bypass する */
   @Post('schedule/slack-notify')
   @RequirePermission('org:year_end_review:manage')
   async slackNotify(
     @Param('orgId', ParseUUIDPipe) orgId: string,
-    @Body('text') text: string,
+    @Request() req: { body?: { text?: string } },
   ) {
-    return this.svc.sendScheduleToSlack(orgId, text ?? '');
+    const text = req.body?.text ?? '';
+    return this.svc.sendScheduleToSlack(orgId, text);
   }
 
   // ============================================================

@@ -133,25 +133,35 @@ export function ScheduleSection() {
     return period?.end_date ?? null;
   }, [office.data, fiscalYear]);
 
-  const today = useMemo(() => new Date(), []);
+  // 今日の 00:00 (JST 基準) を取って日数計算が「時間」の影響を受けないようにする
+  const todayMidnight = useMemo(() => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }, []);
 
   const items = useMemo(() => {
     if (!fyEndDate) return [];
     const fyEnd = new Date(fyEndDate);
+    fyEnd.setHours(0, 0, 0, 0);
     return DEFAULT_TEMPLATE.map((tpl) => {
       const state = itemStates[tpl.id] ?? { done: false };
       const baseDate = state.customDate
         ? new Date(state.customDate)
         : new Date(fyEnd.getTime() + tpl.offsetDays * 24 * 60 * 60 * 1000);
+      baseDate.setHours(0, 0, 0, 0);
       const dateStr = baseDate.toISOString().slice(0, 10);
-      const daysFromToday = Math.floor((baseDate.getTime() - today.getTime()) / (24 * 60 * 60 * 1000));
+      // 同じ 00:00 同士の差なので Math.round で十分。同日なら 0、明日なら 1。
+      const daysFromToday = Math.round(
+        (baseDate.getTime() - todayMidnight.getTime()) / (24 * 60 * 60 * 1000),
+      );
       let status: "done" | "overdue" | "soon" | "future" = "future";
       if (state.done) status = "done";
       else if (daysFromToday < 0) status = "overdue";
       else if (daysFromToday <= 7) status = "soon";
       return { ...tpl, dateStr, daysFromToday, status, customDate: state.customDate };
     });
-  }, [fyEndDate, itemStates, today]);
+  }, [fyEndDate, itemStates, todayMidnight]);
 
   const toggleDone = (id: string) => {
     if (!fiscalYear) return;
