@@ -9,13 +9,15 @@
  *   サービスは orgId から tenantId を resolveOrg で引いてきて、where に必ず含める。
  */
 
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { PrismaService } from '../prisma/prisma.service';
 import type { Prisma } from '@prisma/client';
 
 @Injectable()
 export class YearEndStateService {
+  private readonly logger = new Logger(YearEndStateService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly http: HttpService,
@@ -50,13 +52,17 @@ export class YearEndStateService {
         reason: '設定画面で Slack Webhook が未登録です',
       };
     }
-    if (!text || !text.trim()) {
-      return { ok: false, reason: '送信本文が空です' };
-    }
+    const finalText =
+      typeof text === 'string' && text.length > 0
+        ? text
+        : '(本文なし) — 決算スケジュール送信テスト';
+    this.logger.log(
+      `Slack notify orgId=${orgId} text.type=${typeof text} text.length=${typeof text === 'string' ? text.length : -1} preview="${typeof text === 'string' ? text.slice(0, 60) : String(text)}"`,
+    );
     try {
       await this.http.axiosRef.post(
         webhookUrl,
-        { text },
+        { text: finalText },
         {
           headers: { 'Content-Type': 'application/json' },
           timeout: 10_000,
