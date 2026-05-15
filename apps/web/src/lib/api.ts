@@ -1273,6 +1273,16 @@ export const api = {
           body: JSON.stringify(body),
         },
       ),
+    /** 設定画面登録済の brief webhook にスケジュール送信 */
+    notifySchedule: (orgId: string, text: string) =>
+      apiFetch<{ ok: boolean; reason?: string }>(
+        `/organizations/${orgId}/year-end-state/schedule/slack-notify`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ text }),
+        },
+      ),
 
     // locaben
     getLocaben: (orgId: string) =>

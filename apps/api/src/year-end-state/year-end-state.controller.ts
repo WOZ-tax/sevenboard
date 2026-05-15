@@ -168,6 +168,16 @@ export class YearEndStateController {
     );
   }
 
+  /** 決算スケジュールを設定画面登録済の brief webhook に送信 */
+  @Post('schedule/slack-notify')
+  @RequirePermission('org:year_end_review:manage')
+  async slackNotify(
+    @Param('orgId', ParseUUIDPipe) orgId: string,
+    @Body() body: { text: string },
+  ) {
+    return this.svc.sendScheduleToSlack(orgId, body.text);
+  }
+
   // ============================================================
   // locaben
   // ============================================================

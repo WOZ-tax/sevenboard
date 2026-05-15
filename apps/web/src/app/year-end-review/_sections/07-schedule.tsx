@@ -12,9 +12,9 @@ import {
   Loader2,
 } from "lucide-react";
 import {
-  useFeatureStateLocal,
   useYearEndSchedule,
   useScheduleMutation,
+  useScheduleSlackNotify,
 } from "@/hooks/use-year-end-state";
 
 interface ScheduleItem {
@@ -89,14 +89,8 @@ export function ScheduleSection() {
   const fiscalYear = usePeriodStore((s) => s.fiscalYear);
   const scheduleQuery = useYearEndSchedule(fiscalYear);
   const scheduleMutation = useScheduleMutation();
-  // Slack 通知用 webhook URL は feature_state で DB 永続化 (顧問先単位)
-  const webhookStore = useFeatureStateLocal<{ url: string }>(
-    "year-end-review.schedule-webhook",
-    "",
-    { url: "" },
-  );
-  const webhookUrl = webhookStore.value.url ?? "";
-  const setWebhookUrl = (v: string) => webhookStore.setValue({ url: v });
+  // 設定画面で登録済の brief webhook (Organization.briefSlackWebhookUrl) を流用
+  const notifyMutation = useScheduleSlackNotify();
   const [sendingState, setSendingState] = useState<
     "idle" | "sending" | "ok" | "error"
   >("idle");
@@ -210,18 +204,12 @@ export function ScheduleSection() {
   };
 
   const sendToSlack = async () => {
-    if (!webhookUrl.trim()) return;
     setSendingState("sending");
     setSendError("");
     try {
-      const res = await fetch(webhookUrl.trim(), {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ text: buildSlackMessage() }),
-      });
+      const res = await notifyMutation.mutateAsync(buildSlackMessage());
       if (!res.ok) {
-        const body = await res.text().catch(() => "");
-        throw new Error(`HTTP ${res.status}: ${body}`);
+        throw new Error(res.reason ?? "送信失敗");
       }
       setSendingState("ok");
       setTimeout(() => setSendingState("idle"), 3000);
@@ -304,57 +292,37 @@ export function ScheduleSection() {
         </table>
       </div>
 
-      {/* Slack Webhook 投稿 */}
-      <div className="rounded-md border bg-white shadow-sm">
-        <div className="border-b px-3 py-2 text-xs font-bold text-[var(--color-primary)]">
-          Slack に送信
-        </div>
-        <div className="space-y-2 p-2.5">
-          <div>
-            <label className="mb-0.5 block text-[11px] font-semibold text-muted-foreground">
-              Slack Incoming Webhook URL (顧問先単位、DB保存)
-            </label>
-            <input
-              type="url"
-              value={webhookUrl}
-              onChange={(e) => setWebhookUrl(e.target.value)}
-              placeholder="https://hooks.slack.com/services/T.../B.../..."
-              className="w-full rounded border px-2 py-1.5 font-mono text-[11px] focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)]"
-            />
-            <p className="mt-0.5 text-[10px] text-muted-foreground">
-              Slack 管理画面の Apps → Incoming Webhooks で投稿先チャンネル用の URL を発行して貼り付けてください。
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={sendToSlack}
-              disabled={!webhookUrl.trim() || sendingState === "sending"}
-              className={cn(
-                "inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium",
-                "bg-[var(--color-primary)] text-white hover:bg-[var(--color-primary)]/90",
-                "disabled:cursor-not-allowed disabled:opacity-50",
-              )}
-            >
-              {sendingState === "sending" ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Send className="h-3.5 w-3.5" />
-              )}
-              スケジュールを Slack に送信
-            </button>
-            {sendingState === "ok" && (
-              <span className="text-[11px] text-emerald-700">送信完了</span>
-            )}
-            {sendingState === "error" && (
-              <span className="text-[11px] text-rose-700">送信失敗: {sendError}</span>
-            )}
-          </div>
-        </div>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={sendToSlack}
+          disabled={sendingState === "sending"}
+          className={cn(
+            "inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium",
+            "bg-[var(--color-primary)] text-white hover:bg-[var(--color-primary)]/90",
+            "disabled:cursor-not-allowed disabled:opacity-50",
+          )}
+        >
+          {sendingState === "sending" ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Send className="h-3.5 w-3.5" />
+          )}
+          スケジュールを Slack に送信
+        </button>
+        {sendingState === "ok" && (
+          <span className="text-[11px] text-emerald-700">送信完了</span>
+        )}
+        {sendingState === "error" && (
+          <span className="text-[11px] text-rose-700">送信失敗: {sendError}</span>
+        )}
+        <span className="text-[10px] text-muted-foreground">
+          (設定画面で登録済の Slack Webhook 宛)
+        </span>
       </div>
 
       <p className="text-xs text-muted-foreground">
-        ※ チェック状態・日付・Webhook URL はすべて顧問先全体で共有されます (DB保存)。
+        ※ チェック状態と日付は顧問先全体で共有されます (DB保存)。
       </p>
     </div>
   );

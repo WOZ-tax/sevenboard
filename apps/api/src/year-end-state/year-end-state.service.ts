@@ -25,6 +25,47 @@ export class YearEndStateService {
     return org.tenantId;
   }
 
+  /**
+   * 設定画面で登録済の brief webhook URL に決算スケジュールを送信。
+   * 既存の briefSlackWebhookUrl を流用するため、フロントは URL 入力不要。
+   */
+  async sendScheduleToSlack(
+    orgId: string,
+    text: string,
+  ): Promise<{ ok: true } | { ok: false; reason: string }> {
+    const org = await this.prisma.organization.findUnique({
+      where: { id: orgId },
+      select: { briefSlackWebhookUrl: true },
+    });
+    const webhookUrl = org?.briefSlackWebhookUrl;
+    if (!webhookUrl) {
+      return {
+        ok: false,
+        reason: '設定画面で Slack Webhook が未登録です',
+      };
+    }
+    try {
+      const res = await fetch(webhookUrl, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+      if (!res.ok) {
+        const body = await res.text().catch(() => '');
+        return {
+          ok: false,
+          reason: `Slack 送信失敗: HTTP ${res.status} ${body}`.trim(),
+        };
+      }
+      return { ok: true };
+    } catch (err) {
+      return {
+        ok: false,
+        reason: err instanceof Error ? err.message : String(err),
+      };
+    }
+  }
+
   // ============================================================
   // 04 tax_saving_done_items
   // ============================================================

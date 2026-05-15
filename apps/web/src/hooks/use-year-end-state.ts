@@ -148,6 +148,14 @@ export function useScheduleMutation() {
   });
 }
 
+/** スケジュールを設定画面登録済の Slack webhook に送信 */
+export function useScheduleSlackNotify() {
+  const orgId = useOrgId();
+  return useMutation({
+    mutationFn: (text: string) => api.yearEndState.notifySchedule(orgId, text),
+  });
+}
+
 // ============================================================
 // locaben
 // ============================================================
