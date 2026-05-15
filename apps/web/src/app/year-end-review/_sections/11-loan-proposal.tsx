@@ -1,12 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 import Link from "next/link";
 import { useMfPL, useMfBS, useMfCashflow } from "@/hooks/use-mf-data";
 import { cn } from "@/lib/utils";
 import { ExternalLink } from "lucide-react";
-
-const STORAGE_KEY = "sevenboard:loan-proposal-input";
+import { useFeatureStateLocal } from "@/hooks/use-year-end-state";
 
 type CheckValue = "good" | "neutral" | "bad" | "unset";
 
@@ -49,39 +48,21 @@ export function LoanProposalSection() {
   const pl = useMfPL();
   const bs = useMfBS();
   const cashflow = useMfCashflow();
-  const [form, setForm] = useState<FormState>({
-    qualitative: DEFAULT_QUALITATIVE,
-    actualNotes: DEFAULT_ACTUAL_NOTES,
-  });
-  const [hydrated, setHydrated] = useState(false);
+  const { value: form, setValue: setForm } = useFeatureStateLocal<FormState>(
+    "year-end-review.loan-proposal",
+    "",
+    { qualitative: DEFAULT_QUALITATIVE, actualNotes: DEFAULT_ACTUAL_NOTES },
+  );
 
+  // 旧 LocalStorage クリーンアップ
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage 復元
-        setForm((p) => ({
-          qualitative: parsed.qualitative ?? p.qualitative,
-          actualNotes: { ...p.actualNotes, ...(parsed.actualNotes ?? {}) },
-        }));
-      }
+      localStorage.removeItem("sevenboard:loan-proposal-input");
     } catch {
       // ignore
     }
-     
-    setHydrated(true);
   }, []);
-
-  useEffect(() => {
-    if (!hydrated) return;
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(form));
-    } catch {
-      // ignore
-    }
-  }, [form, hydrated]);
 
   // 定量指標の計算
   const metrics = useMemo(() => {

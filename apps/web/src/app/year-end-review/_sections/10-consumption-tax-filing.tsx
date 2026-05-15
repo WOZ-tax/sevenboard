@@ -1,17 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo } from "react";
 import { useMfPL } from "@/hooks/use-mf-data";
-import { useScopedOrgId } from "@/hooks/use-scoped-org-id";
 import { useFyElapsed } from "@/hooks/use-fy-elapsed";
 import { getFyElapsedFromMonth, usePeriodStore } from "@/lib/period-store";
 import { cn } from "@/lib/utils";
 import { AlertTriangle } from "lucide-react";
-
-// :v2 + orgId/fy スコープ（マルチテナント漏洩防止）
-const STORAGE_BASE = "sevenboard:consumption-tax-input:v2";
-const storageKeyFor = (orgId: string, fy: number | undefined) =>
-  `${STORAGE_BASE}:${orgId || "_"}:${fy ?? "_"}`;
+import { useFeatureStateLocal } from "@/hooks/use-year-end-state";
 
 const parseNum = (s: string): number => parseFloat(s.replace(/,/g, "")) || 0;
 const fmtComma = (n: number): string =>
@@ -52,45 +47,37 @@ const BIZ_LABELS: Record<FormState["bizCategory"], string> = {
 
 export function ConsumptionTaxFilingSection() {
   const pl = useMfPL();
-  const orgId = useScopedOrgId();
   const lockedMonth = usePeriodStore((s) => s.month);
   const fiscalYear = usePeriodStore((s) => s.fiscalYear);
   const { fyStartMonth } = useFyElapsed();
-  const storageKey = storageKeyFor(orgId, fiscalYear);
-  const [form, setForm] = useState<FormState>(DEFAULT_FORM);
-  const [hydrated, setHydrated] = useState(false);
-  const userEditedRef = useRef(false);
+  const { value: form, setValue: setForm } = useFeatureStateLocal<FormState>(
+    "year-end-review.consumption-tax",
+    String(fiscalYear ?? ""),
+    DEFAULT_FORM,
+  );
 
   const updateForm = (updater: (prev: FormState) => FormState) => {
-    userEditedRef.current = true;
-    setForm(updater);
+    setForm((prev) => updater(prev));
   };
 
+  // 旧 LocalStorage クリーンアップ
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (!orgId) return;
-    userEditedRef.current = false;
-    /* eslint-disable react-hooks/set-state-in-effect -- orgId/fy 切替時の状態リセット + localStorage 復元 */
-    setHydrated(false);
-    setForm(DEFAULT_FORM);
     try {
-      const raw = localStorage.getItem(storageKey);
-      if (raw) {
-        setForm((p) => ({ ...p, ...JSON.parse(raw) }));
-        userEditedRef.current = true;
+      const keys: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith("sevenboard:consumption-tax-input:")) keys.push(k);
       }
+      keys.forEach((k) => localStorage.removeItem(k));
     } catch {
       // ignore
     }
+  }, []);
 
-    setHydrated(true);
-    /* eslint-enable react-hooks/set-state-in-effect */
-  }, [storageKey, orgId]);
-
-  // MF実績からプリセット
+  // MF実績からプリセット (デフォルト値のままなら上書き)
+  /* eslint-disable react-hooks/set-state-in-effect -- MFデータからのプリセット */
   useEffect(() => {
-    if (!hydrated) return;
-    if (userEditedRef.current) return;
     if (!Array.isArray(pl.data)) return;
 
     const findPl = (key: string, exclude?: string[]): number => {
@@ -126,24 +113,17 @@ export function ConsumptionTaxFilingSection() {
     const taxablePurchase = Math.max(0, cogs + sga - laborTotal);
 
     if (sales > 0) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- MF実績からの初期プリセット
       setForm((p) => ({
         ...p,
-        taxableSales: String(sales),
-        taxablePurchase: String(taxablePurchase),
+        taxableSales: p.taxableSales === DEFAULT_FORM.taxableSales ? String(sales) : p.taxableSales,
+        taxablePurchase:
+          p.taxablePurchase === DEFAULT_FORM.taxablePurchase
+            ? String(taxablePurchase)
+            : p.taxablePurchase,
       }));
     }
-  }, [hydrated, pl.data, lockedMonth, fyStartMonth]);
-
-  useEffect(() => {
-    if (!hydrated) return;
-    if (!userEditedRef.current) return;
-    try {
-      localStorage.setItem(storageKey, JSON.stringify(form));
-    } catch {
-      // ignore
-    }
-  }, [form, hydrated, storageKey]);
+  }, [pl.data, lockedMonth, fyStartMonth]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const result = useMemo(() => {
     const sales = parseNum(form.taxableSales);

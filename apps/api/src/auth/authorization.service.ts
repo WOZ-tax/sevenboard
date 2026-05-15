@@ -163,7 +163,10 @@ export class AuthorizationService {
       permission === 'org:onboarding:read' ||
       permission === 'org:risk_findings:read' ||
       permission === 'org:chosho:read' ||
-      permission === 'org:journal_review:read'
+      permission === 'org:journal_review:read' ||
+      permission === 'org:year_end_review:read' ||
+      permission === 'org:locaben:read' ||
+      permission === 'org:feature_state:read'
     ) {
       return true;
     }
@@ -197,7 +200,10 @@ export class AuthorizationService {
       permission === 'org:risk_findings:manage' ||
       permission === 'org:risk_findings:scan' ||
       permission === 'org:chosho:manage' ||
-      permission === 'org:journal_review:manage'
+      permission === 'org:journal_review:manage' ||
+      permission === 'org:year_end_review:manage' ||
+      permission === 'org:locaben:manage' ||
+      permission === 'org:feature_state:write'
     ) {
       return membership.role === 'owner' || membership.role === 'advisor';
     }

@@ -1,14 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   useMfAccountTransition,
   useMfOffice,
   useMfPL,
 } from "@/hooks/use-mf-data";
-import { useScopedOrgId } from "@/hooks/use-scoped-org-id";
 import { useFyElapsed } from "@/hooks/use-fy-elapsed";
 import { getFyElapsedFromMonth, usePeriodStore } from "@/lib/period-store";
+import { useFeatureStateLocal } from "@/hooks/use-year-end-state";
 import {
   findOptimalMonthlyComp,
   formatYenFromManYen,
@@ -62,47 +62,38 @@ const fmtComma = (n: number): string =>
 export function ExecCompSimulatorSection() {
   const office = useMfOffice();
   const pl = useMfPL();
-  const orgId = useScopedOrgId();
   const lockedMonth = usePeriodStore((s) => s.month);
   const fiscalYear = usePeriodStore((s) => s.fiscalYear);
   const { fyStartMonth } = useFyElapsed();
-  const storageKey = storageKeyFor(orgId, fiscalYear);
   // PL Statement では役員報酬・減価償却費は販管費に集約されているため、
   // それぞれ個別に transition PL から再帰検索する。
   const execCompTransition = useMfAccountTransition("役員報酬", fiscalYear);
   const depreciationTransition = useMfAccountTransition("減価償却費", fiscalYear);
 
-  const [form, setForm] = useState<FormState>(DEFAULT_FORM);
-  const [hydrated, setHydrated] = useState(false);
-  // 「ユーザーが実際に編集したか」を追跡。MFプリセットでは true にしない
-  const userEditedRef = useRef(false);
+  const { value: form, setValue: setForm } = useFeatureStateLocal<FormState>(
+    "year-end-review.exec-comp",
+    String(fiscalYear ?? ""),
+    DEFAULT_FORM,
+  );
 
-  // orgId/fiscalYear が変わったら hydrate やり直し
+  // 旧 LocalStorage クリーンアップ (DB 化後不要)
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (!orgId) return;
-    userEditedRef.current = false;
-    /* eslint-disable react-hooks/set-state-in-effect -- orgId/fy 切替時の状態リセット + localStorage 復元 */
-    setHydrated(false);
-    setForm(DEFAULT_FORM);
     try {
-      const raw = localStorage.getItem(storageKey);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        setForm((prev) => ({ ...prev, ...parsed }));
-        userEditedRef.current = true;
+      const keys: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith("sevenboard:exec-comp-input:")) keys.push(k);
       }
+      keys.forEach((k) => localStorage.removeItem(k));
     } catch {
       // ignore
     }
-    setHydrated(true);
-    /* eslint-enable react-hooks/set-state-in-effect */
-  }, [storageKey, orgId]);
+  }, []);
 
-  // MF実績からプリセット（ユーザーが編集していない場合のみ）
+  // MF実績からプリセット (空欄項目だけ補完)
+  /* eslint-disable react-hooks/set-state-in-effect -- MFデータからのプリセット */
   useEffect(() => {
-    if (!hydrated) return;
-    if (userEditedRef.current) return;
     if (!Array.isArray(pl.data)) return;
 
     const findPl = (key: string, exclude?: string[]): number => {
@@ -132,37 +123,32 @@ export function ExecCompSimulatorSection() {
       const annualRevenue = annualize(revenue);
       const annualOp = annualize(operatingProfit);
       const annualExecComp = annualize(execComp);
-      // 経費(役員報酬除く) = 売上 − 営業利益 − 役員報酬
       const annualExpenses = Math.max(0, annualRevenue - annualOp - annualExecComp);
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- MF実績からの初回プリセット
+      // 既に入力済 (デフォルト値と異なる) なら上書きしない
       setForm((prev) => ({
         ...prev,
-        revenue: String(annualRevenue),
-        expenses: String(annualExpenses),
+        revenue: prev.revenue === DEFAULT_FORM.revenue ? String(annualRevenue) : prev.revenue,
+        expenses: prev.expenses === DEFAULT_FORM.expenses ? String(annualExpenses) : prev.expenses,
         monthlyComp:
-          execComp > 0 ? Math.round(annualExecComp / 12) : prev.monthlyComp,
-        depreciation: String(annualize(depreciation)),
+          execComp > 0 && prev.monthlyComp === DEFAULT_FORM.monthlyComp
+            ? Math.round(annualExecComp / 12)
+            : prev.monthlyComp,
+        depreciation:
+          prev.depreciation === DEFAULT_FORM.depreciation
+            ? String(annualize(depreciation))
+            : prev.depreciation,
       }));
     }
   }, [
-    hydrated,
     pl.data,
     execCompTransition.data,
     depreciationTransition.data,
     lockedMonth,
     fyStartMonth,
   ]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
-  // ユーザーが編集した時だけ localStorage 保存
-  useEffect(() => {
-    if (!hydrated) return;
-    if (!userEditedRef.current) return;
-    try {
-      localStorage.setItem(storageKey, JSON.stringify(form));
-    } catch {
-      // ignore
-    }
-  }, [form, hydrated, storageKey]);
+  // 旧 localStorage 保存は useFeatureStateLocal が代替
 
   const simInput: SimulationInput = useMemo(
     () => ({
@@ -214,7 +200,6 @@ export function ExecCompSimulatorSection() {
   void office;
 
   const setField = <K extends keyof FormState>(k: K, v: FormState[K]) => {
-    userEditedRef.current = true;
     setForm((prev) => ({ ...prev, [k]: v }));
   };
 

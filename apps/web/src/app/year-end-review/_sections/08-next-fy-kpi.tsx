@@ -1,12 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 import { useMfPL, useMfPLTransition } from "@/hooks/use-mf-data";
 import { useFyElapsed } from "@/hooks/use-fy-elapsed";
 import { getFyElapsedFromMonth, usePeriodStore } from "@/lib/period-store";
 import { cn } from "@/lib/utils";
-
-const STORAGE_KEY = "sevenboard:next-fy-kpi-input";
+import { useFeatureStateLocal } from "@/hooks/use-year-end-state";
 
 const parseNum = (s: string): number => parseFloat(s.replace(/,/g, "")) || 0;
 const fmtComma = (n: number): string =>
@@ -34,21 +33,22 @@ export function NextFyKpiSection() {
   const pl = useMfPL();
   const plTransition = useMfPLTransition();
   const lockedMonth = usePeriodStore((s) => s.month);
+  const fiscalYear = usePeriodStore((s) => s.fiscalYear);
   const { fyStartMonth } = useFyElapsed();
-  const [form, setForm] = useState<FormState>(DEFAULT_FORM);
-  const [hydrated, setHydrated] = useState(false);
+  const { value: form, setValue: setForm } = useFeatureStateLocal<FormState>(
+    "year-end-review.next-fy-kpi",
+    String(fiscalYear ?? ""),
+    DEFAULT_FORM,
+  );
 
+  // 旧 LocalStorage クリーンアップ
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage 復元（client only）
-      if (raw) setForm((p) => ({ ...p, ...JSON.parse(raw) }));
+      localStorage.removeItem("sevenboard:next-fy-kpi-input");
     } catch {
       // ignore
     }
-     
-    setHydrated(true);
   }, []);
 
   // 当期実績から来期目標のレンジ提示
@@ -74,24 +74,15 @@ export function NextFyKpiSection() {
     };
   }, [currentRevenue]);
 
-  // hydrate target revenue from current actual once (only if unset)
+  // 当期実績から来期目標プリセット (空欄時のみ)
+  /* eslint-disable react-hooks/set-state-in-effect -- MFデータからのプリセット */
   useEffect(() => {
-    if (!hydrated) return;
     if (parseNum(form.targetRevenue) > 0) return;
     if (currentRevenue > 0) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- MF実績からの初期プリセット
       setForm((p) => ({ ...p, targetRevenue: String(ranges.mid) }));
     }
-  }, [hydrated, currentRevenue, ranges.mid, form.targetRevenue]);
-
-  useEffect(() => {
-    if (!hydrated) return;
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(form));
-    } catch {
-      // ignore
-    }
-  }, [form, hydrated]);
+  }, [currentRevenue, ranges.mid, form.targetRevenue]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const target = parseNum(form.targetRevenue);
   const gm = parseFloat(form.targetGrossMargin) / 100;

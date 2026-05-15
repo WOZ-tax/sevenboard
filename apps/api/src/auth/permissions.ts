@@ -52,6 +52,15 @@ export const PERMISSIONS = [
   'org:chosho:manage',
   'org:journal_review:read',
   'org:journal_review:manage',
+  // 決算検討 (year-end-review) 共有データ
+  'org:year_end_review:read',
+  'org:year_end_review:manage',
+  // ロカベン 状態 (顧問先全体で共有)
+  'org:locaben:read',
+  'org:locaben:manage',
+  // 汎用 feature state (上記以外のセクション)
+  'org:feature_state:read',
+  'org:feature_state:write',
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -111,6 +120,12 @@ export const TENANT_ROLE_PERMISSIONS: Record<string, Permission[]> = {
     'org:chosho:manage',
     'org:journal_review:read',
     'org:journal_review:manage',
+    'org:year_end_review:read',
+    'org:year_end_review:manage',
+    'org:locaben:read',
+    'org:locaben:manage',
+    'org:feature_state:read',
+    'org:feature_state:write',
   ],
   firm_admin: [
     'tenant:organizations:create',
@@ -163,6 +178,12 @@ export const TENANT_ROLE_PERMISSIONS: Record<string, Permission[]> = {
     'org:chosho:manage',
     'org:journal_review:read',
     'org:journal_review:manage',
+    'org:year_end_review:read',
+    'org:year_end_review:manage',
+    'org:locaben:read',
+    'org:locaben:manage',
+    'org:feature_state:read',
+    'org:feature_state:write',
   ],
   // Current SevenBoard behavior lets advisors create a new client and assigns
   // them to it. Keep that during the migration to scoped memberships.
@@ -175,6 +196,12 @@ export const TENANT_ROLE_PERMISSIONS: Record<string, Permission[]> = {
     'org:chosho:manage',
     'org:journal_review:read',
     'org:journal_review:manage',
+    'org:year_end_review:read',
+    'org:year_end_review:manage',
+    'org:locaben:read',
+    'org:locaben:manage',
+    'org:feature_state:read',
+    'org:feature_state:write',
   ],
   // Team-scoped manager access needs Team/Assignment models. Keep it closed
   // until that scope exists instead of silently granting tenant-wide access.
@@ -205,6 +232,9 @@ export const TENANT_ROLE_PERMISSIONS: Record<string, Permission[]> = {
     'org:risk_findings:read',
     'org:chosho:read',
     'org:journal_review:read',
+    'org:year_end_review:read',
+    'org:locaben:read',
+    'org:feature_state:read',
   ],
 };
 

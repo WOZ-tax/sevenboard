@@ -1,14 +1,18 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useMfBS } from "@/hooks/use-mf-data";
 import { useIndustryCode } from "@/hooks/use-industry-code";
 import { getIndustryKnowledge } from "@/lib/industry-knowledge";
 import { CheckCircle2, Circle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatYen } from "@/lib/format";
-
-const STORAGE_KEY = "sevenboard:bs-cleanup-tasks";
+import { usePeriodStore } from "@/lib/period-store";
+import {
+  useBsCleanupCreate,
+  useBsCleanupTasks,
+  useBsCleanupUpdate,
+} from "@/hooks/use-year-end-state";
 
 interface Task {
   id: string;
@@ -36,12 +40,36 @@ const CATEGORY_TONE: Record<Task["category"], string> = {
   MISC: "border-l-emerald-500",
 };
 
+interface DbTask {
+  id: string;
+  templateKey?: string | null;
+  category: string;
+  label: string;
+  amount: string | number;
+  hint: string;
+  done: boolean;
+  memo: string;
+}
+
 export function BsCleanupSection() {
   const bs = useMfBS();
   const [industryCode] = useIndustryCode();
   const industry = useMemo(() => getIndustryKnowledge(industryCode), [industryCode]);
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [hydrated, setHydrated] = useState(false);
+  const fiscalYear = usePeriodStore((s) => s.fiscalYear);
+  const dbQuery = useBsCleanupTasks(fiscalYear);
+  const createMutation = useBsCleanupCreate();
+  const updateMutation = useBsCleanupUpdate();
+  const pendingCreatesRef = useRef<Set<string>>(new Set());
+
+  // 旧 LocalStorage クリーンアップ
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      localStorage.removeItem("sevenboard:bs-cleanup-tasks");
+    } catch {
+      // ignore
+    }
+  }, []);
 
   // BS から候補抽出 (FinancialStatementRow[] = {category, current, prior, ...} を扱う)
   const generatedTasks = useMemo<Task[]>(() => {
@@ -115,45 +143,27 @@ export function BsCleanupSection() {
     return result;
   }, [bs.data, industry]);
 
-  // localStorage 復元 + generatedTasks マージ
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      const saved: Record<string, { done: boolean; memo: string }> = raw
-        ? JSON.parse(raw)
-        : {};
-      const merged = generatedTasks.map((t) => ({
+  // DB の Task 一覧と generated Task を merge
+  // templateKey で identifying (= generated tasks の id)。
+  const tasks = useMemo<(Task & { dbId?: string })[]>(() => {
+    const dbTasks = (dbQuery.data ?? []) as DbTask[];
+    const byTpl = new Map<string, DbTask>();
+    for (const d of dbTasks) {
+      if (d.templateKey) byTpl.set(d.templateKey, d);
+    }
+    return generatedTasks.map((t) => {
+      const db = byTpl.get(t.id);
+      return {
         ...t,
-        done: saved[t.id]?.done ?? false,
-        memo: saved[t.id]?.memo ?? "",
-      }));
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- generatedTasks（MF由来）変更時に編集状態をマージ
-      setTasks(merged);
-    } catch {
-       
-      setTasks(generatedTasks);
-    }
-     
-    setHydrated(true);
-  }, [generatedTasks]);
-
-  // localStorage 保存
-  useEffect(() => {
-    if (!hydrated) return;
-    try {
-      const map: Record<string, { done: boolean; memo: string }> = {};
-      tasks.forEach((t) => {
-        map[t.id] = { done: t.done, memo: t.memo };
-      });
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(map));
-    } catch {
-      // ignore
-    }
-  }, [tasks, hydrated]);
+        done: db ? db.done : false,
+        memo: db ? db.memo : "",
+        dbId: db?.id,
+      };
+    });
+  }, [generatedTasks, dbQuery.data]);
 
   const grouped = useMemo(() => {
-    const g: Record<Task["category"], Task[]> = {
+    const g: Record<Task["category"], (Task & { dbId?: string })[]> = {
       AR: [],
       INVENTORY: [],
       FIXED_ASSET: [],
@@ -164,10 +174,43 @@ export function BsCleanupSection() {
     return g;
   }, [tasks]);
 
-  const toggle = (id: string) =>
-    setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, done: !t.done } : t)));
-  const setMemo = (id: string, memo: string) =>
-    setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, memo } : t)));
+  const upsertTaskState = (
+    t: Task & { dbId?: string },
+    patch: { done?: boolean; memo?: string },
+  ) => {
+    if (!fiscalYear) return;
+    if (t.dbId) {
+      updateMutation.mutate({
+        id: t.dbId,
+        fiscalYear,
+        patch,
+      });
+    } else {
+      // 重複 create 防止
+      if (pendingCreatesRef.current.has(t.id)) return;
+      pendingCreatesRef.current.add(t.id);
+      createMutation.mutate(
+        {
+          fiscalYear,
+          templateKey: t.id,
+          category: t.category,
+          label: t.label,
+          amount: t.amount,
+          hint: t.hint,
+          done: patch.done ?? false,
+          memo: patch.memo ?? "",
+        },
+        {
+          onSettled: () => pendingCreatesRef.current.delete(t.id),
+        },
+      );
+    }
+  };
+
+  const toggle = (t: Task & { dbId?: string }) =>
+    upsertTaskState(t, { done: !t.done });
+  const setMemo = (t: Task & { dbId?: string }, memo: string) =>
+    upsertTaskState(t, { memo });
 
   const totalCount = tasks.length;
   const doneCount = tasks.filter((t) => t.done).length;
@@ -204,7 +247,7 @@ export function BsCleanupSection() {
                   <div className="flex items-start gap-2">
                     <button
                       type="button"
-                      onClick={() => toggle(t.id)}
+                      onClick={() => toggle(t)}
                       className="mt-0.5"
                       aria-label={t.done ? "未完了に戻す" : "完了"}
                     >
@@ -229,9 +272,12 @@ export function BsCleanupSection() {
                       <p className="mt-0.5 whitespace-pre-line text-[11px] text-muted-foreground">{t.hint}</p>
                       <input
                         type="text"
-                        value={t.memo}
-                        onChange={(e) => setMemo(t.id, e.target.value)}
-                        placeholder="メモ（対応者・期限など）"
+                        defaultValue={t.memo}
+                        onBlur={(e) => {
+                          const v = e.target.value;
+                          if (v !== t.memo) setMemo(t, v);
+                        }}
+                        placeholder="メモ（対応者・期限など、入力後 blur で保存）"
                         className="mt-1 w-full rounded border px-2 py-1 text-[11px] focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)]"
                       />
                     </div>

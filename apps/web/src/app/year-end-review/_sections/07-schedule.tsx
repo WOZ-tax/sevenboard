@@ -1,14 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 import { useMfOffice } from "@/hooks/use-mf-data";
-import { useScopedOrgId } from "@/hooks/use-scoped-org-id";
 import { usePeriodStore } from "@/lib/period-store";
 import { cn } from "@/lib/utils";
-import { CheckCircle2, Circle, AlertTriangle, Send, Loader2 } from "lucide-react";
-
-const STORAGE_KEY = "sevenboard:year-end-schedule";
-const WEBHOOK_STORAGE_PREFIX = "sevenboard:slack-webhook:";
+import { CheckCircle2, Circle, AlertTriangle } from "lucide-react";
+import {
+  useYearEndSchedule,
+  useScheduleMutation,
+} from "@/hooks/use-year-end-state";
 
 interface ScheduleItem {
   id: string;
@@ -79,49 +79,37 @@ interface ItemState {
 
 export function ScheduleSection() {
   const office = useMfOffice();
-  const orgId = useScopedOrgId();
   const fiscalYear = usePeriodStore((s) => s.fiscalYear);
-  const [itemStates, setItemStates] = useState<Record<string, ItemState>>({});
-  const [hydrated, setHydrated] = useState(false);
-  const [webhookUrl, setWebhookUrl] = useState("");
-  const [sendingState, setSendingState] = useState<
-    "idle" | "sending" | "ok" | "error"
-  >("idle");
-  const [sendError, setSendError] = useState("");
+  const scheduleQuery = useYearEndSchedule(fiscalYear);
+  const scheduleMutation = useScheduleMutation();
 
-  const webhookKey = WEBHOOK_STORAGE_PREFIX + (orgId || "_");
-
+  // 旧 LocalStorage の自動クリーンアップ (DB 化後不要)
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) setItemStates(JSON.parse(raw));
+      localStorage.removeItem("sevenboard:year-end-schedule");
+      // 旧 webhook ローカル保存も削除 (設定画面の DB webhook に統合)
+      const keys: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith("sevenboard:slack-webhook:")) keys.push(k);
+      }
+      keys.forEach((k) => localStorage.removeItem(k));
     } catch {
       // ignore
     }
-
-    setHydrated(true);
   }, []);
 
-  // 顧問先切替時に webhook URL を読み直す
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      const v = localStorage.getItem(webhookKey) ?? "";
-      setWebhookUrl(v);
-    } catch {
-      // ignore
+  const itemStates = useMemo<Record<string, ItemState>>(() => {
+    const map: Record<string, ItemState> = {};
+    for (const row of scheduleQuery.data ?? []) {
+      map[row.itemId] = {
+        done: row.isDone,
+        customDate: row.customDate ?? undefined,
+      };
     }
-  }, [webhookKey]);
-
-  useEffect(() => {
-    if (!hydrated) return;
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(itemStates));
-    } catch {
-      // ignore
-    }
-  }, [itemStates, hydrated]);
+    return map;
+  }, [scheduleQuery.data]);
 
   // 決算日 = 現在選択中の会計年度の end_date
   const fyEndDate = useMemo(() => {
@@ -152,85 +140,22 @@ export function ScheduleSection() {
     });
   }, [fyEndDate, itemStates, today]);
 
-  const toggleDone = (id: string) =>
-    setItemStates((prev) => ({
-      ...prev,
-      [id]: { ...prev[id], done: !prev[id]?.done },
-    }));
-
-  const setCustomDate = (id: string, customDate: string) =>
-    setItemStates((prev) => ({
-      ...prev,
-      [id]: { ...prev[id], done: prev[id]?.done ?? false, customDate },
-    }));
-
-  const orgName = (office.data as { name?: string } | undefined)?.name ?? "";
-
-  const saveWebhookUrl = (v: string) => {
-    setWebhookUrl(v);
-    try {
-      if (v.trim()) {
-        localStorage.setItem(webhookKey, v.trim());
-      } else {
-        localStorage.removeItem(webhookKey);
-      }
-    } catch {
-      // ignore
-    }
+  const toggleDone = (id: string) => {
+    if (!fiscalYear) return;
+    scheduleMutation.mutate({
+      itemId: id,
+      fiscalYear,
+      isDone: !itemStates[id]?.done,
+    });
   };
 
-  /** Slack 用テキスト整形 (mrkdwn) */
-  const buildSlackMessage = (): string => {
-    const lines: string[] = [];
-    lines.push(
-      `*決算スケジュール${orgName ? ` — ${orgName}` : ""}*`,
-    );
-    if (fyEndDate) lines.push(`決算日: \`${fyEndDate}\``);
-    lines.push("");
-    lines.push("期日 | 対応者 | タスク");
-    lines.push("---");
-    for (const it of items) {
-      const mark =
-        it.status === "done"
-          ? "✅"
-          : it.status === "overdue"
-            ? "⚠️"
-            : it.status === "soon"
-              ? "🟡"
-              : "⬜";
-      const meta =
-        it.status === "done"
-          ? "完了"
-          : it.status === "overdue"
-            ? `${Math.abs(it.daysFromToday)}日超過`
-            : `あと${it.daysFromToday}日`;
-      lines.push(
-        `${mark} \`${it.dateStr}\` | *${it.responsible}* | ${it.task} (${meta})`,
-      );
-    }
-    return lines.join("\n");
-  };
-
-  const sendToSlack = async () => {
-    if (!webhookUrl.trim()) return;
-    setSendingState("sending");
-    setSendError("");
-    try {
-      const res = await fetch(webhookUrl.trim(), {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ text: buildSlackMessage() }),
-      });
-      if (!res.ok) {
-        const body = await res.text().catch(() => "");
-        throw new Error(`HTTP ${res.status}: ${body}`);
-      }
-      setSendingState("ok");
-      setTimeout(() => setSendingState("idle"), 3000);
-    } catch (err) {
-      setSendingState("error");
-      setSendError(err instanceof Error ? err.message : String(err));
-    }
+  const setCustomDate = (id: string, customDate: string) => {
+    if (!fiscalYear) return;
+    scheduleMutation.mutate({
+      itemId: id,
+      fiscalYear,
+      customDate,
+    });
   };
 
   if (!fyEndDate) {
@@ -306,58 +231,9 @@ export function ScheduleSection() {
         </table>
       </div>
 
-      {/* Slack Webhook 投稿 */}
-      <div className="rounded-md border bg-white shadow-sm">
-        <div className="border-b px-3 py-2 text-xs font-bold text-[var(--color-primary)]">
-          Slack に送信
-        </div>
-        <div className="space-y-2 p-2.5">
-          <div>
-            <label className="mb-0.5 block text-[11px] font-semibold text-muted-foreground">
-              Slack Incoming Webhook URL (顧問先単位、ブラウザに保存)
-            </label>
-            <input
-              type="url"
-              value={webhookUrl}
-              onChange={(e) => saveWebhookUrl(e.target.value)}
-              placeholder="https://hooks.slack.com/services/T.../B.../..."
-              className="w-full rounded border px-2 py-1.5 font-mono text-[11px] focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)]"
-            />
-            <p className="mt-0.5 text-[10px] text-muted-foreground">
-              Slack 管理画面の Apps → Incoming Webhooks で投稿先チャンネル用の URL を発行して貼り付けてください。
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={sendToSlack}
-              disabled={!webhookUrl.trim() || sendingState === "sending"}
-              className={cn(
-                "inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium",
-                "bg-[var(--color-primary)] text-white hover:bg-[var(--color-primary)]/90",
-                "disabled:cursor-not-allowed disabled:opacity-50",
-              )}
-            >
-              {sendingState === "sending" ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Send className="h-3.5 w-3.5" />
-              )}
-              スケジュールを Slack に送信
-            </button>
-            {sendingState === "ok" && (
-              <span className="text-[11px] text-emerald-700">送信完了</span>
-            )}
-            {sendingState === "error" && (
-              <span className="text-[11px] text-rose-700">送信失敗: {sendError}</span>
-            )}
-          </div>
-        </div>
-      </div>
-
       <p className="text-xs text-muted-foreground">
-        ※ チェック状態と日付の変更はブラウザ内に保存されます（顧問先ごと共有はしません）。
-        本格運用ではDBへの保存が必要です。Webhook URL も同様にブラウザ保存です。
+        ※ チェック状態と日付は顧問先全体で共有されます (DB保存)。
+        Slack 通知は設定画面の朝サマリー Webhook 経由で配信予定。
       </p>
     </div>
   );

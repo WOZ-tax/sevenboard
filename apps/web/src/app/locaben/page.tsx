@@ -13,7 +13,7 @@
  * 単位: 金額はすべて千円、人員は人。MF (円単位) は自動で千円に変換。
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   PolarAngleAxis,
   PolarGrid,
@@ -46,6 +46,10 @@ import {
 } from "@/components/ui/select";
 import { useCurrentOrg } from "@/contexts/current-org";
 import { useLocabenSourceData } from "@/hooks/use-mf-data";
+import {
+  useLocabenState,
+  useLocabenStateMutation,
+} from "@/hooks/use-year-end-state";
 import { usePeriodStore, getPeriodLabel } from "@/lib/period-store";
 import { normalizeIndustry, INDUSTRIES, type IndustryCode } from "@/lib/industries";
 import {
@@ -92,36 +96,32 @@ function emptyForm(): LocabenFormState {
   };
 }
 
-function readStorage(orgId: string): LocabenFormState {
-  if (typeof window === "undefined") return emptyForm();
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY_PREFIX + orgId);
-    if (!raw) return emptyForm();
-    const parsed = JSON.parse(raw) as Partial<LocabenFormState>;
-    const base = emptyForm();
-    return {
-      industryOverride: parsed.industryOverride ?? null,
-      values: { ...base.values, ...(parsed.values ?? {}) },
-      manualKeys: { ...(parsed.manualKeys ?? {}) },
-      nonFinancial: NON_FINANCIAL_SECTIONS.reduce(
-        (acc, s) => {
-          acc[s.key] = {
-            ...base.nonFinancial[s.key],
-            ...((parsed.nonFinancial?.[s.key] as Record<string, string>) ?? {}),
-          };
-          return acc;
-        },
-        {} as Record<string, Record<string, string>>,
-      ),
-    };
-  } catch {
-    return emptyForm();
-  }
-}
-
-function writeStorage(orgId: string, state: LocabenFormState) {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(STORAGE_KEY_PREFIX + orgId, JSON.stringify(state));
+function mergeServerState(
+  server: {
+    industryOverride?: string | null;
+    values?: Record<string, number | null>;
+    nonFinancial?: Record<string, Record<string, string>>;
+    manualKeys?: Record<string, true>;
+  } | null,
+): LocabenFormState {
+  const base = emptyForm();
+  if (!server) return base;
+  return {
+    industryOverride:
+      (server.industryOverride as IndustryCode | null | undefined) ?? null,
+    values: { ...base.values, ...(server.values ?? {}) } as LocabenFormState["values"],
+    manualKeys: { ...(server.manualKeys ?? {}) } as LocabenFormState["manualKeys"],
+    nonFinancial: NON_FINANCIAL_SECTIONS.reduce(
+      (acc, s) => {
+        acc[s.key] = {
+          ...base.nonFinancial[s.key],
+          ...((server.nonFinancial?.[s.key] as Record<string, string>) ?? {}),
+        };
+        return acc;
+      },
+      {} as Record<string, Record<string, string>>,
+    ),
+  };
 }
 
 function formatNumber(v: number | null, digits = 1): string {
@@ -165,18 +165,31 @@ export default function LocabenPage() {
     return set;
   }, [mfExtracted]);
 
+  const locabenQuery = useLocabenState();
+  const locabenMutation = useLocabenStateMutation();
   const [state, setState] = useState<LocabenFormState>(() => emptyForm());
   const [hydrated, setHydrated] = useState(false);
   const [sourceExpanded, setSourceExpanded] = useState(true);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   /* eslint-disable react-hooks/set-state-in-effect */
 
-  // orgId 切替時に LocalStorage から読み直す
+  // 旧 LocalStorage クリーンアップ (DB 化後不要)
   useEffect(() => {
-    if (!orgId) return;
-    setState(readStorage(orgId));
-    setHydrated(true);
+    if (typeof window === "undefined" || !orgId) return;
+    try {
+      window.localStorage.removeItem(STORAGE_KEY_PREFIX + orgId);
+    } catch {
+      // ignore
+    }
   }, [orgId]);
+
+  // サーバーから読み込み完了時に state へ反映 (1回のみ、orgId 切替時にも再 hydrate)
+  useEffect(() => {
+    if (locabenQuery.isLoading) return;
+    setState(mergeServerState(locabenQuery.data ?? null));
+    setHydrated(true);
+  }, [locabenQuery.isLoading, locabenQuery.data, orgId]);
 
   // MF から取った原データを「手入力されていない項目」だけ自動補完
   useEffect(() => {
@@ -198,10 +211,22 @@ export default function LocabenPage() {
 
   /* eslint-enable react-hooks/set-state-in-effect */
 
-  // 変更を LocalStorage に保存
+  // 変更を debounce して DB に保存 (600ms)
   useEffect(() => {
     if (!hydrated || !orgId) return;
-    writeStorage(orgId, state);
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      locabenMutation.mutate({
+        industryOverride: state.industryOverride,
+        values: state.values,
+        nonFinancial: state.nonFinancial,
+        manualKeys: state.manualKeys,
+      });
+    }, 600);
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- locabenMutation 安定参照
   }, [hydrated, orgId, state]);
 
   const setSourceValue = (key: SourceDataKey, raw: string) => {

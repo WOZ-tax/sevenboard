@@ -1,17 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo } from "react";
 import Link from "next/link";
 import { ExternalLink, Plus, X } from "lucide-react";
 import { useMfCashflow } from "@/hooks/use-mf-data";
-import { useScopedOrgId } from "@/hooks/use-scoped-org-id";
 import { usePeriodStore } from "@/lib/period-store";
 import { formatYen } from "@/lib/format";
 import { cn } from "@/lib/utils";
-
-const STORAGE_BASE = "sevenboard:cf-landing-input:v1";
-const storageKeyFor = (orgId: string, fy: number | undefined) =>
-  `${STORAGE_BASE}:${orgId || "_"}:${fy ?? "_"}`;
+import { useFeatureStateLocal } from "@/hooks/use-year-end-state";
 
 type OutflowKind = "tax" | "bonus" | "capex";
 
@@ -58,46 +54,31 @@ const fmtComma = (n: number): string =>
 
 export function CashflowLandingSection() {
   const cf = useMfCashflow();
-  const orgId = useScopedOrgId();
   const fiscalYear = usePeriodStore((s) => s.fiscalYear);
-  const storageKey = storageKeyFor(orgId, fiscalYear);
-  const [input, setInput] = useState<CfLandingInput>(EMPTY_INPUT);
-  const [hydrated, setHydrated] = useState(false);
-  const userEditedRef = useRef(false);
+  const { value: input, setValue: setInput } =
+    useFeatureStateLocal<CfLandingInput>(
+      "year-end-review.cf-landing",
+      String(fiscalYear ?? ""),
+      EMPTY_INPUT,
+    );
 
-  /* eslint-disable react-hooks/set-state-in-effect -- LocalStorage 復元 */
+  // 旧 LocalStorage クリーンアップ
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (!orgId) return;
-    userEditedRef.current = false;
-    setHydrated(false);
-    setInput(EMPTY_INPUT);
     try {
-      const raw = localStorage.getItem(storageKey);
-      if (raw) {
-        const parsed = JSON.parse(raw) as Partial<CfLandingInput>;
-        setInput({ outflows: parsed.outflows ?? [] });
-        userEditedRef.current = true;
+      const keys: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith("sevenboard:cf-landing-input:")) keys.push(k);
       }
+      keys.forEach((k) => localStorage.removeItem(k));
     } catch {
       // ignore
     }
-    setHydrated(true);
-  }, [storageKey, orgId]);
-  /* eslint-enable react-hooks/set-state-in-effect */
-
-  useEffect(() => {
-    if (!hydrated || !userEditedRef.current) return;
-    try {
-      localStorage.setItem(storageKey, JSON.stringify(input));
-    } catch {
-      // ignore
-    }
-  }, [input, hydrated, storageKey]);
+  }, []);
 
   const updateInput = (updater: (prev: CfLandingInput) => CfLandingInput) => {
-    userEditedRef.current = true;
-    setInput(updater);
+    setInput((prev) => updater(prev));
   };
 
   const summary = useMemo(() => {

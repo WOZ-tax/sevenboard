@@ -36,7 +36,7 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { formatYen } from "@/lib/format";
-import { useCurrentOrg } from "@/contexts/current-org";
+import { useFeatureStateLocal } from "@/hooks/use-year-end-state";
 import {
   ComposedChart,
   Line,
@@ -198,7 +198,6 @@ export default function VariableCostPage() {
   const vcQuery = useVariableCost(fiscalYear, month);
   const office = useMfOffice();
   const periodLabel = getPeriodLabel(fiscalYear, month, periods);
-  const orgId = useCurrentOrg().currentOrgId ?? "";
 
   // 会計期首月と累計の経過月数（MF会計期間から動的取得）
   type AccountingPeriod = { fiscal_year?: number; start_date?: string };
@@ -246,37 +245,29 @@ export default function VariableCostPage() {
     return map;
   }, [sourceData.variableCosts, sourceData.fixedCosts]);
 
-  // カスタム分類: 未設定(undefined)の場合はデフォルト分類を使用
-  // localStorage に orgId スコープで永続化（リロード後も保持）。
-  // 本来は API 経由で DB に保存したいが、Prisma 6.19 の UUID 互換性問題で
-  // bulk update が常に P2023 で失敗するため、当面はブラウザ単位で持つ。
-  // 初回 render 時点では orgId が空（useCurrentOrg 未解決）なので useState の lazy
-  // initializer では復元できない。orgId 確定後の useEffect で localStorage から読む。
-  const storageKey = orgId ? `sevenboard-vc-classification-${orgId}` : "";
-  const [customClassification, setCustomClassification] = useState<Record<string, boolean>>({});
-  const [restoredOrgId, setRestoredOrgId] = useState<string | null>(null);
+  // カスタム分類: 未設定(undefined)の場合はデフォルト分類を使用。
+  // 顧問先間で共有するため DB (feature_state) に保存。
+  const { value: customClassification, setValue: setCustomClassification } =
+    useFeatureStateLocal<Record<string, boolean>>(
+      "variable-cost.custom-classification",
+      "",
+      {},
+    );
+
+  // 旧 LocalStorage クリーンアップ
   useEffect(() => {
-    if (typeof window === "undefined" || !orgId) return;
-    if (restoredOrgId === orgId) return; // 同じ orgId は 1 度だけ復元
+    if (typeof window === "undefined") return;
     try {
-      const raw = window.localStorage.getItem(storageKey);
-      // localStorage からの復元は initial mount 相当の sync なので setState する
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setCustomClassification(raw ? JSON.parse(raw) : {});
+      const keys: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith("sevenboard-vc-classification-")) keys.push(k);
+      }
+      keys.forEach((k) => localStorage.removeItem(k));
     } catch {
-      setCustomClassification({});
+      // ignore
     }
-    setRestoredOrgId(orgId);
-  }, [orgId, storageKey, restoredOrgId]);
-  useEffect(() => {
-    if (typeof window === "undefined" || !orgId || restoredOrgId !== orgId) return;
-    // 復元前の空 state を localStorage に書いて元データを潰さないよう、復元完了後だけ書き戻す
-    if (Object.keys(customClassification).length === 0) {
-      window.localStorage.removeItem(storageKey);
-    } else {
-      window.localStorage.setItem(storageKey, JSON.stringify(customClassification));
-    }
-  }, [customClassification, orgId, storageKey, restoredOrgId]);
+  }, []);
 
   const isVariable = useCallback(
     (name: string): boolean => {
@@ -288,19 +279,16 @@ export default function VariableCostPage() {
     [customClassification, defaultClassification]
   );
 
-  const toggleClassification = useCallback(
-    (name: string) => {
-      setCustomClassification((prev) => ({
-        ...prev,
-        [name]: prev[name] !== undefined ? !prev[name] : !defaultClassification[name],
-      }));
-    },
-    [defaultClassification]
-  );
+  const toggleClassification = (name: string) => {
+    setCustomClassification((prev) => ({
+      ...prev,
+      [name]: prev[name] !== undefined ? !prev[name] : !defaultClassification[name],
+    }));
+  };
 
-  const resetClassification = useCallback(() => {
+  const resetClassification = () => {
     setCustomClassification({});
-  }, []);
+  };
 
   const hasCustomChanges = Object.keys(customClassification).length > 0;
 

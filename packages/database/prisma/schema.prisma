@@ -45,44 +45,49 @@ model Organization {
   createdAt            DateTime  @default(now()) @map("created_at")
   updatedAt            DateTime  @updatedAt @map("updated_at")
 
-  tenant                 Tenant                     @relation(fields: [tenantId], references: [id])
-  departments            Department[]
-  accounts               AccountMaster[]
-  fiscalYears            FiscalYear[]
-  actualEntries          ActualEntry[]
-  journalEntries         JournalEntry[]
-  kpiDefinitions         KpiDefinition[]
-  users                  User[]
-  memberships            OrganizationMembership[]
-  notifications          Notification[]
-  reports                Report[]
-  auditLogs              AuditLog[]
-  integrations           Integration[]
-  cashFlowCategories     CashFlowCategory[]
-  cashFlowEntries        CashFlowEntry[]
-  cashFlowForecasts      CashFlowForecast[]
-  collectionProfiles     CollectionProfile[]
-  runwaySnapshots        RunwaySnapshot[]
-  loanSimulations        LoanSimulation[]
-  calendarEvents         CalendarEvent[]
-  actions                Action[]
-  dataSyncLogs           DataSyncLog[]
-  businessEvents         BusinessEvent[]
-  briefingSnapshots      BriefingSnapshot[]
-  agentRuns              AgentRun[]
-  monthlyReviewApprovals MonthlyReviewApproval[]
-  monthlyCloses          MonthlyClose[]
-  masterSources          OrganizationMasterSource[]
-  riskFindings           RiskFinding[]
-  healthSnapshots        HealthSnapshot[]
-  choshoVersions         ChoshoVersion[]
-  choshoRows             ChoshoRow[]
-  choshoRowComments      ChoshoRowComment[]
-  choshoCellComments     ChoshoCellComment[]
-  journalReviewFlags     JournalReviewFlag[]
-  journalReviewComments  JournalReviewComment[]
-  journalReviewSnapshots JournalReviewSnapshot[]
+  tenant                      Tenant                       @relation(fields: [tenantId], references: [id])
+  departments                 Department[]
+  accounts                    AccountMaster[]
+  fiscalYears                 FiscalYear[]
+  actualEntries               ActualEntry[]
+  journalEntries              JournalEntry[]
+  kpiDefinitions              KpiDefinition[]
+  users                       User[]
+  memberships                 OrganizationMembership[]
+  notifications               Notification[]
+  reports                     Report[]
+  auditLogs                   AuditLog[]
+  integrations                Integration[]
+  cashFlowCategories          CashFlowCategory[]
+  cashFlowEntries             CashFlowEntry[]
+  cashFlowForecasts           CashFlowForecast[]
+  collectionProfiles          CollectionProfile[]
+  runwaySnapshots             RunwaySnapshot[]
+  loanSimulations             LoanSimulation[]
+  calendarEvents              CalendarEvent[]
+  actions                     Action[]
+  dataSyncLogs                DataSyncLog[]
+  businessEvents              BusinessEvent[]
+  briefingSnapshots           BriefingSnapshot[]
+  agentRuns                   AgentRun[]
+  monthlyReviewApprovals      MonthlyReviewApproval[]
+  monthlyCloses               MonthlyClose[]
+  masterSources               OrganizationMasterSource[]
+  riskFindings                RiskFinding[]
+  healthSnapshots             HealthSnapshot[]
+  choshoVersions              ChoshoVersion[]
+  choshoRows                  ChoshoRow[]
+  choshoRowComments           ChoshoRowComment[]
+  choshoCellComments          ChoshoCellComment[]
+  journalReviewFlags          JournalReviewFlag[]
+  journalReviewComments       JournalReviewComment[]
+  journalReviewSnapshots      JournalReviewSnapshot[]
   journalReviewSnapshotMonths JournalReviewSnapshotMonth[]
+  taxSavingDoneItems          TaxSavingDoneItem[]
+  bsCleanupTasks              BsCleanupTask[]
+  yearEndScheduleItems        YearEndScheduleItemState[]
+  locabenState                LocabenState?
+  featureStates               FeatureState[]
 
   @@unique([id, tenantId])
   @@unique([tenantId, code])
@@ -139,29 +144,34 @@ model User {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  organization                  Organization?            @relation(fields: [orgId], references: [id])
+  organization                  Organization?              @relation(fields: [orgId], references: [id])
   platformMemberships           PlatformMembership[]
   tenantMemberships             TenantMembership[]
   memberships                   OrganizationMembership[]
   budgetVersions                BudgetVersion[]
-  aiComments                    AiComment[]              @relation("ReviewedBy")
+  aiComments                    AiComment[]                @relation("ReviewedBy")
   notifications                 Notification[]
   auditLogs                     AuditLog[]
-  ownedActions                  Action[]                 @relation("ActionOwner")
-  createdActions                Action[]                 @relation("ActionCreator")
+  ownedActions                  Action[]                   @relation("ActionOwner")
+  createdActions                Action[]                   @relation("ActionCreator")
   actionEvents                  ActionEvent[]
   businessEvents                BusinessEvent[]
   resolvedRiskFindings          RiskFinding[]
-  orgContextUpdates             Organization[]           @relation("OrgContextUpdater")
-  createdChoshoVersions         ChoshoVersion[]          @relation("ChoshoVersionCreator")
-  approvedChoshoVersions        ChoshoVersion[]          @relation("ChoshoVersionApprover")
-  confirmedChoshoRows           ChoshoRow[]              @relation("ChoshoRowConfirmer")
-  authoredChoshoRowComments     ChoshoRowComment[]       @relation("ChoshoRowCommentAuthor")
-  authoredChoshoCellComments    ChoshoCellComment[]      @relation("ChoshoCellCommentAuthor")
-  resolvedChoshoCellComments    ChoshoCellComment[]      @relation("ChoshoCellCommentResolver")
-  flaggedJournalReviews         JournalReviewFlag[]      @relation("JournalReviewFlagged")
-  resolvedJournalReviews        JournalReviewFlag[]      @relation("JournalReviewResolved")
-  authoredJournalReviewComments JournalReviewComment[]   @relation("JournalReviewCommentAuthor")
+  orgContextUpdates             Organization[]             @relation("OrgContextUpdater")
+  createdChoshoVersions         ChoshoVersion[]            @relation("ChoshoVersionCreator")
+  approvedChoshoVersions        ChoshoVersion[]            @relation("ChoshoVersionApprover")
+  confirmedChoshoRows           ChoshoRow[]                @relation("ChoshoRowConfirmer")
+  authoredChoshoRowComments     ChoshoRowComment[]         @relation("ChoshoRowCommentAuthor")
+  authoredChoshoCellComments    ChoshoCellComment[]        @relation("ChoshoCellCommentAuthor")
+  resolvedChoshoCellComments    ChoshoCellComment[]        @relation("ChoshoCellCommentResolver")
+  flaggedJournalReviews         JournalReviewFlag[]        @relation("JournalReviewFlagged")
+  resolvedJournalReviews        JournalReviewFlag[]        @relation("JournalReviewResolved")
+  authoredJournalReviewComments JournalReviewComment[]     @relation("JournalReviewCommentAuthor")
+  updatedTaxSavingItems         TaxSavingDoneItem[]        @relation("TaxSavingUpdater")
+  updatedBsCleanupTasks         BsCleanupTask[]            @relation("BsCleanupUpdater")
+  updatedYearEndScheduleItems   YearEndScheduleItemState[] @relation("YearEndScheduleUpdater")
+  updatedLocabenStates          LocabenState[]             @relation("LocabenUpdater")
+  updatedFeatureStates          FeatureState[]             @relation("FeatureStateUpdater")
 
   @@map("users")
 }
@@ -1537,4 +1547,132 @@ model JournalReviewSnapshotMonth {
   @@unique([tenantId, orgId, fiscalYear, month])
   @@index([tenantId, orgId, fiscalYear])
   @@map("journal_review_snapshot_months")
+}
+
+// ============================================================
+// 決算検討 (year-end-review) 共有データ
+//   担当者が複数いる前提で顧問先全体で共有する必要があるもの。
+//   - tax-saving: 節税策チェック完了状態
+//   - bs-cleanup: BS整理タスク (メモ・完了)
+//   - year-end-schedule: スケジュール完了/日付上書き
+//   - locaben-state: 業種上書き + 6指標 + 非財務4シート (顧問先全体で共有)
+//   - feature-state: 汎用 KV (上記以外のセクション)
+// ============================================================
+
+/// 04 節税策チェック完了状態 (顧問先 × 会計年度 × 施策ID)
+model TaxSavingDoneItem {
+  id          String    @id @default(uuid()) @db.Uuid
+  tenantId    String    @map("tenant_id") @db.Uuid
+  orgId       String    @map("org_id") @db.Uuid
+  fiscalYear  Int       @map("fiscal_year")
+  itemId      String    @map("item_id")
+  isDone      Boolean   @default(false) @map("is_done")
+  doneAt      DateTime? @map("done_at")
+  updatedById String?   @map("updated_by_id") @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [orgId, tenantId], references: [id, tenantId])
+  updatedBy    User?        @relation("TaxSavingUpdater", fields: [updatedById], references: [id])
+
+  @@unique([orgId, fiscalYear, itemId])
+  @@index([tenantId, orgId, fiscalYear])
+  @@map("tax_saving_done_items")
+}
+
+/// 06 BS整理タスク
+model BsCleanupTask {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  orgId       String   @map("org_id") @db.Uuid
+  fiscalYear  Int      @map("fiscal_year")
+  /// 自動生成元の template キー (任意)
+  templateKey String?  @map("template_key")
+  category    String
+  label       String
+  amount      Decimal  @default(0) @db.Decimal(18, 2)
+  hint        String   @default("")
+  done        Boolean  @default(false)
+  memo        String   @default("")
+  updatedById String?  @map("updated_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [orgId, tenantId], references: [id, tenantId])
+  updatedBy    User?        @relation("BsCleanupUpdater", fields: [updatedById], references: [id])
+
+  @@index([tenantId, orgId, fiscalYear])
+  @@index([orgId, fiscalYear])
+  @@map("bs_cleanup_tasks")
+}
+
+/// 07 決算スケジュール item 状態 (テンプレートIDごと)
+model YearEndScheduleItemState {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  orgId       String   @map("org_id") @db.Uuid
+  fiscalYear  Int      @map("fiscal_year")
+  itemId      String   @map("item_id")
+  isDone      Boolean  @default(false) @map("is_done")
+  customDate  String?  @map("custom_date")
+  updatedById String?  @map("updated_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [orgId, tenantId], references: [id, tenantId])
+  updatedBy    User?        @relation("YearEndScheduleUpdater", fields: [updatedById], references: [id])
+
+  @@unique([orgId, fiscalYear, itemId])
+  @@index([tenantId, orgId, fiscalYear])
+  @@map("year_end_schedule_item_states")
+}
+
+/// ロカベン状態 (顧問先全体で共有、業種上書き + 6指標元データ + 非財務4シート)
+model LocabenState {
+  id               String   @id @default(uuid()) @db.Uuid
+  tenantId         String   @map("tenant_id") @db.Uuid
+  orgId            String   @unique @map("org_id") @db.Uuid
+  industryOverride String?  @map("industry_override")
+  /// 6指標元データ Record<SourceDataKey, number | null>
+  values           Json     @default("{}")
+  /// 非財務4シート Record<sectionKey, Record<fieldKey, string>>
+  nonFinancial     Json     @default("{}") @map("non_financial")
+  /// ユーザー入力フラグ Partial<Record<SourceDataKey, true>>
+  manualKeys       Json     @default("{}") @map("manual_keys")
+  updatedById      String?  @map("updated_by_id") @db.Uuid
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [orgId, tenantId], references: [id, tenantId])
+  updatedBy    User?        @relation("LocabenUpdater", fields: [updatedById], references: [id])
+
+  @@unique([orgId, tenantId])
+  @@index([tenantId, orgId])
+  @@map("locaben_states")
+}
+
+/// 汎用 feature state (顧問先 × featureKey × scope で 1 レコード、 value は JSON)
+/// 個別 table 化していないセクションの状態を保持する。
+/// 例:
+///   - "year-end-review.tax-forecast" / scope=fiscalYear → 税予想入力
+///   - "year-end-review.cf-landing"   / scope=fiscalYear → 月別アウトフロー
+///   - "variable-cost.custom"          / scope=""         → 変動費分類
+model FeatureState {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  orgId       String   @map("org_id") @db.Uuid
+  featureKey  String   @map("feature_key")
+  /// 任意スコープ (会計年度等)。"" でグローバル扱い
+  scope       String   @default("")
+  value       Json     @default("{}")
+  updatedById String?  @map("updated_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [orgId, tenantId], references: [id, tenantId])
+  updatedBy    User?        @relation("FeatureStateUpdater", fields: [updatedById], references: [id])
+
+  @@unique([orgId, featureKey, scope])
+  @@index([tenantId, orgId, featureKey])
+  @@map("feature_states")
 }

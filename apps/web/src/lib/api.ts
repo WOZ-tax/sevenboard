@@ -1154,6 +1154,182 @@ export const api = {
     },
   },
 
+  // === Year-End State (決算検討 + ロカベン + 汎用 KV の DB 永続化) ===
+  yearEndState: {
+    // 04 節税策チェック
+    listTaxSaving: (orgId: string, fiscalYear: number) =>
+      apiFetch<
+        {
+          id: string;
+          fiscalYear: number;
+          itemId: string;
+          isDone: boolean;
+          doneAt: string | null;
+        }[]
+      >(
+        `/organizations/${orgId}/year-end-state/tax-saving?fiscalYear=${fiscalYear}`,
+      ),
+    upsertTaxSaving: (
+      orgId: string,
+      itemId: string,
+      body: { fiscalYear: number; isDone: boolean },
+    ) =>
+      apiFetch<{ id: string }>(
+        `/organizations/${orgId}/year-end-state/tax-saving/${encodeURIComponent(itemId)}`,
+        {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        },
+      ),
+
+    // 06 BS整理
+    listBsCleanup: (orgId: string, fiscalYear: number) =>
+      apiFetch<
+        {
+          id: string;
+          fiscalYear: number;
+          templateKey: string | null;
+          category: string;
+          label: string;
+          amount: string | number;
+          hint: string;
+          done: boolean;
+          memo: string;
+          updatedAt: string;
+        }[]
+      >(
+        `/organizations/${orgId}/year-end-state/bs-cleanup?fiscalYear=${fiscalYear}`,
+      ),
+    createBsCleanup: (
+      orgId: string,
+      body: {
+        fiscalYear: number;
+        templateKey?: string | null;
+        category: string;
+        label: string;
+        amount?: number;
+        hint?: string;
+        memo?: string;
+        done?: boolean;
+      },
+    ) =>
+      apiFetch<{ id: string }>(
+        `/organizations/${orgId}/year-end-state/bs-cleanup`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        },
+      ),
+    updateBsCleanup: (
+      orgId: string,
+      id: string,
+      body: {
+        done?: boolean;
+        memo?: string;
+        label?: string;
+        amount?: number;
+        hint?: string;
+      },
+    ) =>
+      apiFetch<{ updated: number }>(
+        `/organizations/${orgId}/year-end-state/bs-cleanup/${id}`,
+        {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        },
+      ),
+    deleteBsCleanup: (orgId: string, id: string) =>
+      apiFetch<{ deleted: number }>(
+        `/organizations/${orgId}/year-end-state/bs-cleanup/${id}`,
+        { method: 'DELETE' },
+      ),
+
+    // 07 スケジュール
+    listSchedule: (orgId: string, fiscalYear: number) =>
+      apiFetch<
+        {
+          id: string;
+          fiscalYear: number;
+          itemId: string;
+          isDone: boolean;
+          customDate: string | null;
+        }[]
+      >(
+        `/organizations/${orgId}/year-end-state/schedule?fiscalYear=${fiscalYear}`,
+      ),
+    upsertSchedule: (
+      orgId: string,
+      itemId: string,
+      body: { fiscalYear: number; isDone?: boolean; customDate?: string | null },
+    ) =>
+      apiFetch<{ id: string }>(
+        `/organizations/${orgId}/year-end-state/schedule/${encodeURIComponent(itemId)}`,
+        {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        },
+      ),
+
+    // locaben
+    getLocaben: (orgId: string) =>
+      apiFetch<{
+        industryOverride: string | null;
+        values: Record<string, number | null>;
+        nonFinancial: Record<string, Record<string, string>>;
+        manualKeys: Record<string, true>;
+        updatedAt: string;
+      } | null>(`/organizations/${orgId}/year-end-state/locaben`),
+    upsertLocaben: (
+      orgId: string,
+      body: {
+        industryOverride?: string | null;
+        values?: Record<string, number | null>;
+        nonFinancial?: Record<string, Record<string, string>>;
+        manualKeys?: Record<string, true>;
+      },
+    ) =>
+      apiFetch<{ id: string }>(
+        `/organizations/${orgId}/year-end-state/locaben`,
+        {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        },
+      ),
+
+    // 汎用 feature KV
+    getFeature: <T = unknown>(
+      orgId: string,
+      featureKey: string,
+      scope: string = '',
+    ) => {
+      const qs = scope ? `?scope=${encodeURIComponent(scope)}` : '';
+      return apiFetch<{ value: T; updatedAt: string } | null>(
+        `/organizations/${orgId}/year-end-state/feature/${encodeURIComponent(featureKey)}${qs}`,
+      );
+    },
+    upsertFeature: <T = unknown>(
+      orgId: string,
+      featureKey: string,
+      scope: string,
+      value: T,
+    ) => {
+      const qs = scope ? `?scope=${encodeURIComponent(scope)}` : '';
+      return apiFetch<{ id: string }>(
+        `/organizations/${orgId}/year-end-state/feature/${encodeURIComponent(featureKey)}${qs}`,
+        {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ value }),
+        },
+      );
+    },
+  },
+
   // === Locaben (ローカルベンチマーク) ===
   locaben: {
     getSourceData: (orgId: string, fiscalYear?: number, month?: number) => {

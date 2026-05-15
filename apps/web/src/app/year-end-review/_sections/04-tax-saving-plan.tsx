@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   ShieldCheck,
@@ -10,8 +10,11 @@ import {
   Circle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-
-const STORAGE_KEY = "sevenboard:tax-saving-done";
+import { usePeriodStore } from "@/lib/period-store";
+import {
+  useTaxSavingDone,
+  useTaxSavingMutation,
+} from "@/hooks/use-year-end-state";
 
 type Tier = 1 | 2 | 3 | 4;
 
@@ -184,32 +187,36 @@ const TIER_META: Record<Tier, { label: string; tone: string; hint: string }> = {
 
 export function TaxSavingPlanSection() {
   const [showTier4, setShowTier4] = useState(false);
-  const [doneIds, setDoneIds] = useState<Record<string, boolean>>({});
-  const [hydrated, setHydrated] = useState(false);
+  const fiscalYear = usePeriodStore((s) => s.fiscalYear);
+  const query = useTaxSavingDone(fiscalYear);
+  const mutation = useTaxSavingMutation();
 
+  // 旧 LocalStorage の自動クリーンアップ (移行後不要)
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage 復元
-      if (raw) setDoneIds(JSON.parse(raw));
+      localStorage.removeItem("sevenboard:tax-saving-done");
     } catch {
       // ignore
     }
-    setHydrated(true);
   }, []);
 
-  useEffect(() => {
-    if (!hydrated) return;
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(doneIds));
-    } catch {
-      // ignore
+  const doneIds = useMemo<Record<string, boolean>>(() => {
+    const map: Record<string, boolean> = {};
+    for (const row of query.data ?? []) {
+      map[row.itemId] = row.isDone;
     }
-  }, [doneIds, hydrated]);
+    return map;
+  }, [query.data]);
 
-  const toggleDone = (id: string) =>
-    setDoneIds((prev) => ({ ...prev, [id]: !prev[id] }));
+  const toggleDone = (id: string) => {
+    if (!fiscalYear) return;
+    mutation.mutate({
+      fiscalYear,
+      itemId: id,
+      isDone: !doneIds[id],
+    });
+  };
 
   const groupedItems: Record<Tier, SavingItem[]> = { 1: [], 2: [], 3: [], 4: [] };
   ITEMS.forEach((it) => groupedItems[it.tier].push(it));

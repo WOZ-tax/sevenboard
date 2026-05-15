@@ -1,9 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo } from "react";
 import { RotateCcw } from "lucide-react";
 import { useMfPL, useMfBS } from "@/hooks/use-mf-data";
-import { useScopedOrgId } from "@/hooks/use-scoped-org-id";
 import { useFyElapsed } from "@/hooks/use-fy-elapsed";
 import { getFyElapsedFromMonth, usePeriodStore } from "@/lib/period-store";
 import { calcCorpTax, formatYenFromManYen } from "@/lib/payroll-tax-calc";
@@ -13,11 +12,7 @@ import {
 } from "@/lib/tax-rates-2026";
 import type { TaxLineRow } from "@/lib/payroll-tax-calc";
 import { cn } from "@/lib/utils";
-
-// :v4 — 入力欄をすべて「円」単位に統一 (中間納付・均等割年税額)
-const STORAGE_BASE = "sevenboard:tax-forecast-input:v4";
-const storageKeyFor = (orgId: string, fy: number | undefined) =>
-  `${STORAGE_BASE}:${orgId || "_"}:${fy ?? "_"}`;
+import { useFeatureStateLocal } from "@/hooks/use-year-end-state";
 
 interface AddSubItem {
   id: string;
@@ -104,27 +99,23 @@ const fmtComma = (n: number): string =>
 export function TaxForecastSection() {
   const pl = useMfPL();
   const bs = useMfBS();
-  const orgId = useScopedOrgId();
   const lockedMonth = usePeriodStore((s) => s.month);
   const fiscalYear = usePeriodStore((s) => s.fiscalYear);
   const { fyStartMonth } = useFyElapsed();
-  const storageKey = storageKeyFor(orgId, fiscalYear);
-  const [form, setForm] = useState<FormState>(DEFAULT_FORM);
-  const [hydrated, setHydrated] = useState(false);
-  const userEditedRef = useRef(false);
+  const { value: form, setValue: setForm } = useFeatureStateLocal<FormState>(
+    "year-end-review.tax-forecast",
+    String(fiscalYear ?? ""),
+    DEFAULT_FORM,
+  );
 
-  // v4 スキーマ移行時の旧 LocalStorage クリーンアップ (1回のみ)
+  // 旧 LocalStorage クリーンアップ (DB 化後不要)
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
       const keysToRemove: string[] = [];
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
-        if (
-          key &&
-          (key.startsWith("sevenboard:tax-forecast-input:v2:") ||
-            key.startsWith("sevenboard:tax-forecast-input:v3:"))
-        ) {
+        if (key && key.startsWith("sevenboard:tax-forecast-input:")) {
           keysToRemove.push(key);
         }
       }
@@ -134,37 +125,8 @@ export function TaxForecastSection() {
     }
   }, []);
 
-  /* eslint-disable react-hooks/set-state-in-effect -- orgId/fy 切替時の状態リセット + localStorage 復元 */
+  /* eslint-disable react-hooks/set-state-in-effect -- MF実績からのプリセット */
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (!orgId) return;
-    userEditedRef.current = false;
-    setHydrated(false);
-    setForm(DEFAULT_FORM);
-    try {
-      const raw = localStorage.getItem(storageKey);
-      if (raw) {
-        const parsed = JSON.parse(raw) as Partial<FormState>;
-        setForm((p) => ({
-          ...p,
-          ...parsed,
-          midPaymentsYen: {
-            ...defaultMidPaymentsYen(),
-            ...(parsed.midPaymentsYen ?? {}),
-          },
-        }));
-        userEditedRef.current = true;
-      }
-    } catch {
-      // ignore
-    }
-    setHydrated(true);
-  }, [storageKey, orgId]);
-
-  useEffect(() => {
-    if (!hydrated) return;
-    if (userEditedRef.current) return;
-
     const findPl = (key: string): number | null => {
       if (!Array.isArray(pl.data)) return null;
       const row = pl.data.find((r) => r.category.includes(key));
@@ -186,29 +148,25 @@ export function TaxForecastSection() {
     const vatRecv = findBs("仮受消費税") ?? 0;
     const vatPaid = findBs("仮払消費税") ?? 0;
 
+    // 既に値が入っている (ユーザー編集 or プリセット済) 項目は上書きしない
     setForm((prev) => ({
       ...prev,
       pretaxProfit: ord ? String(annualizeManYen(ord)) : prev.pretaxProfit,
       capital: cap ? String(cap) : prev.capital,
-      vatReceived: vatRecv ? String(annualize(vatRecv)) : prev.vatReceived,
-      vatPaid: vatPaid ? String(annualize(vatPaid)) : prev.vatPaid,
+      vatReceived:
+        vatRecv && (prev.vatReceived === "" || prev.vatReceived === "0")
+          ? String(annualize(vatRecv))
+          : prev.vatReceived,
+      vatPaid:
+        vatPaid && (prev.vatPaid === "" || prev.vatPaid === "0")
+          ? String(annualize(vatPaid))
+          : prev.vatPaid,
     }));
-  }, [hydrated, pl.data, bs.data, lockedMonth, fyStartMonth]);
+  }, [pl.data, bs.data, lockedMonth, fyStartMonth]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
-  useEffect(() => {
-    if (!hydrated) return;
-    if (!userEditedRef.current) return;
-    try {
-      localStorage.setItem(storageKey, JSON.stringify(form));
-    } catch {
-      // ignore
-    }
-  }, [form, hydrated, storageKey]);
-
   const updateForm = (updater: (prev: FormState) => FormState) => {
-    userEditedRef.current = true;
-    setForm(updater);
+    setForm((prev) => updater(prev));
   };
 
   const taxableIncome = useMemo(() => {

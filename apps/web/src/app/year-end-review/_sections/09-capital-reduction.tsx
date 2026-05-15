@@ -1,16 +1,18 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect } from "react";
 import { useMfBS } from "@/hooks/use-mf-data";
-import { useScopedOrgId } from "@/hooks/use-scoped-org-id";
 import { usePeriodStore } from "@/lib/period-store";
 import { GAIKEI_CAPITAL_RATE } from "@/lib/tax-rates-2026";
+import { useFeatureStateLocal } from "@/hooks/use-year-end-state";
 
-// :v2 + orgId/fy スコープ（マルチテナント漏洩防止）
-const STORAGE_BASE = "sevenboard:capital-reduction-input:v2";
-const storageKeyFor = (orgId: string, fy: number | undefined) =>
-  `${STORAGE_BASE}:${orgId || "_"}:${fy ?? "_"}`;
 const ONE_OKU = 100_000_000;
+
+interface CapitalForm {
+  capital: string;
+  capitalLegalReserve: string;
+}
+const DEFAULT: CapitalForm = { capital: "0", capitalLegalReserve: "0" };
 
 const parseNum = (s: string): number => parseFloat(s.replace(/,/g, "")) || 0;
 const fmtComma = (n: number): string =>
@@ -18,52 +20,39 @@ const fmtComma = (n: number): string =>
 
 export function CapitalReductionSection() {
   const bs = useMfBS();
-  const orgId = useScopedOrgId();
   const fiscalYear = usePeriodStore((s) => s.fiscalYear);
-  const storageKey = storageKeyFor(orgId, fiscalYear);
-  const [capital, setCapitalRaw] = useState("0");
-  const [capitalLegalReserve, setCapitalLegalReserveRaw] = useState("0");
-  const [hydrated, setHydrated] = useState(false);
-  const userEditedRef = useRef(false);
+  const { value: form, setValue: setForm } = useFeatureStateLocal<CapitalForm>(
+    "year-end-review.capital-reduction",
+    String(fiscalYear ?? ""),
+    DEFAULT,
+  );
+  const capital = form.capital;
+  const capitalLegalReserve = form.capitalLegalReserve;
 
-  // ユーザー編集を識別するラッパー
-  const setCapital = (v: string) => {
-    userEditedRef.current = true;
-    setCapitalRaw(v);
-  };
-  const setCapitalLegalReserve = (v: string) => {
-    userEditedRef.current = true;
-    setCapitalLegalReserveRaw(v);
-  };
+  const setCapital = (v: string) =>
+    setForm((p) => ({ ...p, capital: v }));
+  const setCapitalLegalReserve = (v: string) =>
+    setForm((p) => ({ ...p, capitalLegalReserve: v }));
 
+  // 旧 LocalStorage クリーンアップ
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (!orgId) return;
-    userEditedRef.current = false;
-    /* eslint-disable react-hooks/set-state-in-effect -- orgId/fy 切替時の状態リセット + localStorage 復元 */
-    setHydrated(false);
-    setCapitalRaw("0");
-    setCapitalLegalReserveRaw("0");
     try {
-      const raw = localStorage.getItem(storageKey);
-      if (raw) {
-        const p = JSON.parse(raw);
-        if (p.capital) setCapitalRaw(p.capital);
-        if (p.capitalLegalReserve) setCapitalLegalReserveRaw(p.capitalLegalReserve);
-        userEditedRef.current = true;
+      const keys: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith("sevenboard:capital-reduction-input:")) keys.push(k);
       }
+      keys.forEach((k) => localStorage.removeItem(k));
     } catch {
       // ignore
     }
-    setHydrated(true);
-    /* eslint-enable react-hooks/set-state-in-effect */
-  }, [storageKey, orgId]);
+  }, []);
 
+  // MF実績からの初期プリセット (デフォルト値のままなら上書き)
+  /* eslint-disable react-hooks/set-state-in-effect -- MFデータからのプリセット */
   useEffect(() => {
-    if (!hydrated) return;
-    if (userEditedRef.current) return;
     if (!bs.data) return;
-
     const all = [...bs.data.assets, ...bs.data.liabilitiesEquity];
     const find = (key: string, exclude?: string[]): number => {
       const row = all.find(
@@ -73,25 +62,17 @@ export function CapitalReductionSection() {
       );
       return row?.current ?? 0;
     };
-    // 「資本金」のみ拾う（「資本準備金」「資本剰余金」を除外）
     const cap = find("資本金", ["準備", "剰余"]);
-    // 資本準備金（資本剰余金内訳の１つ。中小では多くがこれ）
     const legalReserve = find("資本準備金");
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- MF実績からの初期プリセット（userEditedRef を立てない）
-    if (cap) setCapitalRaw(String(cap));
-     
-    if (legalReserve) setCapitalLegalReserveRaw(String(legalReserve));
-  }, [hydrated, bs.data]);
-
-  useEffect(() => {
-    if (!hydrated) return;
-    if (!userEditedRef.current) return;
-    try {
-      localStorage.setItem(storageKey, JSON.stringify({ capital, capitalLegalReserve }));
-    } catch {
-      // ignore
-    }
-  }, [capital, capitalLegalReserve, hydrated, storageKey]);
+    setForm((prev) => ({
+      capital: cap && prev.capital === "0" ? String(cap) : prev.capital,
+      capitalLegalReserve:
+        legalReserve && prev.capitalLegalReserve === "0"
+          ? String(legalReserve)
+          : prev.capitalLegalReserve,
+    }));
+  }, [bs.data]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const capitalAmount = parseNum(capital);
   const capitalEqAmount = capitalAmount + parseNum(capitalLegalReserve);
