@@ -26,6 +26,7 @@ import {
   Request,
   UseGuards,
 } from '@nestjs/common';
+import { Logger } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { PermissionGuard } from '../auth/permission.guard';
@@ -35,6 +36,7 @@ import { YearEndStateService } from './year-end-state.service';
 @Controller('organizations/:orgId/year-end-state')
 @UseGuards(JwtAuthGuard, PermissionGuard)
 export class YearEndStateController {
+  private readonly logger = new Logger(YearEndStateController.name);
   constructor(private readonly svc: YearEndStateService) {}
 
   // ============================================================
@@ -169,16 +171,30 @@ export class YearEndStateController {
   }
 
   /** 決算スケジュールを設定画面登録済の brief webhook に送信
-   *  注: global ValidationPipe({ whitelist: true }) が @Body() / @Body('text') の
-   *  どちらも DTO class metadata がないと strip するため、@Req() で req.body を
-   *  直接読み出して bypass する */
+   *  text は body より query に載せて ValidationPipe を完全 bypass する。
+   *  body { text } では global ValidationPipe({ whitelist: true }) で strip
+   *  されることが確認済 (typeof string でも length=0 になる)。 */
   @Post('schedule/slack-notify')
   @RequirePermission('org:year_end_review:manage')
   async slackNotify(
     @Param('orgId', ParseUUIDPipe) orgId: string,
-    @Request() req: { body?: { text?: string } },
+    @Query('text') textQuery: string | undefined,
+    @Request()
+    req: {
+      body?: { text?: string } | string | null;
+      headers?: Record<string, string | string[] | undefined>;
+    },
   ) {
-    const text = req.body?.text ?? '';
+    // diagnostic: body / query / Content-Type を全部ログに出す
+    const bodyText =
+      typeof req.body === 'object' && req.body
+        ? (req.body as { text?: string }).text
+        : undefined;
+    const ct = req.headers?.['content-type'];
+    this.logger.log(
+      `slack-notify diag: query.text.length=${textQuery?.length ?? -1} body.text.length=${bodyText?.length ?? -1} body.type=${typeof req.body} content-type=${Array.isArray(ct) ? ct.join(',') : ct ?? ''}`,
+    );
+    const text = textQuery ?? bodyText ?? '';
     return this.svc.sendScheduleToSlack(orgId, text);
   }
 

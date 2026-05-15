@@ -1273,15 +1273,12 @@ export const api = {
           body: JSON.stringify(body),
         },
       ),
-    /** 設定画面登録済の brief webhook にスケジュール送信 */
+    /** 設定画面登録済の brief webhook にスケジュール送信
+     *  text は query string 経由 (global ValidationPipe が body を strip するため) */
     notifySchedule: (orgId: string, text: string) =>
       apiFetch<{ ok: boolean; reason?: string }>(
-        `/organizations/${orgId}/year-end-state/schedule/slack-notify`,
-        {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ text }),
-        },
+        `/organizations/${orgId}/year-end-state/schedule/slack-notify?text=${encodeURIComponent(text)}`,
+        { method: 'POST' },
       ),
 
     // locaben
