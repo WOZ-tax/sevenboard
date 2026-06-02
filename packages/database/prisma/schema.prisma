@@ -483,6 +483,10 @@ model BudgetEntry {
   account       AccountMaster @relation(fields: [accountId], references: [id])
   department    Department?   @relation(fields: [departmentId], references: [id])
 
+  // NOTE: departmentId が NULL の行 (部門なし) は PostgreSQL の NULL DISTINCT 仕様により
+  //       下記の複合 @@unique では重複を防げないため、part. unique index
+  //       "budget_entry_no_dept_uniq" (budget_version_id, account_id, month) WHERE department_id IS NULL
+  //       を生SQL migration (20260602180133_department_id_dedup_root_cause) で別途張って担保している。
   @@unique([budgetVersionId, accountId, departmentId, month], name: "budget_entry_with_dept")
   @@index([budgetVersionId, month])
   @@map("budget_entries")
@@ -509,6 +513,10 @@ model ActualEntry {
   account      AccountMaster @relation(fields: [accountId], references: [id])
   department   Department?   @relation(fields: [departmentId], references: [id])
 
+  // NOTE: departmentId が NULL の行 (部門なし) は PostgreSQL の NULL DISTINCT 仕様により
+  //       下記の複合 @@unique では重複を防げないため、part. unique index
+  //       "actual_entry_no_dept_uniq" (tenant_id, org_id, account_id, month) WHERE department_id IS NULL
+  //       を生SQL migration (20260602180133_department_id_dedup_root_cause) で別途張って担保している。
   @@unique([tenantId, orgId, accountId, departmentId, month], name: "actual_entry_with_dept")
   @@index([tenantId, orgId, month])
   @@index([orgId, month])
