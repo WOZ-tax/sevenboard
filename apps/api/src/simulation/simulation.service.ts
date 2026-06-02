@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { MfApiService } from '../mf/mf-api.service';
 import { MfTransformService } from '../mf/mf-transform.service';
 import { MonthlyCloseService } from '../monthly-close/monthly-close.service';
@@ -49,6 +49,12 @@ export class SimulationService {
     const monthlyRate = interestRate / 100 / 12;
     const repaymentMonths = termMonths - graceMonths;
 
+    if (repaymentMonths < 1) {
+      throw new BadRequestException(
+        '据置期間（graceMonths）は返済期間（termMonths）より短くしてください',
+      );
+    }
+
     const schedule: LoanScheduleEntry[] = [];
     let balance = principal;
     let totalPayment = 0;
@@ -85,15 +91,20 @@ export class SimulationService {
 
       for (let m = graceMonths + 1; m <= termMonths; m++) {
         const interest = Math.round(balance * monthlyRate);
-        const principalPart = monthlyPayment - interest;
-        balance = Math.max(0, balance - principalPart);
-        totalPayment += monthlyPayment;
+        const isLast = m === termMonths;
+        // 最終月は端数残高を元金に寄せて残高を 0 に丸め込む
+        const principalPart = isLast
+          ? Math.round(balance)
+          : monthlyPayment - interest;
+        const payment = isLast ? principalPart + interest : monthlyPayment;
+        balance = isLast ? 0 : Math.max(0, balance - principalPart);
+        totalPayment += payment;
         totalInterest += interest;
         schedule.push({
           month: m,
           principal: principalPart,
           interest,
-          payment: monthlyPayment,
+          payment,
           balance: Math.round(balance),
         });
       }

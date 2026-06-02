@@ -92,10 +92,13 @@ export class ReportsService {
     });
 
     // Build a map of actuals by accountId+month
+    // 同一 科目×月 に複数部門の実績が存在しうるため、後勝ち上書きではなく加算して
+    // 全部門を合算する（予算側の集計粒度＝科目×月 に合わせる）。
     const actualMap = new Map<string, Decimal>();
     for (const ae of actualEntries) {
       const key = `${ae.accountId}:${ae.month.toISOString().slice(0, 10)}`;
-      actualMap.set(key, ae.amount);
+      const prev = actualMap.get(key);
+      actualMap.set(key, prev !== undefined ? prev.plus(ae.amount) : ae.amount);
     }
 
     // 前年同月の実績を取得（予算期間を12ヶ月シフト）
@@ -117,7 +120,9 @@ export class ReportsService {
         // 前年月 → 当年月にキー化
         const shiftedMonth = new Date(Date.UTC(ae.month.getUTCFullYear() + 1, ae.month.getUTCMonth(), 1));
         const key = `${ae.accountId}:${shiftedMonth.toISOString().slice(0, 10)}`;
-        priorYearMap.set(key, ae.amount);
+        // 科目×月 に複数部門が存在しうるため後勝ち上書きせず加算して合算する。
+        const prev = priorYearMap.get(key);
+        priorYearMap.set(key, prev !== undefined ? prev.plus(ae.amount) : ae.amount);
       }
     }
 

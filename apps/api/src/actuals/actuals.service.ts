@@ -13,7 +13,11 @@ export class ActualsService {
     const where: any = { tenantId, orgId };
 
     if (query.month) {
-      where.month = new Date(query.month);
+      const monthDate = new Date(query.month);
+      if (isNaN(monthDate.getTime())) {
+        throw new BadRequestException(`Invalid month: ${query.month}`);
+      }
+      where.month = monthDate;
     }
     if (query.accountId) {
       where.accountId = query.accountId;
@@ -46,7 +50,7 @@ export class ActualsService {
       throw new BadRequestException('CSV must have a header row and at least one data row');
     }
 
-    const header = lines[0].split(',').map((h) => h.trim().toLowerCase());
+    const header = this.parseCsvLine(lines[0]).map((h) => h.trim().toLowerCase());
     const accountCodeIdx = header.indexOf('accountcode');
     const monthIdx = header.indexOf('month');
     const amountIdx = header.indexOf('amount');
@@ -62,16 +66,17 @@ export class ActualsService {
     const errors = [];
 
     for (let i = 1; i < lines.length; i++) {
-      const cols = lines[i].split(',').map((c) => c.trim());
+      const cols = this.parseCsvLine(lines[i]).map((c) => c.trim());
       if (cols.length < 3) continue;
 
       const accountCode = cols[accountCodeIdx];
       const month = cols[monthIdx];
-      const amount = parseFloat(cols[amountIdx]);
-      const deptName = deptIdx >= 0 ? cols[deptIdx] : null;
+      const rawAmount = cols[amountIdx];
+      const amount = this.parseAmount(rawAmount);
+      const deptName = deptIdx >= 0 ? cols[deptIdx] || null : null;
 
-      if (isNaN(amount)) {
-        errors.push({ line: i + 1, error: `Invalid amount: ${cols[amountIdx]}` });
+      if (amount === null) {
+        errors.push({ line: i + 1, error: `Invalid amount: ${rawAmount}` });
         continue;
       }
 
@@ -95,33 +100,47 @@ export class ActualsService {
         }
       }
 
+      const monthDate = new Date(month);
+      if (isNaN(monthDate.getTime())) {
+        errors.push({ line: i + 1, error: `Invalid month: ${month}` });
+        continue;
+      }
+
       try {
-        const entry = await this.prisma.actualEntry.upsert({
+        const now = new Date();
+        const existing = await this.prisma.actualEntry.findFirst({
           where: {
-            actual_entry_with_dept: {
-              tenantId,
-              orgId,
-              accountId: account.id,
-              departmentId: departmentId,
-              month: new Date(month),
-            },
-          },
-          update: {
-            amount,
-            source: 'CSV_IMPORT',
-            syncedAt: new Date(),
-          },
-          create: {
             tenantId,
             orgId,
             accountId: account.id,
             departmentId,
-            month: new Date(month),
-            amount,
-            source: 'CSV_IMPORT',
-            syncedAt: new Date(),
+            month: monthDate,
           },
         });
+        let entry;
+        if (existing) {
+          entry = await this.prisma.actualEntry.update({
+            where: { id: existing.id },
+            data: {
+              amount,
+              source: 'CSV_IMPORT',
+              syncedAt: now,
+            },
+          });
+        } else {
+          entry = await this.prisma.actualEntry.create({
+            data: {
+              tenantId,
+              orgId,
+              accountId: account.id,
+              departmentId,
+              month: monthDate,
+              amount,
+              source: 'CSV_IMPORT',
+              syncedAt: now,
+            },
+          });
+        }
         results.push(entry);
       } catch (err) {
         errors.push({ line: i + 1, error: err.message });
@@ -133,5 +152,62 @@ export class ActualsService {
       errors: errors.length,
       errorDetails: errors,
     };
+  }
+
+  /**
+   * Minimal RFC4180-ish CSV line parser: handles double-quoted fields
+   * (so values containing commas, e.g. "1,234,567", are not split) and
+   * escaped quotes ("") inside quoted fields. No external dependency.
+   */
+  private parseCsvLine(line: string): string[] {
+    const fields: string[] = [];
+    let cur = '';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (inQuotes) {
+        if (ch === '"') {
+          if (line[i + 1] === '"') {
+            cur += '"';
+            i++;
+          } else {
+            inQuotes = false;
+          }
+        } else {
+          cur += ch;
+        }
+      } else if (ch === '"') {
+        inQuotes = true;
+      } else if (ch === ',') {
+        fields.push(cur);
+        cur = '';
+      } else if (ch === '\r') {
+        // strip stray CR (CRLF line endings)
+      } else {
+        cur += ch;
+      }
+    }
+    fields.push(cur);
+    return fields;
+  }
+
+  /**
+   * Parse a JPY amount, tolerating thousands separators (1,234,567) and
+   * currency markers (¥, 円, whitespace). Returns an integer yen value, or
+   * null if the cleaned value is not a finite whole number.
+   */
+  private parseAmount(raw: string): number | null {
+    if (raw == null) return null;
+    const cleaned = raw
+      .replace(/[¥円,\s]/g, '')
+      .replace(/[０-９]/g, (d) =>
+        String.fromCharCode(d.charCodeAt(0) - 0xfee0),
+      );
+    if (cleaned === '' || cleaned === '-' || cleaned === '+') return null;
+    const value = parseFloat(cleaned);
+    if (!Number.isFinite(value)) return null;
+    // amounts are JPY (integer yen); reject fractional values
+    if (!Number.isInteger(value)) return null;
+    return value;
   }
 }

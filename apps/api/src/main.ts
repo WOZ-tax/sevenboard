@@ -17,10 +17,21 @@ async function bootstrap() {
     throw new Error('JWT_SECRET environment variable is required in production');
   }
 
+  if (process.env.NODE_ENV === 'production' && !process.env.MF_TOKEN_ENCRYPTION_KEY) {
+    throw new Error(
+      'MF_TOKEN_ENCRYPTION_KEY environment variable is required in production',
+    );
+  }
+
   const app = await NestFactory.create(AppModule);
 
+  const corsOrigin = (process.env.CORS_ORIGIN || 'http://localhost:3000')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+
   app.enableCors({
-    origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+    origin: corsOrigin,
     credentials: true,
   });
 

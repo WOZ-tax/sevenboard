@@ -2,6 +2,12 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateCashflowCategoryDto } from './dto/create-cashflow-category.dto';
 
+// Finite sentinel used when runway is effectively infinite (no cash burn).
+// JSON has no Infinity (it serializes to null, which collides with "no data"),
+// so callers treat >= this value as "infinite" — matching the frontend's
+// existing `>= 999` convention.
+const RUNWAY_INFINITE_MONTHS = 999;
+
 @Injectable()
 export class CashflowService {
   constructor(private prisma: PrismaService) {}
@@ -63,9 +69,10 @@ export class CashflowService {
       include: { category: true },
     });
 
-    // Sum inflows and outflows
+    // Sum inflows and outflows, and track distinct months actually spanned
     let totalInflow = 0;
     let totalOutflow = 0;
+    const monthsSpanned = new Set<string>();
     for (const entry of recentEntries) {
       const amt = Number(entry.amount);
       if (entry.category.direction === 'IN') {
@@ -73,7 +80,12 @@ export class CashflowService {
       } else {
         totalOutflow += amt;
       }
+      const d = new Date(entry.entryDate);
+      monthsSpanned.add(`${d.getFullYear()}-${d.getMonth()}`);
     }
+    // Use the number of distinct year-months the entries actually cover (min 1)
+    // so that less than 3 months of data does not understate the burn rate.
+    const monthsCount = Math.max(monthsSpanned.size, 1);
 
     // Get current cash balance from the latest forecast or entries
     const latestForecast = await this.prisma.cashFlowForecast.findFirst({
@@ -85,11 +97,14 @@ export class CashflowService {
       ? Number(latestForecast.closingBalance)
       : 0;
 
-    const monthlyBurnRate = (totalOutflow - totalInflow) / 3;
-    const runwayMonths =
-      monthlyBurnRate > 0
-        ? Math.round((cashBalance / monthlyBurnRate) * 10) / 10
-        : Infinity;
+    const monthlyBurnRate = (totalOutflow - totalInflow) / monthsCount;
+    // burn <= 0 means the org is not burning cash → runway is effectively infinite.
+    // JSON cannot represent Infinity (it serializes to null, indistinguishable from
+    // "no data"), so we cap at a finite sentinel and expose an explicit flag.
+    const isInfinite = monthlyBurnRate <= 0;
+    const runwayMonths = isInfinite
+      ? RUNWAY_INFINITE_MONTHS
+      : Math.round((cashBalance / monthlyBurnRate) * 10) / 10;
 
     let alertLevel: string;
     if (runwayMonths >= 12) alertLevel = 'SAFE';
@@ -102,6 +117,7 @@ export class CashflowService {
       cashBalance,
       monthlyBurnRate: Math.round(monthlyBurnRate),
       runwayMonths,
+      runwayInfinite: isInfinite,
       alertLevel,
     };
   }

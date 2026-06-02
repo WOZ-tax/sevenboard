@@ -91,6 +91,9 @@ def safe_int(s):
     try:
         return int(s)
     except ValueError:
+        # 小数文字列等は 0 に握り潰す。意図しない欠落の検知用に警告だけ残す。
+        if s not in ("", "-"):
+            print(f"警告: 整数として解釈できず0扱い: {s!r}", file=sys.stderr)
         return 0
 
 
@@ -497,12 +500,12 @@ def analyze_tax(entries):
                     inv_blank += 1
                 elif "80" in inv:
                     if "10%" in tax:
-                        tax_full = round(amt * 10 / 110)
+                        tax_full = amt * 10 // 110
                     elif "8%" in tax:
-                        tax_full = round(amt * 8 / 108)
+                        tax_full = amt * 8 // 108
                     else:
                         tax_full = 0
-                    tax_80 = round(tax_full * 0.8)
+                    tax_80 = tax_full * 80 // 100
                     denied = tax_full - tax_80
                     inv_80_total_tax += tax_full
                     inv_80_total_denied += denied
@@ -532,14 +535,14 @@ def analyze_tax(entries):
             if not tax or not amt:
                 continue
             if "課税仕入" in tax and "10%" in tax:
-                t = round(amt * 10 / 110)
+                t = amt * 10 // 110
                 if "80%" in str(inv):
-                    t = round(t * 0.8)
+                    t = t * 80 // 100
                 karibarai_est += t
             elif "課税仕入(軽)" in tax and "8%" in tax:
-                karibarai_est += round(amt * 8 / 108)
+                karibarai_est += amt * 8 // 108
             elif "課税売上" in tax and "10%" in tax:
-                kariuke_est += round(amt * 10 / 110)
+                kariuke_est += amt * 10 // 110
 
     # 6. 税区分の分布
     all_tax = []

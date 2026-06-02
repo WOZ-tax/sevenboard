@@ -4,7 +4,11 @@ import {
   ExecutionContext,
   ForbiddenException,
 } from '@nestjs/common';
-import { CSRF_COOKIE_NAME, CSRF_HEADER_NAME } from '../common/cookie.config';
+import {
+  CSRF_COOKIE_NAME,
+  CSRF_HEADER_NAME,
+  JWT_COOKIE_NAME,
+} from '../common/cookie.config';
 
 /**
  * Double Submit Cookie パターンのCSRFガード。
@@ -36,15 +40,17 @@ export class CsrfGuard implements CanActivate {
       return true;
     }
 
-    // Cookie認証を使っていない場合もスキップ
-    const cookieToken = req.cookies?.[CSRF_COOKIE_NAME];
-    if (!cookieToken) {
+    // Cookie認証(sb_token)を使っていない場合はCSRFリスクなし
+    // 判定基準はCSRF Cookieの有無ではなく認証Cookieの有無
+    if (!req.cookies?.[JWT_COOKIE_NAME]) {
       return true;
     }
 
-    // Double Submit Cookie: ヘッダーとCookieの値を比較
+    // 認証Cookieがある場合はDouble Submit Cookieを必須とする
+    // (sb_csrf Cookieの欠落・ヘッダー欠落・不一致はすべて403)
+    const cookieToken = req.cookies?.[CSRF_COOKIE_NAME];
     const headerToken = req.headers[CSRF_HEADER_NAME];
-    if (!headerToken || headerToken !== cookieToken) {
+    if (!cookieToken || !headerToken || headerToken !== cookieToken) {
       throw new ForbiddenException('CSRF token mismatch');
     }
 

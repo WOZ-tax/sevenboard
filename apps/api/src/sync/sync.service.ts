@@ -65,7 +65,9 @@ export class SyncService {
 
       let entriesUpserted = 0;
       const now = new Date();
-      const currentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      const currentMonth = new Date(
+        Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
+      );
 
       for (const row of allRows) {
         if (row.isHeader) continue;
