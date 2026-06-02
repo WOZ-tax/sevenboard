@@ -1,0 +1,575 @@
+{
+  "generated_at": "2026-06-02",
+  "agent_count": 141,
+  "totals": {
+    "total_findings": 66,
+    "confirmed": 62,
+    "rejected": 4
+  },
+  "by_severity": {
+    "high": 6,
+    "medium": 20,
+    "low": 33,
+    "info": 3
+  },
+  "confirmed": [
+    {
+      "severity": "high",
+      "dimension": "APIロジック・バグ",
+      "title": "actuals CSVインポートのupsertが departmentId=null のとき複合ユニークにマッチせず重複行を作る(冪等性欠落)",
+      "file": "apps/api/src/actuals/actuals.service.ts",
+      "line": "99-124",
+      "description": "actualEntry の複合ユニークは [tenantId, orgId, accountId, departmentId, month]。PostgreSQL では NULL 同士は等価とみなされないため、departmentId=null の行はユニーク制約で重複を許す。Prisma の upsert は where(findUnique相当)で departmentId:null を = 比較するため既存のnull行に決してマッチせず、毎回 create 側に倒れる。結果、部門なしの同一科目×月のCSVを再インポートするたびに ActualEntry が重複生成され、PLレポート等の集計が二重計上になる。実際、同じ問題を避けるため sync.service と onboarding.service は upsert ではなく findFirst+update/create を使っており、importCsv だけが危険な upsert パターン。",
+      "recommendation": "importCsv も sync/onboarding と同様に findFirst({ where:{...departmentId} }) で既存を引いてから update/create に分岐する。または departmentId が null になり得る場合の重複を防ぐDB側の部分ユニークインデックスを追加する。"
+    },
+    {
+      "severity": "high",
+      "dimension": "APIロジック・バグ",
+      "title": "差異レポートで部門別の実績が合算されずに上書きされ、複数部門ある科目の実績が欠落する",
+      "file": "apps/api/src/reports/reports.service.ts",
+      "line": "94-99,116-121",
+      "description": "getVarianceReport は実績を accountId:month をキーにした Map に格納するが、同一 accountId×month に複数部門(departmentId違い)の ActualEntry が存在する場合、Map.set が後勝ちで上書きし、それ以前の部門の金額が捨てられる。予算は accountId×month 単位で集計されるのに実績は一部門分しか拾われないため、差異(varianceAmount/variancePercent)が誤る。priorYearMap も同じ構造で前年同月実績が部門単位で欠落する。",
+      "recommendation": "actualMap/priorYearMap への格納を加算(既存値 + ae.amount)に変更し、科目×月で全部門を合算する。"
+    },
+    {
+      "severity": "high",
+      "dimension": "データ層・Prisma",
+      "title": "ActualEntry/BudgetEntry の複合unique制約に nullable な department_id を含めており、部門なし行の重複を防げない",
+      "file": "packages/database/prisma/schema.prisma",
+      "line": "512 (actual_entry_with_dept) / 486 (budget_entry_with_dept)",
+      "description": "actual_entries の unique は [tenantId, orgId, accountId, departmentId, month]、budget_entries は [budgetVersionId, accountId, departmentId, month] で、いずれも departmentId が nullable。PostgreSQL では unique index 上の NULL は互いに distinct 扱いになるため、department_id IS NULL の行は (tenant, org, account, month) が同一でも複数行作成できてしまう。財務実績・予算の月次集計が二重計上になるデータ整合性バグ。マイグレーション migration.sql:142 でもこの index 定義を確認。",
+      "recommendation": "department_id を NOT NULL + センチネル値(例: 全ゼロUUID '部門なし')に統一するか、partial unique index を2本(department_id IS NULL 用 / NOT NULL 用)張る。Prisma では前者が扱いやすい。既存重複データのクレンジング(集約)を伴うバックフィルmigrationが必要。"
+    },
+    {
+      "severity": "high",
+      "dimension": "データ層・Prisma",
+      "title": "actuals CSVインポートの upsert が null 部門で既存行にマッチせず重複生成/失敗する",
+      "file": "apps/api/src/actuals/actuals.service.ts",
+      "line": "99-124",
+      "description": "actual_entry_with_dept の複合unique に nullable departmentId が含まれるため、departmentId=null で upsert すると where 句が department_id=NULL 相当となり既存行に決して一致しない。結果、同じ部門なし科目を再インポートするたびに ActualEntry が重複作成される(または Prisma が一意キーNULL不可で例外)。上記スキーマ欠陥が実コードで顕在化する箇所。",
+      "recommendation": "スキーマ側で departmentId を NOT NULL センチネル化したうえで upsert を機能させる。暫定対応として sync.service.ts と同様の findFirst→update/create フォールバックに揃える。"
+    },
+    {
+      "severity": "high",
+      "dimension": "フロントエンド(Next.js)",
+      "title": "予算承認ワークフロー(ステータス)が完全にクライアントローカルで永続化されない",
+      "file": "apps/web/src/app/budget/page.tsx",
+      "line": "93-145, 292-350",
+      "description": "予算策定ページの承認ステータス(DRAFT→PENDING→APPROVED→LOCKED)は `useState<BudgetStatus>(\"DRAFT\")` のローカル state だけで管理されている。`handleStatusTransition`→`setBudgetStatus(next)` はローカル state を書き換えるだけで、バックエンドへの保存(mutation)も初期ロード(query からの復元)も一切無い。`BudgetVersion` 型(api-types.ts:68-77)には status フィールドが存在せず、API にも保存先が無い。結果として『確認依頼を送信』『承認』『確定(LOCKED)』のすべてがページリロードで DRAFT に戻る。LOCKED にして編集ロック(isLocked)しても、リロードすれば誰でも再編集できる。承認フロー自体が機能していない(見た目だけ)。",
+      "recommendation": "承認ステータスをバックエンド(BudgetVersion もしくは専用 status カラム)に持たせ、useQuery で初期値を取得・useMutation で遷移を永続化する。永続化が当面難しいなら、承認/確定ボタンを一旦非表示にして『機能未実装』を明示し、LOCKED による編集ロックを安全側の根拠にしない。"
+    },
+    {
+      "severity": "high",
+      "dimension": "セキュリティ堅牢化",
+      "title": "ログイン等の認証エンドポイントにレート制限が無く総当たり可能",
+      "file": "apps/api/src/auth/auth.controller.ts",
+      "line": "37-46",
+      "description": "POST /auth/login にレート制限が一切無い。RateLimitGuard(common/rate-limit.guard.ts)はreq.params.orgIdが存在するルートでしか作動せず(orgId未設定なら return true)、しかもAI/copilot/drafterの3コントローラにしか付与されていない。@nestjs/throttler等のグローバルスロットラーも未導入。validateUserはbcrypt.compareのみでアカウントロックや試行回数制限が無いため、メールアドレスに対するパスワード総当たり・クレデンシャルスタッフィングが無制限に可能。",
+      "recommendation": "/auth/login と /auth/refresh にIP+メール単位のレート制限(@nestjs/throttler のグローバルThrottlerGuard等)を導入し、連続失敗時のバックオフ/一時ロックを実装する。"
+    },
+    {
+      "severity": "medium",
+      "dimension": "APIロジック・バグ",
+      "title": "融資シミュレーションで graceMonths >= termMonths のとき 0/負の返済月数による除算でNaN/Infinity/負の返済額が発生",
+      "file": "apps/api/src/simulation/simulation.service.ts",
+      "line": "49-144",
+      "description": "loanSimulation は repaymentMonths = termMonths - graceMonths を返済回数として使うが、DTO上 graceMonths は最大120、termMonths は最小1 で、graceMonths >= termMonths を防ぐクロスフィールド検証が無い。repaymentMonths が 0 または負になると、EQUAL_PRINCIPAL では Math.round(principal / repaymentMonths) が 0除算(Infinity)または負値、EQUAL_INSTALLMENT では n<=0 で (Math.pow(1+r,n)-1) が 0 付近/負になり monthlyPayment が NaN/Infinity/負になる。返済スケジュール全体と totalPayment/totalInterest が壊れた数値で返る。",
+      "recommendation": "DTO もしくは loanSimulation 冒頭で graceMonths < termMonths(repaymentMonths >= 1)を検証し、満たさない場合 BadRequestException を投げる。"
+    },
+    {
+      "severity": "medium",
+      "dimension": "APIロジック・バグ",
+      "title": "runway計算で常に固定の3か月で割るため、データが3か月未満のときバーンを過小評価しrunwayを過大表示",
+      "file": "apps/api/src/cashflow/cashflow.service.ts",
+      "line": "56-92",
+      "description": "スナップショットが無い場合の getRunway はthreeMonthsAgo以降のエントリ合計を常に 3 で割って月次バーンを算出する。新規org等で実際には1か月分しかデータが無くても3で割るため月次バーンが約1/3に過小評価され、runwayMonths が約3倍に過大表示される。期間内に実際に存在する月数で割るべき。",
+      "recommendation": "recentEntries の実データが跨ぐ月数(distinctな年月数, 最低1)を求めてその月数で割る。"
+    },
+    {
+      "severity": "medium",
+      "dimension": "APIロジック・バグ",
+      "title": "MF同期で当月の actualEntry を 試算表ループ(ローカルTZ月初) と 推移表ループ(UTC月初) の2経路が別キーで書き込み、当月が重複/不整合になる",
+      "file": "apps/api/src/sync/sync.service.ts",
+      "line": "67-111,315-342",
+      "description": "runSync の試算表ループは currentMonth = new Date(now.getFullYear(), now.getMonth(), 1) (ローカルタイムゾーンの月初)で actualEntry を書く。一方 syncMonthlyFromTransition は month = new Date(Date.UTC(actualYear, calendarMonth-1, 1)) (UTC月初)で書く。JST等UTC+の環境ではローカル月初(JST 00:00 = 前日UTC15:00)とUTC月初が別の瞬間値になり、同一論理月でも departmentId=null・accountId・month の組が一致しない別レコードになる。結果、当月の同一科目に2行(値が異なり得る)が生成され、レポートが二重計上/不整合になる。",
+      "recommendation": "月キーの生成をUTC月初(Date.UTC)に統一する。試算表ループの currentMonth も Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1) にする。"
+    },
+    {
+      "severity": "medium",
+      "dimension": "財務・会計計算の正確性",
+      "title": "実績CSV取込が単純なカンマ分割で金額のカンマ・引用符を扱えない",
+      "file": "apps/api/src/actuals/actuals.service.ts",
+      "line": "39,65,70",
+      "description": "importCsv が lines = csvData.trim().split('\\n')、cols = lines[i].split(',') という素朴なパースを行い、amount を parseFloat している。金額に桁区切りカンマが含まれる(例 \"1,234,567\")と split(',') で列がずれ、amount に別の値が入る/列数不足で行スキップとなり、誤った金額が登録される。引用符付きCSV(RFC4180)やカンマを含むフィールド(部門名等)も破綻する。会計実績の取込で金額が静かに化ける可能性があり、データ整合性のリスク。",
+      "recommendation": "引用符・エスケープ・桁区切りを正しく扱うCSVパーサ(csv-parse 等)を使用する。最低限、amount は parseFloat 前にカンマ・通貨記号を除去し、NaN だけでなく Number.isInteger 等で円単位の妥当性を検証する。"
+    },
+    {
+      "severity": "medium",
+      "dimension": "データ層・Prisma",
+      "title": "MF同期がアカウント×月セル単位で findFirst→update/create を逐次実行する N+1(数百クエリ/同期)",
+      "file": "apps/api/src/sync/sync.service.ts",
+      "line": "290-344 (推移表取込) / 33-101 (科目・残高取込)",
+      "description": "MF推移表の各 leaf(科目)×各月セルごとに actualEntry.findFirst してから update もしくは create を逐次 await している。科目数×12ヶ月で容易に数百〜千クエリの直列実行となり、同期がタイムアウト/長時間化する。冒頭の科目同期ループ(33-101行)でも mfAccount ごとに findFirst+update を逐次実行。upsert が使えないのは上記 nullable-unique 制約が原因で、設計欠陥が性能問題に連鎖している。",
+      "recommendation": "departmentId を NOT NULL センチネル化して upsert 可能にしたうえで、対象月の既存 ActualEntry を1回の findMany でメモリに読み込み→差分を createMany/updateMany(または $transaction バッチ)でまとめて書く。同期処理全体を $transaction で囲み部分適用を防ぐ。"
+    },
+    {
+      "severity": "medium",
+      "dimension": "フロントエンド(Next.js)",
+      "title": "設定の通知トグルが永続化されないダミーUI",
+      "file": "apps/web/src/app/settings/page.tsx",
+      "line": "56-61, 230, 410-414, 443-461",
+      "description": "通知設定カード(予算超過アラート/資金繰りアラート/KPI未達/AI CFOレポート自動生成)は、ハードコードされた定数 `initialNotifications` を `useState` の初期値にしているだけで、`toggleNotification` はローカル state を反転するのみ。サーバーへの保存も読み出しも無い(api.notifications は unreadCount/list/markRead 等の別機能で、設定保存用ではない)。トグルしても再読込で初期値に戻り、実際の通知挙動には一切影響しない。ユーザーが『KPI未達アラートをONにした』等と誤認するリスクがある。",
+      "recommendation": "通知設定の取得/保存 API を用意して useQuery+useMutation で接続するか、未実装の間はこのカードを非表示にする。"
+    },
+    {
+      "severity": "medium",
+      "dimension": "フロントエンド(Next.js)",
+      "title": "CashflowCertaintyEditor が initialRules 変更を再同期せず、組織切替でstale",
+      "file": "apps/web/src/app/settings/page.tsx",
+      "line": "1043-1075, 1088-1127",
+      "description": "CashflowCertaintyEditor は `useState(() => buildInitialRows(initialRules))` で初回マウント時に一度だけ rows を初期化する。親 CashflowCertaintyCard は isLoading で初回ガードはするが、組織切替(orgId 変化)で `cashflow-certainty` query が新しい初期ルールを返しても、Editor はアンマウントされず(key 指定なし)、rows は前の組織のルールのまま残る。別組織の確度設定を引きずって表示・保存してしまう恐れがある。",
+      "recommendation": "<CashflowCertaintyEditor key={orgId} ... /> で orgId 変更時に再マウントするか、initialRules を deps にした再同期 effect を入れる。"
+    },
+    {
+      "severity": "medium",
+      "dimension": "セキュリティ堅牢化",
+      "title": "CSRFガードがCookieが無いと無条件にパスする(Double Submitの欠陥)",
+      "file": "apps/api/src/auth/csrf.guard.ts",
+      "line": "39-43",
+      "description": "CsrfGuardはBearerでもCookie認証でもない場合、つまりCSRFトークンCookie(sb_csrf)が存在しない場合に return true でガードを素通しする。さらにJWTはsb_token Cookieに格納され(jwtCookieOptions httpOnly=true)、ブラウザは自動送信する。攻撃者のサイトがクロスサイトでPOSTすると、ブラウザはsb_token(認証Cookie)を自動送信する一方、JSからアクセス不能なsb_csrf Cookieは攻撃者が読めずヘッダーに付けられない。しかしガードは『cookieToken(sb_csrf)が無ければスキップ』するため、攻撃者がsb_csrfを送らせない/未発行状態を作れば検証が走らない。Double Submit Cookieは『認証が成立しているのにCSRFトークンが欠落しているリクエストは拒否』しなければ意味がないが、本実装は欠落時に拒否せずパスする。JWT Cookie認証が有効なリクエストではCSRFトークン必須にすべき。",
+      "recommendation": "『JWTがCookie(sb_token)に存在し、かつAuthorizationヘッダーのBearerが無い』場合はCSRFトークン(sb_csrf Cookie + x-csrf-token ヘッダー)の一致を必須とする。CSRF Cookieの有無で判定するのではなく、認証Cookieの有無で判定する。"
+    },
+    {
+      "severity": "medium",
+      "dimension": "セキュリティ堅牢化",
+      "title": "Prisma例外の詳細メッセージを本番でもクライアントに返す情報漏洩",
+      "file": "apps/api/src/filters/http-exception.filter.ts",
+      "line": "34-41",
+      "description": "AllExceptionsFilter の default ケース(P2002/P2025以外のPrismaKnownRequestError)で、`Database error: ${exception.code} ${exception.message...}` をそのままHTTPレスポンスのmessageとして返す。NODE_ENVによるガードが無いため本番でもDBの内部情報(制約名・カラム名・テーブル構造の断片)がクライアントに露出する。コメントに『開発中は』とあるが実際は環境分岐していない。スキーマ構造の推測やSQLインジェクション足場の偵察に利用されうる。",
+      "recommendation": "本番(NODE_ENV==='production')では汎用メッセージ('不正なリクエストです'等)のみ返し、詳細はサーバーログにのみ出力する。コード(P20xx)もクライアントへ返さない。"
+    },
+    {
+      "severity": "medium",
+      "dimension": "セキュリティ堅牢化",
+      "title": "トークン暗号鍵が未設定だと外部連携トークンが平文でDB保存される",
+      "file": "apps/api/src/common/crypto.util.ts",
+      "line": "62-65",
+      "description": "encryptIfAvailable は MF_TOKEN_ENCRYPTION_KEY が未設定の場合に平文をそのまま返す。MFのaccess_token/refresh_token(mf-oauth.controller.ts callback, mf-api.service.ts refreshToken で保存)はこの関数を通すため、本番で鍵を設定し忘れるとOAuthトークンがIntegrationテーブルに平文保存される。main.ts はJWT_SECRETの本番必須チェックはあるがMF_TOKEN_ENCRYPTION_KEYの本番必須チェックは無いため、設定漏れが起動時に検知されず黙って平文保存に縮退する(fail-open)。DBダンプ流出時にMF会計の財務データへフルアクセスできるトークンが露出する。",
+      "recommendation": "main.ts のbootstrapで NODE_ENV==='production' のとき MF_TOKEN_ENCRYPTION_KEY(と SUPABASE_SERVICE_ROLE_KEY 利用時はその存在)を必須にしてthrowする。少なくとも本番では『鍵が無ければ平文保存』を禁止する。"
+    },
+    {
+      "severity": "medium",
+      "dimension": "セキュリティ堅牢化",
+      "title": "多数のエンドポイントがインラインBody型でclass-validatorを完全にバイパス",
+      "file": "apps/api/src/chosho/chosho.controller.ts",
+      "line": "233-261, 335-362",
+      "description": "main.ts は forbidNonWhitelisted を外し whitelist+transform のみで運用しているが、ValidationPipeはDTOクラス(@Body() dto: SomeDto)が無いと一切検証しない。chosho/ai/journal-review/year-end-state/monthly-close 等で `@Body() dto: { body: string; urls?: string[]; ... }` のようにインライン型リテラルでBodyを受けている箇所が11箇所あり、これらは型情報がruntimeに無いため長さ制限もURL検証も走らない。例: addCellComment/addPreviewCellComment は urls?: string[] を IsUrl 検証なしで受け、CreateRowCommentDto等の正規DTO(@IsUrl, @MaxLength(2000))が課す制約を回避できる。bodyの長さ無制限はDoS/ストレージ濫用、urlsの非検証は javascript: 等スキームの保存(フロント描画時のXSS足場)につながる。",
+      "recommendation": "全POST/PUTのBodyを専用DTOクラス化し class-validator デコレータを付ける。urlsは @IsUrl({protocols:['http','https'], require_protocol:true}, {each:true})、bodyは @MaxLength を必ず付与。grepで `@Body()` の後にインラインオブジェクト型を使っている箇所を洗い出して潰す。"
+    },
+    {
+      "severity": "medium",
+      "dimension": "アーキテクチャ・保守性",
+      "title": "AuthModule ↔ MfModule の循環依存。MF OAuth コントローラが auth モジュールに混在している",
+      "file": "apps/api/src/auth/mf-oauth.controller.ts",
+      "line": "19,27-34",
+      "description": "MF の OAuth コールバックを処理する MfOAuthController が auth モジュール配下に置かれ、MfApiService(MFモジュールの中核サービス)に依存している。このため AuthModule が MfModule を import せざるを得ず、AuthModule → MfModule → KintoneModule → AuthModule という循環参照が成立している(auth.module.ts:18-19 にコメントで明記)。本来 MF の認可フローは MF モジュールの責務であり、認証(Auth)モジュールに置くのは責務の混在。この循環があるために、PermissionGuard/AuthorizationService を使いたいだけの末端フィーチャーモジュール14個が一律 forwardRef(() => AuthModule) を強要されている(下記別指摘)。",
+      "recommendation": "MfOAuthController を mf モジュールへ移設し、AuthModule から MfModule への依存(forwardRef含む)を削除する。Auth は MfApiService.manualTokenRefresh 等を直接呼ばず、必要なら MF 側のサービスにフローを寄せる。これで循環が解消され、下流の forwardRef 群も外せる。"
+    },
+    {
+      "severity": "medium",
+      "dimension": "アーキテクチャ・保守性",
+      "title": "フィーチャーモジュール14個が forwardRef(() => AuthModule) を強要されている(モジュール境界の崩れ)",
+      "file": "apps/api/src/auth/auth.module.ts",
+      "line": "15-37",
+      "description": "chosho/journal-review/locaben/monthly-close/sync/year-end-state/data-health/health-snapshots/kintone/organizations/risk-findings/mf/sentinel 等14モジュールが PermissionGuard・AuthorizationService を使うためだけに forwardRef(() => AuthModule) を書いている。これは AuthModule が MfModule(さらに Kintone/Http 等の重いツリー)を抱え込み、循環ハブ化しているのが根本原因。Guard とロール判定は本来 MF 等の業務ドメインから独立した軽量モジュールに切り出すべきで、現状は『認可の共有部品』と『MF認証フロー』が同じ箱に同居している。",
+      "recommendation": "PermissionGuard / AuthorizationService / OrgAccessService / role-helpers を MfModule に依存しない独立 AuthCoreModule(または SecurityModule)に切り出し、各フィーチャーは forwardRef なしでそれを import する。AuthModule は HTTP コントローラ(ログイン等)だけを持つ薄い層にする。"
+    },
+    {
+      "severity": "medium",
+      "dimension": "アーキテクチャ・保守性",
+      "title": "packages/shared が両アプリから一切 import されていない(死んだパッケージ)。format/types/schemas が重複定義されている",
+      "file": "packages/shared/src/utils/format.ts",
+      "line": "1-67",
+      "description": "monorepo に共有パッケージ packages/shared(format ユーティリティ・Zod schema・API 型)が存在し index.ts から export されているが、apps/web・apps/api のどちらの package.json にも @sevenboard/shared が依存として無く、ソースからの import も唯一 lib/format.ts のコメント(TODO)だけ。実質的に未使用の死蔵パッケージで、本来ここに集約すべき format/型/業種マスタが各アプリで個別に再実装されている(下記の formatYen・INDUSTRIES・Severity 重複の温床)。",
+      "recommendation": "shared を実際に依存に追加して消費するか、使わないなら削除するか方針を決める。継続するなら format.ts / INDUSTRIES / Severity 型 / API 型をここへ一本化し、web の lib/format.ts・industries.ts・api-types.ts の重複定義を shared 参照に置き換える。"
+    },
+    {
+      "severity": "medium",
+      "dimension": "アーキテクチャ・保守性",
+      "title": "金額フォーマット formatManYen/formatYen が shared と web で挙動が食い違う二重正本",
+      "file": "apps/web/src/lib/format.ts",
+      "line": "7-17",
+      "description": "packages/shared/src/utils/format.ts の formatManYen は『円値を1万で割って四捨五入』(12500000→¥1,250万)するのに対し、apps/web/src/lib/format.ts の formatManYen は『値をそのまま万扱い』(12500→¥12,500万)で割り算しない。同名・同シグネチャなのに同じ入力で全く異なる出力になる二重正本で、どちらが正かが文脈依存になっており金額表示の誤りを生みやすい。formatYen も shared は ja-JP ロケール+負号処理、web 版は素の toLocaleString と差がある。",
+      "recommendation": "『入力は円か万か』の規約を1つに統一し、正本を1ファイルに集約。呼び出し側がどちらの単位を渡しているか棚卸しして移行する。少なくとも同名関数で挙動が違う状態を解消する。"
+    },
+    {
+      "severity": "medium",
+      "dimension": "アーキテクチャ・保守性",
+      "title": "formatYen がページごとに別実装で4種類以上に分裂(同名・異挙動)",
+      "file": "apps/web/src/app/simulation/page.tsx",
+      "line": "34-43",
+      "description": "lib/format.ts に formatYen があるにもかかわらず、loan/simulation/drilldown/accounting-review(journal-tab,chosho-tab) 等で各々ローカル formatYen を再定義している。しかも挙動がバラバラ: loan は四捨五入のみ・記号なし、simulation は億/万に丸める、drilldown は1万以上で『万』表記、journal-tab は四捨五入のみ。同名関数なのに表示桁・単位・記号が画面ごとに不統一で、保守時に『どの formatYen か』を都度確認する必要があり事故りやすい。",
+      "recommendation": "用途別(円表示/万円表示/億万圧縮表示)に名前を分けた共通関数を shared か lib/format.ts に用意し、ローカル定義を撤廃して全画面でそれを使う。"
+    },
+    {
+      "severity": "medium",
+      "dimension": "アーキテクチャ・保守性",
+      "title": "Severity ユニオン型と色/ラベルマップが web 全体で再定義・不統一",
+      "file": "apps/web/src/components/dashboard/sentinel-card.tsx",
+      "line": "16-22",
+      "description": "\"CRITICAL\"|\"HIGH\"|\"MEDIUM\"|\"LOW\"(|\"INFO\")の Severity 型が triage/auditor-card/sentinel-card/actions/actionize-button/alerts/page など10箇所前後でローカル再宣言され、INFO を含むものと含まないものが混在。さらに重大度→色/日本語ラベルのマップも sentinel-card / actions / auditor-card / briefing-card 等で個別に持っており、配色・ラベルがファイルごとにずれ得る。共通の型・色マップが存在しない。",
+      "recommendation": "Severity 型と『severity → {color,label,emoji}』マップを1モジュールに集約(API の SEVERITY_EMOJI とも整合)。各画面はそれを import し、ローカル型/マップを削除する。"
+    },
+    {
+      "severity": "medium",
+      "dimension": "アーキテクチャ・保守性",
+      "title": "Slack 通知の送信処理が3モジュールで重複実装(共通 SlackClient 不在)",
+      "file": "apps/api/src/year-end-state/year-end-state.service.ts",
+      "line": "40-71",
+      "description": "organization.briefSlackWebhookUrl を引いて axios で {Content-Type: application/json, timeout: 10_000} で POST する処理が briefing/slack-notifier.ts・health-snapshots/health-slack-notifier.ts・year-end-state.service.ts の3系統に独立実装されている。health-slack-notifier の冒頭コメント自身が『既存の briefing/slack-notifier とは別系統』と重複を認めている。webhook 取得・送信・エラー整形が共通化されておらず、リトライ/エラーハンドリング方針も各所でバラつく。",
+      "recommendation": "webhook 解決+POST+エラー整形を担う SlackNotifierService(または共通関数)を1つ作り、3箇所をその呼び出しに統一。blocks ビルダー(各通知固有)とトランスポート(共通)を分離する。"
+    },
+    {
+      "severity": "medium",
+      "dimension": "パフォーマンス",
+      "title": "MF同期処理が行ごとに逐次SQLを発行(N+1書き込み)、同期がO(rows)のDBラウンドトリップで肥大化",
+      "file": "apps/api/src/sync/sync.service.ts",
+      "line": "70-111, 290-344",
+      "description": "runSyncのメインループは試算表PL/BSの全行(allRows)に対し、行ごとに accountMaster.findFirst → actualEntry.findFirst → update/create を逐次awaitで実行する。1行あたり2〜3クエリが直列に走り、勘定科目数が増えるほど線形にラウンドトリップが増える。さらに syncMonthlyFromTransition は leaves × 月数 の二重ループで月ごとに actualEntry.findFirst + update/create を逐次発行する(科目キャッシュはあるが ActualEntry の存在確認・書き込みはキャッシュされない)。MF同期は中核のスケール経路であり、科目300・12ヶ月規模で数千回の直列クエリになりうる。各クエリのレイテンシが積算され同期時間が長期化、IN_PROGRESS ロックも長引く。",
+      "recommendation": "対象 accountMaster を name→id で一括 findMany して Map 化し、既存 actualEntry も (accountId,month) 一括取得して Map 化。書き込みは createMany(skipDuplicates) + updateMany もしくは upsert を Prisma $transaction でバッチ化する。journal-review.service の chunked createMany 実装(同リポジトリ内)が良い手本。"
+    },
+    {
+      "severity": "medium",
+      "dimension": "パフォーマンス",
+      "title": "朝サマリーCronが対象Orgを逐次処理、各OrgでMF API+LLMを直列実行しスケールしない",
+      "file": "apps/api/src/briefing/briefing-scheduler.service.ts",
+      "line": "48-92",
+      "description": "dispatchHourly は同一push時刻に該当する全 org を for ループで逐次処理し、各 org で briefing.today() を await する。briefing.today は内部で MF API 呼び出し+LLM 推論+スナップショット永続化を行う重い処理(briefing.service.ts generateToday)。同じ時刻に多数の org がぶら下がると総処理時間が org 数×(MF往復+LLM)で線形に伸び、1時間境界をまたぐと次の正時 Cron と競合・配信遅延・タイムアウトのリスク。",
+      "recommendation": "p-limit 等で並列度(例:3〜5)を制御した並行処理にする。あるいは org ごとにジョブをキュー投入し worker で分散。LLM/MF のレート制限と接続プールを考慮した上限を設ける。"
+    },
+    {
+      "severity": "low",
+      "dimension": "認証・認可・テナント分離",
+      "title": "認証がグローバルGuardでなくController単位のため secure-by-default になっていない",
+      "file": "apps/api/src/main.ts",
+      "line": "43",
+      "description": "グローバルに登録されているGuardは CsrfGuard のみで、JwtAuthGuard は各Controllerが個別に @UseGuards(JwtAuthGuard) を付ける運用になっている。@Public 等のopt-out方式ではなくopt-in方式のため、新規Controllerが @UseGuards(JwtAuthGuard) を付け忘れると、そのエンドポイントは完全に無認証で公開される(PermissionGuard等も付かないため認可も無い)。現状 JwtAuthGuard を持たないControllerは health.controller のみ(公開で問題なし)だが、将来の追加で容易に事故が起きる構造的リスク。",
+      "recommendation": "JwtAuthGuard を APP_GUARD でグローバル登録し、公開したいエンドポイントだけ @Public() デコレータで明示的にopt-outする方式へ転換する。これにより付け忘れが「公開」ではなく「保護」にフェイルする。CsrfGuard と同様にグローバル化するのが望ましい。"
+    },
+    {
+      "severity": "low",
+      "dimension": "認証・認可・テナント分離",
+      "title": "ログインがメンバーシップ/有効状態を検証せず、剥奪済みユーザーもトークンを取得できる(認証と認可の分離不足)",
+      "file": "apps/api/src/auth/auth.service.ts",
+      "line": "21-47",
+      "description": "validateUser/login は users テーブルの email+password 照合のみでJWTを発行し、tenantMembership/organizationMembership の有無やstatusを一切見ない。User モデルにも active/disabled/status 相当のフィールドが無い(schema.prisma 136-177)。そのため internal-users.remove で tenantMembership.status='revoked' に剥奪されたスタッフでも、user 行とパスワードは残るためログイン可能でJWTを取得でき、/auth/me 等にアクセスできる。データ越境は後段の assertOrgPermission(status==='active'判定)とorganizationMembership削除で概ね防がれるため実データ漏洩には直結しないが、『ログインできること』と『権限があること』が分離されておらず、アカウント無効化(失効)の手段が存在しない。過去にも招待なしsign-in可能の指摘事例あり(memory: auth_secure_by_default)。",
+      "recommendation": "login時に『有効な tenantMembership もしくは organizationMembership(あるいは user.orgId)を持つ』ことを必須化し、いずれも無ければ 403(未招待)を返す。さらに User に disabled/status を追加し失効を反映、もしくは tenantMembership 全失効時にログイン不可とする。トークン発行=認証、アクセス可否=認可、を明確に分離する。"
+    },
+    {
+      "severity": "low",
+      "dimension": "認証・認可・テナント分離",
+      "title": "internal-users.create が顧問先側ユーザー(orgId!=null)に対しても無検証で事務所スタッフmembershipを付与する",
+      "file": "apps/api/src/internal-users/internal-users.service.ts",
+      "line": "71-140",
+      "description": "create() は既存ユーザーを email で引き当てた場合(existing)、そのユーザーの orgId を一切チェックせずに、操作者のテナントへ tenantMembership(firm_*ロール)を upsert する。existing が顧問先側ユーザー(user.orgId!=null)であっても事務所スタッフのmembershipが付き、staff.helpers が明示的に警告する『orgId!=null なのに tenant membership を持つ』不整合状態が生成される。isInternalStaff() は orgId!==null を弾くため即座の越権にはなりにくいが、ロール設計(G-1)の前提を崩し、将来の判定ロジック変更で越権の温床になる。また他テナント所属の既存ユーザーを取り込む形にもなり、ロール体系の境界が曖昧になる。",
+      "recommendation": "existing が見つかった場合に existing.orgId !== null なら BadRequest で拒否する(顧問先側ユーザーを事務所スタッフ化させない)。新規作成パスは orgId:null を明示しており正しいので、既存引き当てパスにも同等のガードを追加する。"
+    },
+    {
+      "severity": "low",
+      "dimension": "APIロジック・バグ",
+      "title": "getRunway が runwayMonths に Infinity を返し、JSON化で null になりフロントが無限runwayとデータ無しを区別できない",
+      "file": "apps/api/src/cashflow/cashflow.service.ts",
+      "line": "89-106",
+      "description": "バーンが非正の場合 runwayMonths = Infinity を返すが、NestJS の JSON シリアライズ(JSON.stringify)では Infinity は null になる。スナップショット経路は数値を返す一方、計算経路は null になり、フロントは「無限ランウェイ(黒字)」と「計算不能/未データ」を区別できない。alertLevel は SAFE になるため軽微だが不整合。",
+      "recommendation": "Infinity の代わりに上限定数(例:999)や null を明示的に返し、フロントの表示規約と揃える(他モジュールは 999 を ∞ 扱いにしている)。"
+    },
+    {
+      "severity": "low",
+      "dimension": "APIロジック・バグ",
+      "title": "月次レビュー承認に状態遷移ガードが無く、DRAFT/REJECTED から直接APPROVEでき、並行approveで後勝ち上書き",
+      "file": "apps/api/src/monthly-review-approval/monthly-review-approval.service.ts",
+      "line": "91-129",
+      "description": "approve は既存レコードの現在statusを問わず無条件で APPROVED に更新する(PENDING を経ずに DRAFT や REJECTED から直接承認可能)。submit→approve のワークフローを前提にしているなら不正遷移を許す。また findUnique→update の2ステップで楽観ロックが無いため、2人が同時に approve/reject すると後勝ちで approvedBy が上書きされる(競合状態)。",
+      "recommendation": "許可する遷移(例: PENDING→APPROVED/REJECTED)を明示的に検証し、不正遷移は BadRequestException。更新は updateMany({ where:{ id, status:期待値 } }) で count を見るか version列で楽観ロックする。"
+    },
+    {
+      "severity": "low",
+      "dimension": "APIロジック・バグ",
+      "title": "日付クエリの未検証 new Date() が Invalid Date のとき 400 ではなく 500 を誘発",
+      "file": "apps/api/src/actuals/actuals.service.ts",
+      "line": "15-23",
+      "description": "findByOrg は query.month を new Date(query.month) で無検証に変換する。'2026-13' 等不正文字列は Invalid Date になり、Prisma に渡されて実行時例外→500 になる(クライアント入力起因なので本来400)。reports(startMonth/endMonth)・cashflow(startDate/endDate)・business-events 等の日付クエリ系にも同じ無検証 new Date() パターンが点在する。",
+      "recommendation": "new Date() 後に isNaN(d.getTime()) を確認して不正なら BadRequestException を投げる共通バリデータを使う、もしくは DTO で @IsDateString を付与する。"
+    },
+    {
+      "severity": "low",
+      "dimension": "APIロジック・バグ",
+      "title": "元利均等返済(EQUAL_INSTALLMENT)で最終月に残高をゼロに丸め込まないため端数残高が残る",
+      "file": "apps/api/src/simulation/simulation.service.ts",
+      "line": "86-99",
+      "description": "EQUAL_INSTALLMENT ループは毎月 Math.round で利息・元金を丸めるが、EQUAL_PRINCIPAL/BULLET と異なり最終月に残高を強制ゼロにする isLast 処理が無い。丸め誤差が累積し、最終月の balance が 0 にならず端数(数円〜)が残る。返済表の整合性が崩れる軽微な不具合。",
+      "recommendation": "EQUAL_PRINCIPAL/BULLET と同様に isLast の月は principalPart = 残高 とし、最終 balance を 0 にする。"
+    },
+    {
+      "severity": "low",
+      "dimension": "財務・会計計算の正確性",
+      "title": "消費税の端数処理に四捨五入(round)を使用している(切り捨て原則違反)",
+      "file": "apps/api/scripts/analyze.py",
+      "line": "500-505, 535-542",
+      "description": "仮払/仮受消費税の推計およびインボイス80%控除額の算出で、Pythonの round() を用いている。round() は銀行丸め(round-half-to-even)であり、日本の消費税実務で原則とされる切り捨て(端数切捨て)ではない。会計事務所向けツールとして、レビュー担当者に提示する推計税額・控除否認額が実務上の正しい税額と1円単位で乖離し、誤った突合判断を誘発しうる。プロジェクトの確立済みルール(消費税は必ず切り捨て Math.floor、四捨五入禁止 / JCTスキルの切り捨て原則)にも反する。tax_full = round(amt * 10 / 110) / tax_80 = round(tax_full * 0.8) / karibarai_est += round(amt * 10 / 110) 等。",
+      "recommendation": "消費税額の端数処理を切り捨てに統一する。Python なら math.floor(amt * 10 / 110)(浮動小数の誤差を避けるため (amt * 10) // 110 の整数除算が望ましい)、80%控除も floor(tax_full * 0.8) ではなく整数演算(tax_full * 8 // 10 等)で切り捨てる。四捨五入が必要な事業者選択ケースがあるなら設定で切替可能にし、デフォルトは切り捨てとする。"
+    },
+    {
+      "severity": "low",
+      "dimension": "財務・会計計算の正確性",
+      "title": "analyze.pyのsafe_intが小数文字列を0に握り潰す",
+      "file": "apps/api/scripts/analyze.py",
+      "line": "89-94",
+      "description": "safe_int は int(s) を試み、ValueError(\"1234.0\" や \"1234.5\" のような小数文字列を含む)で 0 を返す。MF由来の金額は通常整数だが、もしソースに小数や想定外フォーマットが混入した場合、金額が静かに0となり、PL/BS整合チェック(==比較)や貸借一致判定を誤らせる。エラーを表面化せず0埋めする設計は会計データでは危険。",
+      "recommendation": "小数文字列は int(float(s)) ではなく丸め方針を明示して変換するか、パースできない値を 0 で握り潰さずログ/警告に残す。少なくとも本来数値であるべきセルがパース不能だった件数を集計し、レビュー結果に可視化する。"
+    },
+    {
+      "severity": "low",
+      "dimension": "データ層・Prisma",
+      "title": "public スキーマ全テーブルで RLS を有効化しているがポリシーが1つも無く、テナント分離はアプリ層 where 句のみに依存",
+      "file": "packages/database/prisma/migrations/20260529090000_enable_rls_on_public_tables/migration.sql",
+      "line": "9-25",
+      "description": "全 public テーブルに ENABLE ROW LEVEL SECURITY したが CREATE POLICY が一切ない。コメント通り目的は『Supabase/PostgREST 経由の匿名アクセス遮断』であり、アプリは信頼済み Postgres 認証情報(テーブル所有者/サービスロール)で接続するため RLS をバイパスする。つまり RLS はテナント分離を一切強制しておらず、マルチテナント分離は全て各サービスの where: { tenantId, orgId } に依存する。PrismaService にも SET app.current_tenant 等のセッション変数設定は無く(prisma.service.ts 全体確認済)、where 句を1箇所書き漏らすと即クロステナント漏洩になる。設計意図としては妥当だが、DB レイヤの最後の砦が無い前提を明文化・監視する必要がある。",
+      "recommendation": "(a) 現状の『アプリ層分離のみ』を設計ドキュメントとして固定し、where 句監査(lint/テスト)を整備する、または (b) 別 DB ロール+SET LOCAL app.current_org_id をトランザクション内で発行する RLS ポリシーを導入して DB レイヤでも強制する。最低限、新規テーブル追加時に tenantId/orgId 必須 + where 必須 の CI チェックを入れる。"
+    },
+    {
+      "severity": "low",
+      "dimension": "データ層・Prisma",
+      "title": "核となる財務テーブル(budget/actual/journal)の科目FKが単一列idで、テナント越え参照を DB が防げない",
+      "file": "packages/database/prisma/schema.prisma",
+      "line": "483-484 (BudgetEntry) / 509-510 (ActualEntry) / 540-541 (JournalEntry)",
+      "description": "Chosho 系モデルは [versionId, tenantId, orgId] 等の複合FKで別テナント参照を DB レベルで不可能にしている(設計コメントでも強調)のに対し、より重要な BudgetEntry/ActualEntry/JournalEntry の account 参照は AccountMaster.id への単一列FKのまま。AccountMaster.id はグローバル一意UUIDなので、アプリが誤って別 org の accountId を渡すと DB は素通しし、org A の実績に org B の科目が紐づくクロステナント汚染が起こりうる。実害発生にはアプリ側バグが前提だが、Chosho で確立した防御パターンが基幹テーブルに適用されていない非対称性。",
+      "recommendation": "AccountMaster に @@unique([id, tenantId, orgId]) を追加し、BudgetEntry/ActualEntry/JournalEntry の account 参照を [accountId, tenantId, orgId] の複合FKに変更して Chosho と同等の DB レベル分離を担保する。"
+    },
+    {
+      "severity": "low",
+      "dimension": "データ層・Prisma",
+      "title": "AiComment にインデックスが1つも無く、report_id(FK) も未インデックス",
+      "file": "packages/database/prisma/schema.prisma",
+      "line": "625-641",
+      "description": "AiComment モデルは @@index が皆無で、reportId への FK にもインデックスが無い。一覧取得は report リレーション経由(report: { tenantId, orgId })でフィルタするため、件数増加に伴い report_id での結合・絞り込みがシーケンシャルスキャンになりうる。AiComment 自体は tenantId/orgId 列を持たず report 経由スコープのため、report_id インデックスは特に重要。",
+      "recommendation": "最低限 @@index([reportId]) を追加。月別取得もあるため @@index([reportId, createdAt]) が望ましい。"
+    },
+    {
+      "severity": "low",
+      "dimension": "データ層・Prisma",
+      "title": "勘定科目削除時の関連チェックで journal_entries を debit/credit OR で count するがFK列にインデックスが無い",
+      "file": "apps/api/src/masters/masters.service.ts",
+      "line": "131-146",
+      "description": "deleteAccount が journalEntry を { OR: [{ debitAccountId }, { creditAccountId }] } で count するが、journal_entries には debit_account_id / credit_account_id 単体のインデックスが無い(既存 index は (tenant,org,journalDate) と (org,journalDate) のみ)。(tenant,org) で絞れるため致命的ではないが、仕訳が大量の org で科目削除時にスキャンが発生する。",
+      "recommendation": "@@index([tenantId, orgId, debitAccountId]) と @@index([tenantId, orgId, creditAccountId]) を追加するか、削除前チェックを debitAccountId と creditAccountId の2回 count に分けて各々インデックスを効かせる。"
+    },
+    {
+      "severity": "low",
+      "dimension": "データ層・Prisma",
+      "title": "findAccessibleOrganizations がテナントごとに全 org を findMany する N+1 + 全列フェッチ",
+      "file": "apps/api/src/auth/authorization.service.ts",
+      "line": "83-96",
+      "description": "tenantMemberships を for ループし、権限を持つ各テナントについて organization.findMany({ where: { tenantId } }) を逐次実行している。1ユーザーが多数テナントに所属する内部スタッフでは N 回のクエリになり、かつ select 指定が無く org の全列をフェッチする。現状は単一事務所運用で影響小だが、マルチテナント拡大時にコスト増。",
+      "recommendation": "権限を満たす tenantId を集約し organization.findMany({ where: { tenantId: { in: [...] } } }) の1クエリにまとめる。必要列のみ select する。"
+    },
+    {
+      "severity": "low",
+      "dimension": "データ層・Prisma",
+      "title": "ChoshoVersion 保存が行数ぶん tx.choshoRow.create を逐次実行(トランザクション内 N+1)",
+      "file": "apps/api/src/chosho/chosho.service.ts",
+      "line": "130-156",
+      "description": "調書保存時、previewRows を for ループして1行ずつ tx.choshoRow.create を await している。親 row の DB id を子に渡すため逐次なのは理解できるが、行数が多い調書(科目×補助×取引先で数百行)では対話型トランザクションが Prisma 既定の 5 秒タイムアウトに達するリスクと、往復回数増による遅延がある。",
+      "recommendation": "level 単位(親→子の階層順)に分割し各 level を createMany でバルク挿入→挿入後に id を引き直して次 level の parentRowId を解決する、もしくは rowKey をアプリ側で UUID 生成して全行を一括 createMany する。$transaction の timeout/maxWait も明示的に引き上げる。"
+    },
+    {
+      "severity": "low",
+      "dimension": "フロントエンド(Next.js)",
+      "title": "OrgSwitcher での組織切替が token/user.role を更新せず、role ベース gating と表示が乖離",
+      "file": "apps/web/src/components/layout/org-switcher.tsx",
+      "line": "105-108",
+      "description": "ヘッダーの OrgSwitcher は切替時に `setCurrentOrgId(m.orgId)`(CurrentOrgContext の localStorage + react-query キャッシュ全消し)だけを呼び、advisor portal の `handleOpenOrg` のような `switchOrg(accessToken, user)`(=新しい org セッションの token/user 再発行)を呼ばない。このため切替後、画面に表示される権限(currentRole/OrgSwitcher のバッジ)は新 org の membership ロールを指すが、`useAuthStore().user.role` と API token は旧 org セッションのまま。権限 gating が複数の真実源に分裂している: header.tsx は org スコープの `currentRole` を使う一方、app/page.tsx(219)・comments/page.tsx(84-86)・advisor/page.tsx(149)・triage/clients/page.tsx(82) は global `user.role` で gating している。内部スタッフ(owner/advisor は tenant 横断で固定)では実害が出にくいが、ロールが org ごとに異なるユーザーでは表示ロールと有効権限が食い違う。実データのスコープ自体は useScopedOrgId→currentOrgId をパスに渡しバックエンドが membership 検証するため漏洩はしないが、フロントの gating 一貫性が崩れている(社内ルール: cap-based gating に統一せよ に抵触)。",
+      "recommendation": "権限 gating の真実源を org スコープの membership(currentRole もしくは effective_capabilities)に統一する。OrgSwitcher 切替時に内部スタッフ以外でロールが変わり得るなら switchOrg 相当でセッションを張り直すか、全ての role gating を currentRole ベースに揃える。"
+    },
+    {
+      "severity": "low",
+      "dimension": "フロントエンド(Next.js)",
+      "title": "AI系クエリのrunwayModeが非リアクティブなlocalStorage直読みで真実源が二重化",
+      "file": "apps/web/src/hooks/use-mf-data.ts",
+      "line": "93-97, 106, 130, 141, 153",
+      "description": "useAiSummary 等は `useStoredRunwayMode()`(render 中に localStorage を直接読む非リアクティブ関数)で runwayMode を queryKey に組み込む。一方トグル UI は別実装の reactive な `useRunwayMode`(React state)を使う。同一ページではトグルの setMode が localStorage を同期書き込みしてから再 render するため queryKey は更新されるが、トグルと AI クエリが別コンポーネントツリーにある場合や、localStorage が別経路で変わった場合に再 render が起きず queryKey が stale になる。真実源が localStorage と React state に二重化しており壊れやすい。",
+      "recommendation": "runwayMode を単一の reactive ソース(zustand store 等)に統一し、AI クエリもトグルも同じ hook を読むようにする。"
+    },
+    {
+      "severity": "low",
+      "dimension": "フロントエンド(Next.js)",
+      "title": "仕訳フラグがジャーナル実際の月でなくグローバル選択月で記録される",
+      "file": "apps/web/src/app/accounting-review/_tabs/journal-tab.tsx",
+      "line": "245-256, 272-279",
+      "description": "仕訳一覧は preset の日付レンジ(custom や thisMonth/lastMonth)で取得されるが、フラグ upsert は `month: month ?? undefined`(=グローバル期間セレクターの月度)で記録する。custom レンジや thisMonth/lastMonth でレビュー中に、選択中グローバル月度と異なる月の仕訳にフラグを立てると、その仕訳の実取引月ではなくグローバル選択月に紐付いて保存される。メモタブ側の月度フィルタと突合した際に該当仕訳が見えなくなる可能性がある。",
+      "recommendation": "フラグの month は対象仕訳の transaction_date から導出した実取引月度を渡す(グローバル選択月に依存させない)。"
+    },
+    {
+      "severity": "low",
+      "dimension": "セキュリティ堅牢化",
+      "title": "kintoneクエリのエスケープ実装が関数ごとに不統一でクエリ注入の余地",
+      "file": "apps/api/src/kintone/kintone-api.service.ts",
+      "line": "124-129, 213-214, 75-78",
+      "description": "getMonthlyProgress の esc は `()\"` を検出してthrowしバックスラッシュもエスケープする堅い実装だが、getByMfOfficeCode(124)・getCustomerBasicByClientId(213) の esc は `\"` を `\\\"` に置換するだけで、`(` `)` やバックスラッシュ自体(`\\` → `\\\\` していない)を処理しない。kintoneのクエリ構文は = / in / like / 括弧で論理結合するため、引数に括弧やlike等を混ぜると条件を改変しうる。getByMfOfficeCode の mfCode はコントローラ側でassertMfCodeBelongsToCallerによりアクセス可能org codeと突合済みのため実害は限定的だが、getCustomerBasicByClientId の clientId は月次レコード由来の値で検証フローが異なり、エスケープを関数間で揃えていないこと自体が将来の注入バグの温床。",
+      "recommendation": "kintoneクエリ値エスケープを単一のユーティリティ関数に集約し、全呼び出し箇所で `()` `\"` `\\` を一貫処理(危険文字はreject)する。可能ならkintone APIのプレースホルダ/パラメータ機能を使う。"
+    },
+    {
+      "severity": "low",
+      "dimension": "セキュリティ堅牢化",
+      "title": "CORS_ORIGINがカンマ区切り複数オリジンを正しく解釈しない",
+      "file": "apps/api/src/main.ts",
+      "line": "22-25",
+      "description": "enableCorsのoriginに process.env.CORS_ORIGIN を生文字列のまま渡している。一方 apps/api/.env.example には『本番は Vercel の URL（カンマ区切りで複数可）』と記載があり、運用上カンマ区切りを想定している。文字列のまま渡すとCORSは『カンマ連結された1つの文字列』としか一致せず、複数オリジン運用時に正規のオリジンが全て弾かれるか、設定者が`*`等の緩い回避をしてcredentials付きCORSを破綻させる危険がある。credentials:true との組合せで設定ミスが起きやすい。",
+      "recommendation": "CORS_ORIGINを `.split(',').map(s=>s.trim())` で配列化してoriginに渡す(または許可リスト関数で照合)。ドキュメントとコードの不一致を解消する。"
+    },
+    {
+      "severity": "low",
+      "dimension": "セキュリティ堅牢化",
+      "title": "Slack Webhook送信にドメイン許可リストが無く設定値次第でSSRF",
+      "file": "apps/api/src/copilot/copilot.service.ts",
+      "line": "406-409",
+      "description": "runSendSlackDigest は org.briefSlackWebhookUrl へ任意のPOSTを行うが、送信先URLのスキーム/ホストを検証していない(slack.com系への限定なし)。送信先はLLMではなくorg設定値なので直接の攻撃面ではないが、org設定を書ける権限を持つユーザーが内部ネットワークのアドレス(http://169.254.169.254 等)を登録すれば、Cloud Runからの内向きリクエスト(SSRF)に悪用しうる。リダイレクト追従やタイムアウトはtimeout:10000のみ。",
+      "recommendation": "briefSlackWebhookUrl 登録時およびこの送信時に https かつ hooks.slack.com ドメインに限定するバリデーションを追加。axiosのmaxRedirects:0で内部リダイレクトを防ぐ。"
+    },
+    {
+      "severity": "low",
+      "dimension": "アーキテクチャ・保守性",
+      "title": "formatRelative(相対時刻)が5ファイルにほぼ同一コピペ",
+      "file": "apps/web/src/components/dashboard/agent-activity-card.tsx",
+      "line": "34-44",
+      "description": "『たった今/N分前/N時間前/N日前』を返す formatRelative が agent-banner / copilot-pane / agent-activity-card / triage/page / data-health-badge の5箇所に独立コピーされている。ロジックはほぼ同一(『今』vs『たった今』など微差あり)で、共通ユーティリティ化されていない典型的コピペ。",
+      "recommendation": "lib(または shared)に formatRelativeTime を1つ作り、5箇所を置換。表記揺れ(『今』/『たった今』)もここで統一する。"
+    },
+    {
+      "severity": "low",
+      "dimension": "アーキテクチャ・保守性",
+      "title": "resolveTenantId(orgId) が3サービスで重複定義",
+      "file": "apps/api/src/data-health/data-health.service.ts",
+      "line": "80-89",
+      "description": "orgId から organization.tenantId を引く private resolveTenantId が agent-runs / data-health / year-end-state の各サービスに実質同一コードで重複している。agent-runs と data-health は findUnique + 手動 not-found throw(plain Error)で完全一致、year-end-state は findUniqueOrThrow 版という微差。マルチテナントの基本動線なのに共通化されておらず、各サービスに分散している。",
+      "recommendation": "OrgAccessService 等の共有サービスに resolveTenantId(orgId) を1つ置き、3サービスから DI で利用。ついでに not-found を plain Error でなく NotFoundException に統一する(下記)。"
+    },
+    {
+      "severity": "low",
+      "dimension": "アーキテクチャ・保守性",
+      "title": "resolveTenantId 等で plain Error を throw → グローバルフィルタで500になる(エラー種別の不整合)",
+      "file": "apps/api/src/data-health/data-health.service.ts",
+      "line": "86-88",
+      "description": "サービス層は基本 NestJS の NotFoundException 等(コードベース全体で約140箇所)を使っているが、resolveTenantId 系の数箇所は `throw new Error('Organization ... not found')` を投げる。AllExceptionsFilter は HttpException 以外を 500 INTERNAL_SERVER_ERROR にフォールバックするため、本来 404 であるべき『組織が見つからない』が 500 として返る不整合。",
+      "recommendation": "これらを NotFoundException に置換し、サービス層のエラー方針(ドメイン例外は HttpException 派生)を統一する。"
+    },
+    {
+      "severity": "low",
+      "dimension": "アーキテクチャ・保守性",
+      "title": "業種マスタ INDUSTRIES が API と web で手動ミラー(同期前提のコメント付き)",
+      "file": "apps/api/src/common/industries.ts",
+      "line": "1-20",
+      "description": "13業種の INDUSTRIES 配列が apps/api/src/common/industries.ts と apps/web/src/lib/industries.ts に二重に定義され、API 側ファイル冒頭に『フロント ... と同期させる』と明記。現状は配列内容は完全一致(diff済)だが、片方だけ業種追加・改名するとサイレントに乖離するドリフトリスク。同様に locaben/benchmarks.ts も『web 側 constants.ts と完全同期させること』とコメントしており、複数のマスタが手動同期に依存している。",
+      "recommendation": "INDUSTRIES(と可能なら benchmark の単位/キー定義)を packages/shared に置き、API・web 双方が import する。手動同期コメント運用をやめる。"
+    },
+    {
+      "severity": "low",
+      "dimension": "アーキテクチャ・保守性",
+      "title": "ROLE_READ / ROLE_WRITE / ROLE_APPROVE が定義のみで未使用(死にコード)",
+      "file": "apps/api/src/auth/role-helpers.ts",
+      "line": "12-27",
+      "description": "role-helpers.ts が export する ROLE_READ・ROLE_WRITE・ROLE_APPROVE のロール集合定数3つが、コードベースのどこからも import されていない。認可ロジックは別途 permissions.ts / Guard 側に実装されており、これらは取り残された死にコード。",
+      "recommendation": "未使用なら削除する。将来使う意図があるなら実際に Guard/permission チェックで参照して『単一の真実』にする。"
+    },
+    {
+      "severity": "low",
+      "dimension": "アーキテクチャ・保守性",
+      "title": "ai.service.ts(1602行)・chosho.service.ts(1448行)・mf-transform.service.ts(1210行)が巨大ファイル/巨大メソッド",
+      "file": "apps/api/src/ai/ai.service.ts",
+      "line": "496-1416",
+      "description": "ai.service.ts は1602行で公開メソッドは6〜7個しかなく、generateMonthlySummary(496-)・generateTalkScript・generateBudgetScenarios・generateFundingReport・generateIndicatorsCommentary 等が各々数百行で、大量のプロンプト文字列・データ整形・LLM呼び出し・後処理を1メソッドに内包している。chosho.service(1448) / mf-transform(1210) も同様の巨大サービス。テスト容易性・変更影響範囲・レビュー負荷の面で保守性が低い。",
+      "recommendation": "プロンプト定義を別ファイル(*.prompt.ts、既に copilot/agent-voice.prompt.ts の前例あり)へ抽出し、データ取得・整形・LLM 呼び出し・整形後処理をヘルパー/サブサービスに分割する。1メソッド=1責務に近づける。"
+    },
+    {
+      "severity": "low",
+      "dimension": "アーキテクチャ・保守性",
+      "title": "lib/api.ts が単一2455行の巨大 API クライアント(変更集中点)",
+      "file": "apps/web/src/lib/api.ts",
+      "line": "431-2455",
+      "description": "フロントの API クライアントが約40の名前空間(organizations/ai/mf/chosho/journalReview/yearEndState/locaben/...)を持つ単一 `export const api = {...}` として2455行で1ファイルに集約されている。内部で名前空間分けされている点は救いだが、全フィーチャーの変更がこの1ファイルに集中し、コンフリクト・レビュー負荷・初回ロードの肥大を招く。型 import も api-types.ts/mf-types.ts から数十件を1箇所に集約。",
+      "recommendation": "名前空間単位で lib/api/<domain>.ts に分割し、共通の apiFetch/CSRF 処理だけを lib/api/client.ts に置く。barrel(index)で `api` を再合成すれば呼び出し側は無変更で移行できる。"
+    },
+    {
+      "severity": "low",
+      "dimension": "パフォーマンス",
+      "title": "findAccessibleOrganizations がテナント数ぶん findMany をループ発行、advisor全API・全権限チェックの基盤に直撃",
+      "file": "apps/api/src/auth/authorization.service.ts",
+      "line": "83-96",
+      "description": "ユーザーの active な tenantMembership を取得した後、テナントごとに organization.findMany を逐次ループで叩いている。複数テナントに所属する顧問ユーザーではテナント数に比例して直列クエリが増える。このメソッドは AdvisorService.getAccessibleOrgIds 経由で listOrganizations / getSummary / getRecentOrgs など advisor 系の全エンドポイントから毎回呼ばれるため、advisor ダッシュボードの初期表示で繰り返し評価され、レイテンシが累積する。",
+      "recommendation": "権限を満たすテナントIDを先に配列化し organization.findMany({ where:{ tenantId:{ in: tenantIds } } }) の単一クエリにまとめる。結果がリクエスト内で複数回必要なら request スコープでメモ化する。"
+    },
+    {
+      "severity": "low",
+      "dimension": "パフォーマンス",
+      "title": "org/tenant 解決が1リクエストあたり最低3回の未キャッシュDBクエリを発生させる(PermissionGuard 2回 + orgScope 1回)",
+      "file": "apps/api/src/prisma/prisma.service.ts",
+      "line": "22-31",
+      "description": "PrismaService.orgScope は呼び出しごとに organization.findUnique を無キャッシュで実行する。これと別に PermissionGuard→assertOrgPermission が organization.findUnique と tenantMembership.findUnique を発行する。つまり org スコープの全エンドポイントは『実処理の前に』同じ org/tenant を解決するためだけに3回前後のDBラウンドトリップを毎回支払う。低レイテンシのクエリだが全API共通の固定コストで、同時接続が増えるとDB接続プールとレイテンシに効いてくる。",
+      "recommendation": "Guard で解決した {orgId, tenantId} を request オブジェクトに載せ、サービス側はそれを再利用して orgScope の重複クエリを排除する。あるいは org→tenantId の短TTLメモリキャッシュ(既存 CacheService 流用)を orgScope に挟む。"
+    },
+    {
+      "severity": "low",
+      "dimension": "パフォーマンス",
+      "title": "listFlags / listComments がページング無しで期間内・Org内の全件を返す",
+      "file": "apps/api/src/journal-review/journal-review.service.ts",
+      "line": "27-52, 188-203",
+      "description": "listFlags は fiscalYear(+任意month)内の journalReviewFlag を take 無しで全件返す。listFlags のページング版(listFlagsPage)は存在するのに、controller の GET /journal-review/flags は無制限の listFlags を呼んでいる。listComments も journalIds 未指定だと org 配下の全コメントを返す(コメント本文+author join 付き)。コメント数・フラグ数が積み上がる会社では1レスポンスが肥大化しメモリとシリアライズ負荷が増える。",
+      "recommendation": "既存の listFlagsPage を controller の標準経路にする/listFlags にも take 上限を設ける。listComments は journalIds 必須化、または take + ページングを導入し全件返却を避ける。"
+    },
+    {
+      "severity": "low",
+      "dimension": "パフォーマンス",
+      "title": "CacheService はプロセスローカルのため複数インスタンスでキャッシュ命中率が下がりMF往復が増える",
+      "file": "apps/api/src/common/cache.service.ts",
+      "line": "4-30",
+      "description": "MF API レスポンス等のキャッシュは単一プロセス内 Map で保持される。Cloud Run のように複数インスタンスへスケールアウトすると、各インスタンスが独立キャッシュを持つためヒット率が実質 1/インスタンス数 に低下し、MF MCP への往復・レート制限ヒットが増える(MfApiservice の in-flight dedup も同様にインスタンス内限定)。また set はオブジェクト参照をそのまま保持するため、取得側が結果を破壊的変更すると次の利用者に伝播するリスクがある(軽微)。",
+      "recommendation": "スケールアウト前提なら Redis 等の共有キャッシュへ移行し、MF レスポンスのキャッシュ/in-flight dedup をインスタンス横断で効かせる。少なくともインスタンス数が増える運用での命中率低下を認識し、TTL とインスタンス上限を調整する。"
+    },
+    {
+      "severity": "low",
+      "dimension": "パフォーマンス",
+      "title": "RiskScanOrchestratorのfindingがルールごとにupsertをN回逐次実行",
+      "file": "apps/api/src/sentinel/risk-rules/orchestrator.service.ts",
+      "line": "97-116, 150-198",
+      "description": "runLayer は各ルールの detect で得た draft を1件ずつ for ループで await upsertFinding する。MF同期完了フックから runL1/runL2 が呼ばれ、検知件数が多いとリスクスコア書き込みが直列に積み上がる。1社あたりの finding 数は通常多くないため影響は限定的だが、同期完了直後の重い処理パスにあり、件数増加時に直列コストが効いてくる。",
+      "recommendation": "draft をルール横断で集約し、$transaction でまとめて upsert する(または件数が一定以上なら createMany + 既存分の updateMany に分離)。少なくとも1ルール内の drafts は Promise.all で並行 upsert する。"
+    },
+    {
+      "severity": "info",
+      "dimension": "財務・会計計算の正確性",
+      "title": "予実差異・前年比の按分や符号は妥当(確認結果)",
+      "file": "apps/api/src/reports/reports.service.ts",
+      "line": "126-159,274-292",
+      "description": "検証の結果、変動費按分・限界利益・損益分岐点・安全余裕率(getVariableCostReport)および予実差異の符号(収益科目=実績-予算、費用科目=予算-実績)、前年同月の12ヶ月シフトキー化は会計的に妥当だった。期末棚卸高を変動費合計に負値加算する処理(257-259行)も二重計上回避として正しい。ここでの Math.round は税額ではなく比率・損益分岐点の表示丸めであり問題なし。打ち切りや未読範囲ではなく、確認済みである旨の補足。",
+      "recommendation": "対応不要。税額以外の比率・指標の丸め(Math.round)は表示用途であり実害なし。"
+    },
+    {
+      "severity": "info",
+      "dimension": "フロントエンド(Next.js)",
+      "title": "useFeatureStateLocal に毎renderで新しいdefaultValueオブジェクトを渡している",
+      "file": "apps/web/src/app/year-end-review/_sections/11-loan-proposal.tsx",
+      "line": "51-55",
+      "description": "useFeatureStateLocal の defaultValue にインラインのオブジェクトリテラル `{ qualitative: DEFAULT_QUALITATIVE, actualNotes: DEFAULT_ACTUAL_NOTES }` を渡しており、毎 render で新しい参照になる。useFeatureStateLocal 側の scope 切替 effect は deps に defaultValue を含む(`[scopeHash, defaultValue]`)が、本体が scopeHash 一致時に早期 return するため現状は無限ループにはならない(他セクションはモジュール定数を渡しており安全)。ただし将来 effect 本体が defaultValue を無条件で使う実装に変わると壊れる、依存配列の意図と乖離した脆い書き方。",
+      "recommendation": "他セクションと同様にモジュールスコープの定数(例: const DEFAULT_LOAN_FORM = {...})を定義して安定参照を渡す。"
+    },
+    {
+      "severity": "info",
+      "dimension": "セキュリティ堅牢化",
+      "title": "監査ログ書き込み失敗をconsole.errorに出力(エラー詳細露出の軽微な懸念)",
+      "file": "apps/api/src/common/audit-log.interceptor.ts",
+      "line": "62-64",
+      "description": "AuditLogInterceptorはDB書込失敗時に err.message をconsole.errorで出力する。ここは機密(トークン等)を含む可能性は低いが、http-exception.filter のPrismaログ(console.error でmeta含む)と併せ、構造化ロガー/Sentry経由でなく素のconsoleに出している箇所が散在しており、Cloud Runログに業務データの断片が残りうる。MfApiServiceがログに財務明細を残さない配慮(キー名のみ)をしている方針と一貫させるべき。",
+      "recommendation": "console出力をNestのLoggerに統一し、本番ではエラーメッセージ本文を抑制(エラーID+分類のみ)してSentryに送る運用に揃える。"
+    }
+  ]
+}
