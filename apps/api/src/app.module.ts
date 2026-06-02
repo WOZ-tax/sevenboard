@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { APP_INTERCEPTOR } from '@nestjs/core';
 import { ScheduleModule } from '@nestjs/schedule';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { PrismaModule } from './prisma/prisma.module';
 import { CacheModule } from './common/cache.module';
 import { AuditLogInterceptor } from './common/audit-log.interceptor';
@@ -48,6 +49,14 @@ import { YearEndStateModule } from './year-end-state/year-end-state.module';
 @Module({
   imports: [
     ScheduleModule.forRoot(),
+    // 既定の緩いグローバルレート制限（個別ルートで @Throttle により上書き可能）。
+    // ttl はミリ秒単位（@nestjs/throttler v6）。
+    ThrottlerModule.forRoot([
+      {
+        ttl: 60 * 1000, // 60 秒
+        limit: 120, // IP 単位 60 秒あたり 120 回
+      },
+    ]),
     PrismaModule,
     CacheModule,
     HealthModule,

@@ -9,6 +9,7 @@ import {
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
+import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { Response as ExpressResponse } from 'express';
 import { randomBytes } from 'crypto';
 import { AuthService } from './auth.service';
@@ -34,7 +35,10 @@ export class AuthController {
     res.cookie(CSRF_COOKIE_NAME, csrfToken, csrfCookieOptions);
   }
 
+  // 総当たり対策: IP 単位で 60 秒あたり 5 回までに制限（グローバル既定を上書き）。
   @Post('login')
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { ttl: 60 * 1000, limit: 5 } })
   @HttpCode(HttpStatus.OK)
   async login(
     @Body() dto: LoginDto,
@@ -45,8 +49,10 @@ export class AuthController {
     return result;
   }
 
+  // 総当たり対策: IP 単位で 60 秒あたり 5 回までに制限（グローバル既定を上書き）。
   @Post('refresh')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, ThrottlerGuard)
+  @Throttle({ default: { ttl: 60 * 1000, limit: 5 } })
   @HttpCode(HttpStatus.OK)
   async refresh(
     @Request() req,
