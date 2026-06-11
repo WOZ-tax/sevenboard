@@ -96,6 +96,23 @@ describe('CashflowService.getRunway', () => {
       expect(r.alertLevel).toBe('CRITICAL');
     });
 
+    it('returns UNKNOWN (not CRITICAL) when no forecast exists, even if the org is burning cash', async () => {
+      // forecast 未作成 = 現預金残高が不明。旧実装は残高0扱いで
+      // runwayMonths≈0 → 誤って CRITICAL を出していた。残高不明は
+      // cashBalance=null / runwayMonths=null / alertLevel='UNKNOWN' で表す。
+      const prisma = createPrismaMock();
+      prisma.runwaySnapshot.findFirst.mockResolvedValue(null);
+      prisma.cashFlowEntry.findMany.mockResolvedValue(burnEntries(1_000_000)); // burn > 0
+      prisma.cashFlowForecast.findFirst.mockResolvedValue(null); // 残高不明
+      const svc = createService(prisma);
+      const r = await svc.getRunway('org-1');
+      expect(r.alertLevel).toBe('UNKNOWN');
+      expect(r.alertLevel).not.toBe('CRITICAL');
+      expect(r.cashBalance).toBeNull();
+      expect(r.runwayMonths).toBeNull();
+      expect((r as { runwayInfinite?: boolean }).runwayInfinite).toBe(false);
+    });
+
     it('SAFE with infinite-runway sentinel (999) when monthly burn is zero', async () => {
       // JSON は Infinity を表現できない(null に化けて「データ無し」と区別不能)ため、
       // 実装は有限センチネル 999 + runwayInfinite:true で「実質無限」を表す

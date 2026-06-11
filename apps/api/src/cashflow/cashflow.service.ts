@@ -87,17 +87,30 @@ export class CashflowService {
     // so that less than 3 months of data does not understate the burn rate.
     const monthsCount = Math.max(monthsSpanned.size, 1);
 
-    // Get current cash balance from the latest forecast or entries
+    // Get current cash balance from the latest forecast.
     const latestForecast = await this.prisma.cashFlowForecast.findFirst({
       where: { tenantId, orgId },
       orderBy: { forecastDate: 'desc' },
     });
 
-    const cashBalance = latestForecast
-      ? Number(latestForecast.closingBalance)
-      : 0;
-
     const monthlyBurnRate = (totalOutflow - totalInflow) / monthsCount;
+
+    // Without a forecast the current cash balance is unknown. Treating it as 0
+    // (the old behaviour) made any cash-burning org look like it had ~0 months
+    // of runway → a false CRITICAL alert. Instead, surface an explicit UNKNOWN
+    // state with null cashBalance/runwayMonths rather than fabricating a value.
+    if (!latestForecast) {
+      return {
+        snapshotDate: now,
+        cashBalance: null,
+        monthlyBurnRate: Math.round(monthlyBurnRate),
+        runwayMonths: null,
+        runwayInfinite: false,
+        alertLevel: 'UNKNOWN' as const,
+      };
+    }
+
+    const cashBalance = Number(latestForecast.closingBalance);
     // burn <= 0 means the org is not burning cash → runway is effectively infinite.
     // JSON cannot represent Infinity (it serializes to null, indistinguishable from
     // "no data"), so we cap at a finite sentinel and expose an explicit flag.

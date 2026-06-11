@@ -53,6 +53,7 @@ describe('computeAnomaliesFromSaved', () => {
   it('flags EXPECTED_VALUE_VIOLATION when balance != expectedValue (期待値=0)', () => {
     const out = computeAnomaliesFromSaved({
       monthlyBalances: { 6: 165000 },
+      monthOrder: computeMonthOrderFromFyStart(4),
       expectedRule: 'EXPECTED_VALUE',
       expectedValue: 0,
       agingCheckEnabled: false,
@@ -66,6 +67,7 @@ describe('computeAnomaliesFromSaved', () => {
   it('flags EXPECTED_VALUE_VIOLATION with non-zero expectedValue (期待値=300万)', () => {
     const out = computeAnomaliesFromSaved({
       monthlyBalances: { 6: 2_500_000 },
+      monthOrder: computeMonthOrderFromFyStart(4),
       expectedRule: 'EXPECTED_VALUE',
       expectedValue: 3_000_000,
       agingCheckEnabled: false,
@@ -79,6 +81,7 @@ describe('computeAnomaliesFromSaved', () => {
   it('does not flag EXPECTED_VALUE_VIOLATION when balance matches expectedValue', () => {
     const out = computeAnomaliesFromSaved({
       monthlyBalances: { 6: 0 },
+      monthOrder: computeMonthOrderFromFyStart(4),
       expectedRule: 'EXPECTED_VALUE',
       expectedValue: 0,
       agingCheckEnabled: false,
@@ -90,6 +93,7 @@ describe('computeAnomaliesFromSaved', () => {
   it('does not flag EXPECTED_VALUE_VIOLATION when expectedValue is null', () => {
     const out = computeAnomaliesFromSaved({
       monthlyBalances: { 6: 100000 },
+      monthOrder: computeMonthOrderFromFyStart(4),
       expectedRule: 'EXPECTED_VALUE',
       expectedValue: null,
       agingCheckEnabled: false,
@@ -99,9 +103,10 @@ describe('computeAnomaliesFromSaved', () => {
   });
 
   it('flags AGING_3M when last 3 months are identical non-zero', () => {
-    // 期首4月の場合、selectedMonth=8 → m0=6 m1=7 m2=8
+    // 期首4月 (monthOrder=[4,5,6,7,8,...]) で selectedMonth=8 → idx=4 → m0=6 m1=7 m2=8
     const out = computeAnomaliesFromSaved({
       monthlyBalances: { 6: 165000, 7: 165000, 8: 165000 },
+      monthOrder: computeMonthOrderFromFyStart(4),
       expectedRule: 'NONE',
       expectedValue: null,
       agingCheckEnabled: true,
@@ -115,6 +120,7 @@ describe('computeAnomaliesFromSaved', () => {
   it('does not flag AGING_3M when any of the 3 months is missing', () => {
     const out = computeAnomaliesFromSaved({
       monthlyBalances: { 7: 165000, 8: 165000 },
+      monthOrder: computeMonthOrderFromFyStart(4),
       expectedRule: 'NONE',
       expectedValue: null,
       agingCheckEnabled: true,
@@ -123,9 +129,25 @@ describe('computeAnomaliesFromSaved', () => {
     expect(out).toEqual([]);
   });
 
-  it('handles month wrap-around (selectedMonth=2 → checks Dec/Jan/Feb)', () => {
+  it('skips AGING_3M for the first 2 months of the fiscal year (idx < 2)', () => {
+    // 3月決算 (期首4月) で selectedMonth=5 は monthOrder の idx=1 → 判定不能。
+    // 暦ラップ実装だと m0=3月 (同FYの期末=未来) と比較して誤検知していた。
+    const out = computeAnomaliesFromSaved({
+      monthlyBalances: { 3: 5000, 4: 5000, 5: 5000 },
+      monthOrder: computeMonthOrderFromFyStart(4),
+      expectedRule: 'NONE',
+      expectedValue: null,
+      agingCheckEnabled: true,
+      selectedMonth: 5,
+    });
+    expect(out).toEqual([]);
+  });
+
+  it('uses monthOrder (not calendar wrap) — fyStart=12 → selectedMonth=2 checks Dec/Jan/Feb', () => {
+    // 12月始まり (monthOrder=[12,1,2,...]) で selectedMonth=2 → idx=2 → m0=12 m1=1 m2=2
     const out = computeAnomaliesFromSaved({
       monthlyBalances: { 12: 5000, 1: 5000, 2: 5000 },
+      monthOrder: computeMonthOrderFromFyStart(12),
       expectedRule: 'NONE',
       expectedValue: null,
       agingCheckEnabled: true,
@@ -139,6 +161,7 @@ describe('computeAnomaliesFromSaved', () => {
   it('suppresses AGING_3M when recentActivity has debit or credit > 0', () => {
     const base = {
       monthlyBalances: { 6: 165000, 7: 165000, 8: 165000 },
+      monthOrder: computeMonthOrderFromFyStart(4),
       expectedRule: 'NONE' as const,
       expectedValue: null,
       agingCheckEnabled: true,

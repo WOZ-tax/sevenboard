@@ -159,7 +159,13 @@ export class ChoshoService {
     });
 
     // 保存後即時で詳細を返す (UI が即座に「保存済 version モード」へ遷移できるように)
-    const detail = await this.getVersionInternal(orgId, versionId);
+    // monthOrder を渡して AGING_3M 再判定を builder の checkAging3M と一致させる。
+    const detail = await this.getVersionInternal(
+      orgId,
+      versionId,
+      undefined,
+      monthOrder,
+    );
     // monthOrder は preview から流用 (DB には保存しない値)
     detail.monthOrder = monthOrder;
     detail.fyStartMonth = fyStartMonth;
@@ -187,15 +193,19 @@ export class ChoshoService {
           head.selectedMonth,
         )
       : undefined;
+    // 期首月は読み取り時に Organization から再取得 (snapshot に持たない)。
+    // monthOrder を先に組み、AGING_3M 再判定 (getVersionInternal 内) に渡して
+    // builder の checkAging3M (期首起点で2つ前を参照) と挙動を一致させる。
+    const { fyStartMonth } = await this.resolveOrg(orgId);
+    const monthOrder = computeMonthOrderFromFyStart(fyStartMonth);
     const detail = await this.getVersionInternal(
       orgId,
       versionId,
       recentActivityByPath,
+      monthOrder,
     );
-    // 期首月は読み取り時に Organization から再取得 (snapshot に持たない)
-    const { fyStartMonth } = await this.resolveOrg(orgId);
     detail.fyStartMonth = fyStartMonth;
-    detail.monthOrder = computeMonthOrderFromFyStart(fyStartMonth);
+    detail.monthOrder = monthOrder;
     return detail;
   }
 
@@ -207,8 +217,16 @@ export class ChoshoService {
     orgId: string,
     versionId: string,
     recentActivityByPath?: Map<string, { debit: number; credit: number }>,
+    // 期首起点の monthOrder。AGING_3M 再判定を builder の checkAging3M と一致させるために渡す。
+    // 未指定 (旧呼び出し) なら resolveOrg から fyStartMonth を引いて推論。
+    monthOrder?: number[],
   ): Promise<ChoshoVersionDetail> {
-    const { tenantId } = await this.resolveOrg(orgId);
+    const { tenantId, fyStartMonth } = await this.resolveOrg(orgId);
+
+    // AGING_3M 再判定で使う monthOrder。呼び出し側が preview の値を渡せればそれを使い、
+    // 無ければ期首月から推論する (どちらも期首起点の月順序で同一)。
+    const resolvedMonthOrder =
+      monthOrder ?? computeMonthOrderFromFyStart(fyStartMonth);
 
     const version = await this.prisma.choshoVersion.findFirst({
       where: { id: versionId, orgId, tenantId },
@@ -236,6 +254,7 @@ export class ChoshoService {
       const recentActivity = recentActivityByPath?.get(path) ?? null;
       const anomalies = computeAnomaliesFromSaved({
         monthlyBalances,
+        monthOrder: resolvedMonthOrder,
         expectedRule: r.expectedRule as ChoshoExpectedRuleValue,
         expectedValue,
         agingCheckEnabled: r.agingCheckEnabled,
@@ -249,7 +268,11 @@ export class ChoshoService {
         recentActivity != null &&
         (r.agingCheckEnabled || r.expectedRule === 'AGING_3M') &&
         anomalies.every((a) => a.type !== 'AGING_3M') &&
-        wasMonthlyAmountSameForLast3(monthlyBalances, version.selectedMonth) &&
+        wasMonthlyAmountSameForLast3(
+          monthlyBalances,
+          resolvedMonthOrder,
+          version.selectedMonth,
+        ) &&
         (recentActivity.debit > 0 || recentActivity.credit > 0)
           ? recentActivity
           : null;
@@ -1197,15 +1220,20 @@ function toCellCommentRow(c: {
 
 /**
  * saved row の monthlyBalances で「対象月含む直近3ヶ月の非ゼロ残高が同額」かを判定する小ヘルパー。
- * computeAnomaliesFromSaved の判定式と揃えてある (selectedMonth から月またぎで遡る形)。
+ * computeAnomaliesFromSaved / builder の checkAging3M と判定式を揃えてある
+ * (暦ラップではなく monthOrder = 期首起点の月順序で「FY内で2つ前」を参照)。
+ * FY 先頭2ヶ月 (idx < 2) は比較材料不足のため判定不能 = false。
  */
 function wasMonthlyAmountSameForLast3(
   monthlyBalances: Record<number, number>,
+  monthOrder: number[],
   selectedMonth: number,
 ): boolean {
-  const m2 = selectedMonth;
-  const m1 = m2 === 1 ? 12 : m2 - 1;
-  const m0 = m1 === 1 ? 12 : m1 - 1;
+  const idx = monthOrder.indexOf(selectedMonth);
+  if (idx < 2) return false;
+  const m0 = monthOrder[idx - 2];
+  const m1 = monthOrder[idx - 1];
+  const m2 = monthOrder[idx];
   const v0 = monthlyBalances[m0];
   const v1 = monthlyBalances[m1];
   const v2 = monthlyBalances[m2];
@@ -1382,6 +1410,8 @@ export function computeMonthOrderFromFyStart(fyStartMonth: number): number[] {
  */
 export function computeAnomaliesFromSaved(input: {
   monthlyBalances: Record<number, number>;
+  /** 期首起点の月順序 (computeMonthOrderFromFyStart の戻り値)。builder の monthOrder と同義。 */
+  monthOrder: number[];
   expectedRule: ChoshoExpectedRuleValue;
   expectedValue: number | null;
   agingCheckEnabled: boolean;
@@ -1391,6 +1421,7 @@ export function computeAnomaliesFromSaved(input: {
 }): ChoshoAnomaly[] {
   const {
     monthlyBalances,
+    monthOrder,
     expectedRule,
     expectedValue,
     agingCheckEnabled,
@@ -1412,33 +1443,37 @@ export function computeAnomaliesFromSaved(input: {
     }
   }
 
-  // AGING_3M (期首月から推論した monthOrder で 3 ヶ月遡って同額判定)
+  // AGING_3M (monthOrder = 期首起点の月順序で「FY内で2つ前」を参照。builder の checkAging3M と一致)
   if (agingCheckEnabled || expectedRule === 'AGING_3M') {
-    // 期首月不明な状態だと monthOrder が組めないが、selectedMonth から逆算で
-    // 「直近3ヶ月の自然な月配列」を作る (12月→11→10 のように)。
-    const m2 = selectedMonth;
-    const m1 = m2 === 1 ? 12 : m2 - 1;
-    const m0 = m1 === 1 ? 12 : m1 - 1;
-    const v0 = monthlyBalances[m0];
-    const v1 = monthlyBalances[m1];
-    const v2 = monthlyBalances[m2];
-    if (
-      typeof v0 === 'number' &&
-      typeof v1 === 'number' &&
-      typeof v2 === 'number'
-    ) {
-      if (v2 !== 0 && v0 === v1 && v1 === v2) {
-        // activity 抑制: 直近3ヶ月で debit > 0 OR credit > 0 なら「動きあり」 → 滞留扱いしない
-        const hasActivity =
-          recentActivity != null &&
-          (recentActivity.debit > 0 || recentActivity.credit > 0);
-        if (!hasActivity) {
-          out.push({
-            type: 'AGING_3M',
-            month: selectedMonth,
-            message: `直近3ヶ月 (${m0}/${m1}/${m2}月) の残高が ¥${Math.round(v2).toLocaleString()} で動いていません`,
-            detail: { sameAmount: v2, monthsChecked: [m0, m1, m2] },
-          });
+    // 暦ラップ (12月→11→10) ではなく monthOrder ベースで遡る。
+    // 例: 3月決算 (期首4月) で selectedMonth=5 のとき idx=1 < 2 → FY 先頭2ヶ月で判定不能。
+    // これにより同FYの未来 (期末3月) と比較する誤検知を防ぎ、preview 側の判定スキップと挙動が一致する。
+    const idx = monthOrder.indexOf(selectedMonth);
+    if (idx >= 2) {
+      const m0 = monthOrder[idx - 2];
+      const m1 = monthOrder[idx - 1];
+      const m2 = monthOrder[idx];
+      const v0 = monthlyBalances[m0];
+      const v1 = monthlyBalances[m1];
+      const v2 = monthlyBalances[m2];
+      if (
+        typeof v0 === 'number' &&
+        typeof v1 === 'number' &&
+        typeof v2 === 'number'
+      ) {
+        if (v2 !== 0 && v0 === v1 && v1 === v2) {
+          // activity 抑制: 直近3ヶ月で debit > 0 OR credit > 0 なら「動きあり」 → 滞留扱いしない
+          const hasActivity =
+            recentActivity != null &&
+            (recentActivity.debit > 0 || recentActivity.credit > 0);
+          if (!hasActivity) {
+            out.push({
+              type: 'AGING_3M',
+              month: selectedMonth,
+              message: `直近3ヶ月 (${m0}/${m1}/${m2}月) の残高が ¥${Math.round(v2).toLocaleString()} で動いていません`,
+              detail: { sameAmount: v2, monthsChecked: [m0, m1, m2] },
+            });
+          }
         }
       }
     }
