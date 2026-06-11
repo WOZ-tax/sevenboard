@@ -7,6 +7,10 @@ import {
   type HealthScoreBreakdown,
 } from './health-score-calculator';
 import type { FinancialIndicators } from '../mf/types/mf-api.types';
+import {
+  fiscalMonthToDate,
+  fyStartMonthFromFiscalMonthEnd,
+} from '../common/fiscal-period.util';
 
 export interface HealthSnapshotItem {
   id: string;
@@ -47,8 +51,9 @@ export class HealthSnapshotsService {
     const { tenantId } = await this.prisma.orgScope(orgId);
     const org = await this.prisma.organization.findUnique({
       where: { id: orgId },
-      select: { industry: true },
+      select: { industry: true, fiscalMonthEnd: true },
     });
+    const fyStartMonth = fyStartMonthFromFiscalMonthEnd(org?.fiscalMonthEnd ?? 3);
 
     const [pl, bs] = await Promise.all([
       this.mfApi.getTrialBalancePL(orgId, fiscalYear, month),
@@ -60,10 +65,17 @@ export class HealthSnapshotsService {
       org?.industry ?? null,
     );
 
-    const snapshotDate = new Date(Date.UTC(fiscalYear, month - 1, 1));
+    // fiscalYear は期末年(end year)。期末年基準で実カレンダー月初へ変換する。
+    const snapshotDate = fiscalMonthToDate(fiscalYear, month, fyStartMonth);
 
-    // 1 ヶ月前のスナップショット (前月比表示用)
-    const prevMonthDate = new Date(Date.UTC(fiscalYear, month - 2, 1));
+    // 1 ヶ月前のスナップショット (前月比表示用)。実カレンダー上の前月初を採る。
+    const prevMonthDate = new Date(
+      Date.UTC(
+        snapshotDate.getUTCFullYear(),
+        snapshotDate.getUTCMonth() - 1,
+        1,
+      ),
+    );
     const prev = await this.prisma.healthSnapshot.findFirst({
       where: { tenantId, orgId, snapshotDate: prevMonthDate },
       select: { score: true },
@@ -113,13 +125,30 @@ export class HealthSnapshotsService {
     return row ? this.toItem(row) : null;
   }
 
+  /**
+   * 期末年(end year) + カレンダー月 から、保存キーとなる実カレンダー月初を求める。
+   * computeAndSave / getByMonth / updateAiQuestions が同一の式を共有するためのヘルパー。
+   */
+  private async snapshotDateFor(
+    orgId: string,
+    fiscalYear: number,
+    month: number,
+  ): Promise<Date> {
+    const org = await this.prisma.organization.findUnique({
+      where: { id: orgId },
+      select: { fiscalMonthEnd: true },
+    });
+    const fyStartMonth = fyStartMonthFromFiscalMonthEnd(org?.fiscalMonthEnd ?? 3);
+    return fiscalMonthToDate(fiscalYear, month, fyStartMonth);
+  }
+
   async getByMonth(
     orgId: string,
     fiscalYear: number,
     month: number,
   ): Promise<HealthSnapshotItem | null> {
     const { tenantId } = await this.prisma.orgScope(orgId);
-    const snapshotDate = new Date(Date.UTC(fiscalYear, month - 1, 1));
+    const snapshotDate = await this.snapshotDateFor(orgId, fiscalYear, month);
     const row = await this.prisma.healthSnapshot.findUnique({
       where: {
         tenantId_orgId_snapshotDate: { tenantId, orgId, snapshotDate },
@@ -151,7 +180,7 @@ export class HealthSnapshotsService {
     questions: string[],
   ): Promise<HealthSnapshotItem> {
     const { tenantId } = await this.prisma.orgScope(orgId);
-    const snapshotDate = new Date(Date.UTC(fiscalYear, month - 1, 1));
+    const snapshotDate = await this.snapshotDateFor(orgId, fiscalYear, month);
     const existing = await this.prisma.healthSnapshot.findUnique({
       where: { tenantId_orgId_snapshotDate: { tenantId, orgId, snapshotDate } },
     });

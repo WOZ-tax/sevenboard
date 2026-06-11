@@ -6,6 +6,10 @@ import { MfTransformService } from '../mf/mf-transform.service';
 import { RiskScanOrchestrator } from '../sentinel/risk-rules/orchestrator.service';
 import { HealthSnapshotsService } from '../health-snapshots/health-snapshots.service';
 import { postHealthSnapshotToSlack } from '../health-snapshots/health-slack-notifier';
+import {
+  fiscalMonthToCalendarYear,
+  fyStartMonthFromFiscalMonthEnd,
+} from '../common/fiscal-period.util';
 
 @Injectable()
 export class SyncService {
@@ -258,10 +262,8 @@ export class SyncService {
       select: { fiscalMonthEnd: true },
     });
     const fiscalMonthEnd = org?.fiscalMonthEnd ?? 3;
-    const mfFiscalYear = plTransition.fiscal_year;
-    const fyStartMonth = fiscalMonthEnd === 12 ? 1 : fiscalMonthEnd + 1;
-    const fyStartYear =
-      fiscalMonthEnd === 12 ? mfFiscalYear : mfFiscalYear - 1;
+    const mfFiscalYear = plTransition.fiscal_year; // 期末年(end year)
+    const fyStartMonth = fyStartMonthFromFiscalMonthEnd(fiscalMonthEnd);
     let count = 0;
 
     type Row = {
@@ -315,8 +317,11 @@ export class SyncService {
         if (!Number.isFinite(amount)) continue;
 
         const calendarMonth = monthNum;
-        const actualYear =
-          calendarMonth >= fyStartMonth ? fyStartYear : fyStartYear + 1;
+        const actualYear = fiscalMonthToCalendarYear(
+          mfFiscalYear,
+          calendarMonth,
+          fyStartMonth,
+        );
         const month = new Date(Date.UTC(actualYear, calendarMonth - 1, 1));
 
         const existing = await this.prisma.actualEntry.findFirst({

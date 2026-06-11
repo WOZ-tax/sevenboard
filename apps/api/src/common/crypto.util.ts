@@ -57,18 +57,41 @@ export function decrypt(ciphertext: string): string {
 }
 
 /**
+ * 暗号文の先頭に付ける形式マーカー。これがあれば「暗号化済み」と判定でき、
+ * 平文(暗号化前のレガシー値)との取り違えを防ぐ。
+ */
+const ENC_MARKER = 'enc:v1:';
+
+/**
  * Encrypt if key is available, otherwise return plaintext (dev mode).
+ * 暗号化時は形式マーカーを付与し、読み出し側が暗号文/平文を区別できるようにする。
  */
 export function encryptIfAvailable(plaintext: string): string {
   if (!process.env.MF_TOKEN_ENCRYPTION_KEY) return plaintext;
-  return encrypt(plaintext);
+  return ENC_MARKER + encrypt(plaintext);
 }
 
 /**
  * Decrypt if encryption key is available.
- * Throws on decryption failure (tampered data or wrong key).
+ *
+ * 2026-06-02 の本番全断(平文トークンに decrypt を強制して 500 → 全API断)の教訓を反映。
+ * 復号失敗時はハードエラーにせず、元の値(平文とみなす)を返す:
+ *   - 新フォーマット(marker付き): marker を外して復号。
+ *   - markerなしの旧暗号文: 復号を試み、成功すればそれを使う。
+ *   - markerなしの平文(暗号化導入前のレガシー): 復号は GCM 認証で失敗するため、
+ *     catch して平文をそのまま返す。
+ *   - 鍵不一致/破損で暗号文の復号に失敗した場合も、元値を返して 401→再接続フローに委ね、
+ *     500 によるサービス全断を避ける。
  */
 export function decryptIfAvailable(value: string): string {
+  if (!value) return value;
   if (!process.env.MF_TOKEN_ENCRYPTION_KEY) return value;
-  return decrypt(value); // 復号失敗時はエラーを投げる（GCM認証保証を維持）
+  const payload = value.startsWith(ENC_MARKER)
+    ? value.slice(ENC_MARKER.length)
+    : value;
+  try {
+    return decrypt(payload);
+  } catch {
+    return value;
+  }
 }
