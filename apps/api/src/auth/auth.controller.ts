@@ -9,7 +9,7 @@ import {
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
-import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
+import { Throttle } from '@nestjs/throttler';
 import { Response as ExpressResponse } from 'express';
 import { randomBytes } from 'crypto';
 import { AuthService } from './auth.service';
@@ -35,9 +35,10 @@ export class AuthController {
     res.cookie(CSRF_COOKIE_NAME, csrfToken, csrfCookieOptions);
   }
 
-  // 総当たり対策: IP 単位で 60 秒あたり 5 回までに制限（グローバル既定を上書き）。
+  // 総当たり対策: IP 単位で 60 秒あたり 5 回までに制限（グローバル ThrottlerGuard が
+  // この @Throttle メタを読む。per-method の @UseGuards(ThrottlerGuard) は二重カウントに
+  // なるため付けない）。
   @Post('login')
-  @UseGuards(ThrottlerGuard)
   @Throttle({ default: { ttl: 60 * 1000, limit: 5 } })
   @HttpCode(HttpStatus.OK)
   async login(
@@ -49,9 +50,10 @@ export class AuthController {
     return result;
   }
 
-  // 総当たり対策: IP 単位で 60 秒あたり 5 回までに制限（グローバル既定を上書き）。
+  // 総当たり対策: IP 単位で 60 秒あたり 5 回までに制限（グローバル ThrottlerGuard が
+  // @Throttle メタを読む。ここでは認証ガードのみ付与し ThrottlerGuard は重複させない）。
   @Post('refresh')
-  @UseGuards(JwtAuthGuard, ThrottlerGuard)
+  @UseGuards(JwtAuthGuard)
   @Throttle({ default: { ttl: 60 * 1000, limit: 5 } })
   @HttpCode(HttpStatus.OK)
   async refresh(

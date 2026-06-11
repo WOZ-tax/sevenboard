@@ -1,4 +1,8 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 import { MonthlyReviewApprovalService } from './monthly-review-approval.service';
 
 type ApprovalRow = {
@@ -42,6 +46,7 @@ function createPrismaMock() {
       upsert: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn(),
     },
   };
 }
@@ -104,56 +109,91 @@ describe('MonthlyReviewApprovalService', () => {
       const svc = createService(prisma);
       await expect(svc.submit('org-1', 2026, 0)).rejects.toBeInstanceOf(BadRequestException);
       await expect(svc.submit('org-1', 2026, 13)).rejects.toBeInstanceOf(BadRequestException);
-      expect(prisma.monthlyReviewApproval.upsert).not.toHaveBeenCalled();
+      expect(prisma.monthlyReviewApproval.create).not.toHaveBeenCalled();
+      expect(prisma.monthlyReviewApproval.updateMany).not.toHaveBeenCalled();
     });
 
-    it('upserts with PENDING status and clears approvedBy/approvedAt', async () => {
+    it('creates a PENDING row when none exists', async () => {
       const prisma = createPrismaMock();
-      prisma.monthlyReviewApproval.upsert.mockResolvedValue(
+      prisma.monthlyReviewApproval.findUnique.mockResolvedValue(null);
+      prisma.monthlyReviewApproval.create.mockResolvedValue(
         makeRow({ status: 'PENDING', comment: 'please review' }),
       );
       const svc = createService(prisma);
       const result = await svc.submit('org-1', 2026, 3, 'please review');
       expect(result.status).toBe('PENDING');
-      expect(prisma.monthlyReviewApproval.upsert).toHaveBeenCalledWith(
+      expect(prisma.monthlyReviewApproval.create).toHaveBeenCalledWith(
         expect.objectContaining({
-          update: expect.objectContaining({ status: 'PENDING', approvedBy: null, approvedAt: null }),
-          create: expect.objectContaining({ status: 'PENDING' }),
+          data: expect.objectContaining({ status: 'PENDING', comment: 'please review' }),
         }),
       );
+    });
+
+    it('transitions DRAFT/REJECTED/PENDING → PENDING and clears approval metadata', async () => {
+      const prisma = createPrismaMock();
+      prisma.monthlyReviewApproval.findUnique
+        .mockResolvedValueOnce(makeRow({ status: 'DRAFT' })) // existence check in submit
+        .mockResolvedValueOnce(makeRow({ status: 'PENDING', comment: 'please review' })); // get() after update
+      prisma.monthlyReviewApproval.updateMany.mockResolvedValue({ count: 1 });
+      const svc = createService(prisma);
+      const result = await svc.submit('org-1', 2026, 3, 'please review');
+      expect(result.status).toBe('PENDING');
+      expect(prisma.monthlyReviewApproval.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ status: { in: ['DRAFT', 'PENDING', 'REJECTED'] } }),
+          data: expect.objectContaining({ status: 'PENDING', approvedBy: null, approvedAt: null }),
+        }),
+      );
+    });
+
+    it('refuses to downgrade an APPROVED row (must reset first)', async () => {
+      const prisma = createPrismaMock();
+      prisma.monthlyReviewApproval.findUnique.mockResolvedValue(makeRow({ status: 'APPROVED' }));
+      const svc = createService(prisma);
+      await expect(svc.submit('org-1', 2026, 3)).rejects.toBeInstanceOf(ConflictException);
+      expect(prisma.monthlyReviewApproval.create).not.toHaveBeenCalled();
+      expect(prisma.monthlyReviewApproval.updateMany).not.toHaveBeenCalled();
     });
   });
 
   describe('approve', () => {
-    it('creates a new approval row when none exists', async () => {
+    it('refuses to approve when the row does not exist (submit required first)', async () => {
       const prisma = createPrismaMock();
       prisma.monthlyReviewApproval.findUnique.mockResolvedValue(null);
-      prisma.monthlyReviewApproval.create.mockResolvedValue(
-        makeRow({ status: 'APPROVED', approvedBy: 'user-1', approvedAt: new Date() }),
-      );
       const svc = createService(prisma);
-      const result = await svc.approve('org-1', 2026, 3, 'user-1');
-      expect(result.status).toBe('APPROVED');
-      expect(prisma.monthlyReviewApproval.create).toHaveBeenCalled();
-      expect(prisma.monthlyReviewApproval.update).not.toHaveBeenCalled();
+      await expect(svc.approve('org-1', 2026, 3, 'user-1')).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+      expect(prisma.monthlyReviewApproval.updateMany).not.toHaveBeenCalled();
     });
 
-    it('updates existing row, preserves prior comment when not provided', async () => {
+    it('transitions PENDING → APPROVED and preserves prior comment when not provided', async () => {
       const prisma = createPrismaMock();
-      prisma.monthlyReviewApproval.findUnique.mockResolvedValue(
-        makeRow({ status: 'PENDING', comment: 'prior note' }),
-      );
-      prisma.monthlyReviewApproval.update.mockResolvedValue(
-        makeRow({ status: 'APPROVED', approvedBy: 'user-1', approvedAt: new Date(), comment: 'prior note' }),
-      );
+      prisma.monthlyReviewApproval.findUnique
+        .mockResolvedValueOnce(makeRow({ status: 'PENDING', comment: 'prior note' })) // existence check
+        .mockResolvedValueOnce(
+          makeRow({ status: 'APPROVED', approvedBy: 'user-1', approvedAt: new Date(), comment: 'prior note' }),
+        ); // get() after update
+      prisma.monthlyReviewApproval.updateMany.mockResolvedValue({ count: 1 });
       const svc = createService(prisma);
       const result = await svc.approve('org-1', 2026, 3, 'user-1');
       expect(result.status).toBe('APPROVED');
       expect(result.comment).toBe('prior note');
-      expect(prisma.monthlyReviewApproval.update).toHaveBeenCalledWith(
+      expect(prisma.monthlyReviewApproval.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({ status: 'APPROVED', approvedBy: 'user-1', comment: 'prior note' }),
+          where: expect.objectContaining({ status: 'PENDING' }),
+          data: expect.objectContaining({ status: 'APPROVED', approvedBy: 'user-1' }),
         }),
+      );
+    });
+
+    it('refuses to approve a non-PENDING row (already approved/rejected)', async () => {
+      const prisma = createPrismaMock();
+      prisma.monthlyReviewApproval.findUnique.mockResolvedValue(makeRow({ status: 'APPROVED' }));
+      prisma.monthlyReviewApproval.updateMany.mockResolvedValue({ count: 0 });
+      const svc = createService(prisma);
+      await expect(svc.approve('org-1', 2026, 3, 'user-1')).rejects.toBeInstanceOf(
+        ConflictException,
       );
     });
   });
@@ -166,16 +206,34 @@ describe('MonthlyReviewApprovalService', () => {
       await expect(svc.reject('org-1', 2026, 3, 'user-1')).rejects.toBeInstanceOf(NotFoundException);
     });
 
-    it('updates to REJECTED with reviewer info', async () => {
+    it('transitions PENDING → REJECTED with reviewer info', async () => {
       const prisma = createPrismaMock();
-      prisma.monthlyReviewApproval.findUnique.mockResolvedValue(makeRow({ status: 'PENDING' }));
-      prisma.monthlyReviewApproval.update.mockResolvedValue(
-        makeRow({ status: 'REJECTED', approvedBy: 'user-2', approvedAt: new Date(), comment: 'needs revisions' }),
-      );
+      prisma.monthlyReviewApproval.findUnique
+        .mockResolvedValueOnce(makeRow({ status: 'PENDING' })) // existence check
+        .mockResolvedValueOnce(
+          makeRow({ status: 'REJECTED', approvedBy: 'user-2', approvedAt: new Date(), comment: 'needs revisions' }),
+        ); // get() after update
+      prisma.monthlyReviewApproval.updateMany.mockResolvedValue({ count: 1 });
       const svc = createService(prisma);
       const result = await svc.reject('org-1', 2026, 3, 'user-2', 'needs revisions');
       expect(result.status).toBe('REJECTED');
       expect(result.comment).toBe('needs revisions');
+      expect(prisma.monthlyReviewApproval.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ status: 'PENDING' }),
+          data: expect.objectContaining({ status: 'REJECTED', approvedBy: 'user-2' }),
+        }),
+      );
+    });
+
+    it('refuses to reject a non-PENDING row', async () => {
+      const prisma = createPrismaMock();
+      prisma.monthlyReviewApproval.findUnique.mockResolvedValue(makeRow({ status: 'APPROVED' }));
+      prisma.monthlyReviewApproval.updateMany.mockResolvedValue({ count: 0 });
+      const svc = createService(prisma);
+      await expect(svc.reject('org-1', 2026, 3, 'user-2')).rejects.toBeInstanceOf(
+        ConflictException,
+      );
     });
   });
 

@@ -49,7 +49,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { api, type OrgAdvisor, type TenantStaffRow } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth";
-import { useCurrentOrg } from "@/contexts/current-org";
+import { useCurrentOrg, deriveTenantCapabilities } from "@/contexts/current-org";
 import { useIsClient } from "@/hooks/use-is-client";
 import { cn } from "@/lib/utils";
 import { INDUSTRIES } from "@/lib/industries";
@@ -141,22 +141,33 @@ function AdvisorPortalContent() {
   const router = useRouter();
   const switchOrg = useAuthStore((s) => s.switchOrg);
   const user = useAuthStore((s) => s.user);
-  const { currentOrg, setCurrentOrgId } = useCurrentOrg();
+  const { currentOrg, setCurrentOrgId, isLoading: orgLoading } =
+    useCurrentOrg();
   const queryClient = useQueryClient();
   const hydrated = useIsClient();
 
-  // 事務所スタッフ以外はダッシュボードへ戻す（CL 側からの直接アクセスを防止）
-  const canAccess = user?.role === "owner" || user?.role === "advisor";
+  // 事務所スタッフ以外はダッシュボードへ戻す（CL 側からの直接アクセスを防止）。
+  // tenantRole 由来の capability を主判定にし、firm_admin / firm_manager で
+  // 顧問先を担当するスタッフが弾かれていた問題を是正。user.role の owner/advisor は
+  // tenantRole が取れないケースの互換フォールバックとして残す。
+  const tenantCaps = deriveTenantCapabilities(currentOrg?.tenantRole);
+  const canAccess =
+    tenantCaps.canAccessAdvisor ||
+    user?.role === "owner" ||
+    user?.role === "advisor";
   useEffect(() => {
-    if (hydrated && user && !canAccess) {
+    // membership 読み込み中は判定を保留（tenantRole 未到着の firm_admin/manager を
+    // 早期に弾かないため）。確定後に capability が無ければダッシュボードへ戻す。
+    if (hydrated && user && !orgLoading && !canAccess) {
       router.push("/");
     }
-  }, [hydrated, user, canAccess, router]);
+  }, [hydrated, user, orgLoading, canAccess, router]);
 
   const canCreateOrg = canAccess;
   const canEditOrg = canAccess;
   const canDeleteOrg = user?.role === "owner";
-  const canManageStaff = currentOrg?.tenantRole === "firm_owner";
+  // 事務所スタッフ管理: firm_owner に加え firm_admin / firm_manager も許可。
+  const canManageStaff = tenantCaps.canManageStaff;
 
   // 新規顧問先追加 modal
   const [newOrgOpen, setNewOrgOpen] = useState(false);

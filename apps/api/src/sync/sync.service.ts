@@ -73,6 +73,17 @@ export class SyncService {
         Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
       );
 
+      // 月次推移(getTransitionPL)が当月の「単月実績」を持つ正本。先にこれを同期し、
+      // 当月に書き込んだ accountId 集合を受け取る。
+      // 試算表ループ(下)は CLOSING(FY累計)を当月行に書くため、推移が当月を埋めた
+      // 科目には累計値を上書きさせない(=月次実績の汚染防止)。推移取得が失敗した場合は
+      // 当月行への書き込み自体を抑止し、FY累計が単月実績として残留しないようにする。
+      const {
+        count: monthlyEntries,
+        transitionOk,
+        currentMonthAccountIds,
+      } = await this.syncMonthlyFromTransition(orgId, tenantId, now);
+
       for (const row of allRows) {
         if (row.isHeader) continue;
 
@@ -81,6 +92,11 @@ export class SyncService {
           where: { tenantId, orgId, name: accountName },
         });
         if (!account) continue;
+
+        // 推移取得失敗時は当月行を触らない(累計値の残留を防ぐ)。
+        if (!transitionOk) continue;
+        // 推移が当月を埋めた科目は、累計値で上書きしない。
+        if (currentMonthAccountIds.has(account.id)) continue;
 
         const existing = await this.prisma.actualEntry.findFirst({
           where: {
@@ -116,17 +132,21 @@ export class SyncService {
         entriesUpserted++;
       }
 
-      const monthlyEntries = await this.syncMonthlyFromTransition(
-        orgId,
-        tenantId,
-        now,
-      );
-
-      await this.updateSyncStatus(orgId, tenantId, 'SUCCESS');
-
-      this.logger.log(
-        `Sync completed for org ${orgId}: ${accountsSynced} accounts, ${entriesUpserted} entries, ${monthlyEntries} monthly entries`,
-      );
+      // 月次推移(getTransitionPL)の取得に失敗した場合は無言で 'SUCCESS' を刻まない。
+      // SyncStatus enum に 'PARTIAL' が無いため(DB変更回避)、取得失敗は 'FAILED' として
+      // 可視化しつつ、TB同期で実際に書けた件数は戻り値に残して呼び出し側へ明示する。
+      if (transitionOk) {
+        await this.updateSyncStatus(orgId, tenantId, 'SUCCESS');
+        this.logger.log(
+          `Sync completed for org ${orgId}: ${accountsSynced} accounts, ${entriesUpserted} entries, ${monthlyEntries} monthly entries`,
+        );
+      } else {
+        await this.updateSyncStatus(orgId, tenantId, 'FAILED');
+        this.logger.warn(
+          `Sync PARTIAL for org ${orgId}: monthly transition fetch failed. ` +
+            `${accountsSynced} accounts, ${entriesUpserted} entries synced but monthly transition is incomplete.`,
+        );
+      }
 
       // 会計レビュー画面 ② 要確認アイテム用に L1 リスクスキャンをキックオフ。
       // 失敗しても sync 自体の結果は変えない。重い API 呼び出しは含むが await する
@@ -134,7 +154,9 @@ export class SyncService {
       void this.kickoffRiskScanAfterSync(orgId);
 
       return {
-        status: 'SUCCESS',
+        // 月次推移の取得失敗時は全体を成功扱いしない(部分成功を明示)。
+        status: transitionOk ? 'SUCCESS' : 'PARTIAL',
+        transitionOk,
         accountsSynced,
         entriesUpserted,
         monthlyEntries,
@@ -243,11 +265,40 @@ export class SyncService {
     orgId: string,
     tenantId: string,
     syncedAt: Date,
-  ): Promise<number> {
-    const plTransition = await this.mfApi
-      .getTransitionPL(orgId)
-      .catch(() => null);
-    if (!plTransition?.rows || !plTransition.columns) return 0;
+  ): Promise<{
+    count: number;
+    transitionOk: boolean;
+    currentMonthAccountIds: Set<string>;
+  }> {
+    // 当月(runSync と同じ UTC 月初)を埋めた accountId を呼び出し側へ返し、
+    // 試算表ループに累計値で上書きさせないために使う。
+    const currentMonthAccountIds = new Set<string>();
+    const currentMonthKey = (() => {
+      const d = new Date();
+      return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1);
+    })();
+
+    // 取得「失敗」と「データ0件」を区別する。
+    // 失敗(getTransitionPL が throw / 不正レスポンス) → transitionOk:false を返し、
+    // 呼び出し側で 'SUCCESS' を刻ませない。データ0件(正常応答だが行が無い)は
+    // transitionOk:true(取得自体は成功)として扱う。
+    let plTransition: Awaited<ReturnType<typeof this.mfApi.getTransitionPL>> | null;
+    try {
+      plTransition = await this.mfApi.getTransitionPL(orgId);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(
+        `getTransitionPL failed for org ${orgId}: ${message} — monthly transition not synced`,
+      );
+      return { count: 0, transitionOk: false, currentMonthAccountIds };
+    }
+    if (!plTransition?.rows || !plTransition.columns) {
+      // 応答はあったが構造が不正 = 取得失敗扱い。
+      this.logger.warn(
+        `getTransitionPL returned no rows/columns for org ${orgId} — treating as fetch failure`,
+      );
+      return { count: 0, transitionOk: false, currentMonthAccountIds };
+    }
 
     const monthColIdx: { idx: number; monthNum: number }[] = [];
     plTransition.columns.forEach((col, i) => {
@@ -255,7 +306,10 @@ export class SyncService {
         monthColIdx.push({ idx: i, monthNum: parseInt(col, 10) });
       }
     });
-    if (monthColIdx.length === 0) return 0;
+    // 月カラムが無いのは正常応答だが対象データ0件 → 取得は成功とみなす。
+    if (monthColIdx.length === 0) {
+      return { count: 0, transitionOk: true, currentMonthAccountIds };
+    }
 
     const org = await this.prisma.organization.findFirst({
       where: { id: orgId, tenantId },
@@ -324,6 +378,12 @@ export class SyncService {
         );
         const month = new Date(Date.UTC(actualYear, calendarMonth - 1, 1));
 
+        // この科目の当月が推移表で確定したら記録(試算表ループの累計上書きを抑止)。
+        // 値が 0 でも「推移表が当月を持っている」事実は記録する。
+        if (month.getTime() === currentMonthKey) {
+          currentMonthAccountIds.add(accountId);
+        }
+
         const existing = await this.prisma.actualEntry.findFirst({
           where: { tenantId, orgId, accountId, departmentId: null, month },
         });
@@ -350,7 +410,7 @@ export class SyncService {
       }
     }
 
-    return count;
+    return { count, transitionOk: true, currentMonthAccountIds };
   }
 
   private async updateSyncStatus(

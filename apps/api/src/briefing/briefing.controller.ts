@@ -13,6 +13,7 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  Matches,
   Max,
   Min,
 } from 'class-validator';
@@ -34,8 +35,13 @@ class UpdatePushConfigDto {
   @Max(23)
   hourJst?: number;
 
+  // SSRF対策: サーバが後段でこのURLにPOSTするため、Slack Incoming Webhook
+  // (https://hooks.slack.com/...) のみ許可。空文字は「設定解除」として通す。
   @IsOptional()
   @IsString()
+  @Matches(/^(https:\/\/hooks\.slack\.com\/[^\s]*)?$/, {
+    message: 'webhookUrl must be a https://hooks.slack.com/ URL',
+  })
   webhookUrl?: string | null;
 }
 

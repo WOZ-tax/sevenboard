@@ -17,6 +17,8 @@ import {
   readCurrentOrgStorage,
   writeCurrentOrgStorage,
 } from "@/lib/current-org-storage";
+import { usePeriodStore } from "@/lib/period-store";
+import { useCopilotStore } from "@/lib/copilot-store";
 
 export type MembershipRole = "owner" | "admin" | "member" | "viewer" | "advisor";
 
@@ -108,6 +110,13 @@ export function CurrentOrgProvider({ children }: { children: ReactNode }) {
           return Array.isArray(key) && key[0] !== "auth";
         },
       });
+      // org スコープの zustand ストアも reset。これを呼ばないと:
+      //  - period-store (sevenboard-period として localStorage 永続) が
+      //    前 org の fiscalYear/month/locked を保持し、別 org に存在しない年度で
+      //    クエリが飛ぶ。periods は次の office フェッチで再初期化される。
+      //  - copilot-store (in-memory) に前 org の会話履歴が残る。
+      usePeriodStore.getState().reset();
+      useCopilotStore.getState().reset();
     },
     [currentOrgId, queryClient],
   );
@@ -146,4 +155,38 @@ export function useCurrentOrg(): CurrentOrgContextValue {
     throw new Error("useCurrentOrg must be used within <CurrentOrgProvider>");
   }
   return ctx;
+}
+
+/**
+ * 事務所スタッフの tenantRole（firm 階層のロール）から capability を導出する。
+ *
+ * 以前は `user.role === 'owner' || 'advisor'` や
+ * `tenantRole === 'firm_owner'` 等の文字列直比較でゲーティングしていたため、
+ * firm_admin / firm_manager で顧問先を担当するスタッフが /advisor から弾かれていた。
+ * backend が effective_capabilities を membership に乗せるまでの間、最低限
+ * firm_admin / firm_manager を canAccessAdvisor / canManageStaff に含める。
+ *
+ * NOTE: 型 (Membership / AuthUser) は変えず、既存フィールドから素直に判定する。
+ */
+export function deriveTenantCapabilities(
+  tenantRole: string | null | undefined,
+): { canAccessAdvisor: boolean; canManageStaff: boolean } {
+  // 顧問先ポータル(/advisor)へアクセスできる firm ロール。
+  const advisorRoles = new Set([
+    "firm_owner",
+    "firm_admin",
+    "firm_manager",
+    "firm_advisor",
+  ]);
+  // 事務所スタッフ管理ができる firm ロール（owner に加え admin/manager も許可）。
+  const manageStaffRoles = new Set([
+    "firm_owner",
+    "firm_admin",
+    "firm_manager",
+  ]);
+  const role = tenantRole ?? "";
+  return {
+    canAccessAdvisor: advisorRoles.has(role),
+    canManageStaff: manageStaffRoles.has(role),
+  };
 }

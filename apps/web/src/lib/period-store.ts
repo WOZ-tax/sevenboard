@@ -30,6 +30,14 @@ interface PeriodState {
   setLocked: (locked: boolean) => void;
   /** MF officeデータから会計期間を初期化 */
   initPeriods: (periods: AccountingPeriod[]) => void;
+  /**
+   * 選択状態を初期値へ戻す。org 切替時に呼ぶ。
+   * sevenboard-period はグローバル永続なので、reset しないと
+   * 前 org の fiscalYear/month/locked が別 org に引き継がれ、
+   * 存在しない年度でクエリが飛ぶ。periods は次の office フェッチで
+   * 再初期化されるのでここでも空にする。
+   */
+  reset: () => void;
 }
 
 export const usePeriodStore = create<PeriodState>()(
@@ -49,11 +57,25 @@ export const usePeriodStore = create<PeriodState>()(
       setLocked: (locked) => set({ locked }),
       initPeriods: (periods) => {
         const latest = periods[0];
-        set((state) => ({
-          periods,
-          fiscalYear: state.fiscalYear ?? latest?.fiscal_year,
-        }));
+        set((state) => {
+          // 現在の fiscalYear が新しい periods に存在しなければ latest にフォールバック。
+          // org 切替で前 org の年度が残っていると、その org に無い年度でクエリが
+          // 飛ぶため、既存値を温存せず最新へ寄せる。
+          const fiscalYear =
+            state.fiscalYear != null &&
+            periods.some((p) => p.fiscal_year === state.fiscalYear)
+              ? state.fiscalYear
+              : latest?.fiscal_year;
+          return { periods, fiscalYear };
+        });
       },
+      reset: () =>
+        set({
+          fiscalYear: undefined,
+          month: undefined,
+          periods: [],
+          locked: false,
+        }),
     }),
     {
       name: 'sevenboard-period',
