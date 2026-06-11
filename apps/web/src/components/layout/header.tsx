@@ -6,7 +6,7 @@ import { LogOut, Calendar, Users } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from "@/lib/auth";
-import { useCurrentOrg } from "@/contexts/current-org";
+import { useCurrentOrg, deriveTenantCapabilities } from "@/contexts/current-org";
 import { usePeriodStore } from "@/lib/period-store";
 import { useMfOffice } from "@/hooks/use-mf-data";
 import { NotificationDropdown } from "@/components/layout/notification-dropdown";
@@ -22,12 +22,15 @@ export function AppHeader() {
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
   const office = useMfOffice();
-  const { memberships, currentRole } = useCurrentOrg();
+  const { memberships, currentRole, currentOrg } = useCurrentOrg();
   // 「顧問先一覧」リンクの表示条件:
-  //   - /advisor にアクセス可能なロール（owner / advisor）
+  //   - tenantRole 由来の capability（firm_owner/admin/manager/advisor）
+  //   - or org ロールが owner / advisor（旧来の互換フォールバック）
   //   - or memberships が 2 件以上（複数組織を行き来する人）
   //   - 現在 /advisor にいる場合は重複表示しない
+  // firm_admin / firm_manager が弾かれていた問題を tenantRole 判定で是正。
   const canAccessAdvisor =
+    deriveTenantCapabilities(currentOrg?.tenantRole).canAccessAdvisor ||
     currentRole === "owner" ||
     currentRole === "advisor" ||
     memberships.length >= 2;

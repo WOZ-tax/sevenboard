@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
-import { APP_INTERCEPTOR } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ScheduleModule } from '@nestjs/schedule';
-import { ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { PrismaModule } from './prisma/prisma.module';
 import { CacheModule } from './common/cache.module';
 import { AuditLogInterceptor } from './common/audit-log.interceptor';
@@ -104,6 +104,14 @@ import { YearEndStateModule } from './year-end-state/year-end-state.module';
     {
       provide: APP_INTERCEPTOR,
       useClass: AuditLogInterceptor,
+    },
+    // ThrottlerGuard をグローバル適用し、全ルートに既定のレート制限を効かせる。
+    // 個別ルートは @Throttle(...) でメタデータ上書き可能（グローバルガードが読む）。
+    // auth.controller の login/refresh は @UseGuards(ThrottlerGuard) を併用しているが、
+    // グローバル登録後はそちらの明示的併用は冗長（メタの @Throttle のみで足りる）。
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
     },
   ],
 })

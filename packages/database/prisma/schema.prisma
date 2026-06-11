@@ -487,6 +487,9 @@ model BudgetEntry {
   //       下記の複合 @@unique では重複を防げないため、part. unique index
   //       "budget_entry_no_dept_uniq" (budget_version_id, account_id, month) WHERE department_id IS NULL
   //       を生SQL migration (20260602180133_department_id_dedup_root_cause) で別途張って担保している。
+  // ⚠️ migrate dev 注意 (WS3 #3): この partial unique index は Prisma スキーマで表現できないため、
+  //    `prisma migrate dev` の自動生成 SQL は差分を検知して `DROP INDEX "budget_entry_no_dept_uniq";`
+  //    を吐く。生成された migration.sql は必ず目視し、当該 DROP INDEX 行を除去してからコミットすること。
   @@unique([budgetVersionId, accountId, departmentId, month], name: "budget_entry_with_dept")
   @@index([budgetVersionId, month])
   @@map("budget_entries")
@@ -517,6 +520,9 @@ model ActualEntry {
   //       下記の複合 @@unique では重複を防げないため、part. unique index
   //       "actual_entry_no_dept_uniq" (tenant_id, org_id, account_id, month) WHERE department_id IS NULL
   //       を生SQL migration (20260602180133_department_id_dedup_root_cause) で別途張って担保している。
+  // ⚠️ migrate dev 注意 (WS3 #3): この partial unique index は Prisma スキーマで表現できないため、
+  //    `prisma migrate dev` の自動生成 SQL は差分を検知して `DROP INDEX "actual_entry_no_dept_uniq";`
+  //    を吐く。生成された migration.sql は必ず目視し、当該 DROP INDEX 行を除去してからコミットすること。
   @@unique([tenantId, orgId, accountId, departmentId, month], name: "actual_entry_with_dept")
   @@index([tenantId, orgId, month])
   @@index([orgId, month])
@@ -1312,6 +1318,11 @@ model ChoshoVersion {
   rows         ChoshoRow[]
 
   /// 子テーブル (ChoshoRow) からの複合 FK ターゲット。tenantId/orgId 整合をDBで保証する。
+  // ⚠️ migrate dev 注意 (WS3 #3): このモデルには Prisma で表現できない partial unique index
+  //    "chosho_versions_one_approved_per_period" (tenant_id, org_id, fiscal_year, selected_month)
+  //    WHERE status = 'APPROVED' が生SQL migration (20260509120000_add_chosho_review) で張られている。
+  //    `prisma migrate dev` は差分を検知して `DROP INDEX "chosho_versions_one_approved_per_period";`
+  //    を吐くので、生成された migration.sql を必ず目視し当該 DROP INDEX 行を除去してからコミットすること。
   @@unique([id, tenantId, orgId])
   @@index([tenantId, orgId, fiscalYear])
   @@index([tenantId, orgId, status])
@@ -1480,6 +1491,11 @@ model JournalReviewFlag {
   flaggedBy    User?        @relation("JournalReviewFlagged", fields: [flaggedById], references: [id])
   resolvedBy   User?        @relation("JournalReviewResolved", fields: [resolvedById], references: [id])
 
+  // ⚠️ migrate dev 注意 (WS3 #3): このモデルには Prisma で表現できない partial index
+  //    "journal_review_flags_unresolved_idx" (... ) WHERE resolved_at IS NULL が生SQL migration
+  //    (20260510120000_add_journal_review_flags) で張られている (未解決フラグの絞り込み用)。
+  //    `prisma migrate dev` は差分を検知して `DROP INDEX "journal_review_flags_unresolved_idx";`
+  //    を吐くので、生成された migration.sql を必ず目視し当該 DROP INDEX 行を除去してからコミットすること。
   @@unique([tenantId, orgId, journalId])
   @@index([tenantId, orgId, fiscalYear, month])
   @@map("journal_review_flags")

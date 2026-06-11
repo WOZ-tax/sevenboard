@@ -636,24 +636,52 @@ export class MfApiService {
     orgId: string,
     params?: { startDate?: string; endDate?: string },
   ): Promise<any> {
-    const args: Record<string, any> = { per_page: 500 };
+    const PER_PAGE = 500;
+    const MAX_PAGES = 50;
+    const args: Record<string, any> = { per_page: PER_PAGE };
     if (params?.startDate) args.start_date = params.startDate;
     if (params?.endDate) args.end_date = params.endDate;
 
-    // ページネーション: 全件取得
-    const firstPage = await this.mcpRequest<any>(orgId, 'mfc_ca_getJournals', args);
-    const allJournals = [...(firstPage?.journals || [])];
+    // ページネーション: 全件取得。
+    // MF/MCP 側が per_page を要求値より小さく丸めて返す場合があるため、
+    // ハードコードした 500 ではなく「1ページ目の実効ページサイズ」を継続判定に使う。
+    // ページが満杯 (実効ページサイズちょうど) の間だけ次ページを取りに行き、
+    // 短いページが来たら最終ページとみなして終了する。これにより per_page が
+    // 100 等に丸められても 2ページ目以降が無言で欠落しない。
+    const allJournals: any[] = [];
+    let page = 1;
+    let pageSize = 0; // 1ページ目で検出する実効ページサイズ
+    let truncated = false;
 
-    // 500件ちょうどなら次ページがある可能性
-    let page = 2;
-    while (firstPage?.journals?.length === 500 && page <= 20) {
-      const nextPage = await this.mcpRequest<any>(orgId, 'mfc_ca_getJournals', { ...args, page });
-      if (!nextPage?.journals?.length) break;
-      allJournals.push(...nextPage.journals);
-      if (nextPage.journals.length < 500) break;
-      page++;
+    while (page <= MAX_PAGES) {
+      const res = await this.mcpRequest<any>(
+        orgId,
+        'mfc_ca_getJournals',
+        page === 1 ? args : { ...args, page },
+      );
+      const batch: any[] = res?.journals || [];
+      allJournals.push(...batch);
+
+      if (page === 1) pageSize = batch.length;
+
+      // 空ページ or 実効ページサイズ未満 = 最終ページ
+      if (batch.length === 0 || pageSize === 0 || batch.length < pageSize) break;
+
+      page += 1;
+      if (page > MAX_PAGES) {
+        truncated = true;
+        break;
+      }
     }
 
-    return { journals: allJournals };
+    if (truncated) {
+      this.logger.warn(
+        `getJournals: MAX_PAGES(${MAX_PAGES}) 到達で打ち切り org=${orgId} ` +
+          `range=${params?.startDate ?? '-'}..${params?.endDate ?? '-'} ` +
+          `取得=${allJournals.length}件 (全件取得できていない可能性)`,
+      );
+    }
+
+    return { journals: allJournals, truncated };
   }
 }

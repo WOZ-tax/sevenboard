@@ -10,8 +10,9 @@ COPY packages/database/package.json packages/database/
 COPY packages/shared/package.json packages/shared/
 
 # Install all deps including devDependencies (Prisma CLI is a devDep).
+# npm ci で package-lock.json に厳密一致させる(再現性確保)。
 # --include=dev で Cloud Build 環境の NODE_ENV に依存せず確実に dev も入れる。
-RUN npm install --include=dev
+RUN npm ci --include=dev
 
 # Copy source (API + packages only, skip web source)
 COPY packages/ packages/
@@ -31,5 +32,8 @@ RUN npm run build -w apps/api
 ENV NODE_ENV=production
 ENV REVIEW_SCRIPT_PATH=/app/apps/api/scripts/analyze.py
 EXPOSE 3001
+# 非root実行。ビルド成果物は root 所有だが world-readable のため node ユーザーで起動可能。
+# (起動時 migrate は既定オフのため、書き込み権限は不要)
+USER node
 CMD ["sh", "scripts/start.sh"]
 # force rebuild 2026-04-28 invalidate cache for supabase-js bypass

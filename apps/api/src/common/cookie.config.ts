@@ -11,6 +11,8 @@ export const jwtCookieOptions: CookieOptions = {
   secure: isProd,
   sameSite: isProd ? 'none' : 'lax', // Cross-origin (Vercel↔Railway) requires 'none'
   path: '/',
+  // 24h: auth.module.ts の JwtModule signOptions.expiresIn(既定 '24h' / JWT_EXPIRES_IN) と整合させること。
+  // Cookie の生存期間と署名トークン自体の有効期限を概ね一致させ、ログアウト後にトークンが残り続けないようにする。
   maxAge: 24 * 60 * 60 * 1000, // 24h
 };
 

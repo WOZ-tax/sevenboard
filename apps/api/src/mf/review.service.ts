@@ -106,7 +106,10 @@ export class ReviewService {
       let endYear = fyStartYear;
       let endMonth = fyStartMonth + lastCompletedMonth - 1;
       if (endMonth > 12) { endYear++; endMonth -= 12; }
-      const endDate = new Date(endYear, endMonth, 0).toISOString().slice(0, 10); // 月末
+      // 月末を UTC で確定する。new Date(y,m,0) はローカルTZ基準のため
+      // toISOString()(UTC変換)で JST 環境だと月末が1日前にズレ、月末仕訳が
+      // 取得範囲から漏れる。Date.UTC で組み立てて月末日を保持する。
+      const endDate = new Date(Date.UTC(endYear, endMonth, 0)).toISOString().slice(0, 10); // 月末
 
       const [plTransition, bsTransition, journals] = await Promise.all([
         this.mfApi.getTransitionPL(orgId, fiscalYear),
@@ -257,6 +260,15 @@ export class ReviewService {
           : dr.invoice_kind === 'INVOICE_KIND_NOT_TARGET' ? '' : (dr.invoice_kind || '');
         const crInv = cr.invoice_kind === 'INVOICE_KIND_80_PERCENT' ? '80%控除'
           : cr.invoice_kind === 'INVOICE_KIND_NOT_TARGET' ? '' : (cr.invoice_kind || '');
+        // 借方/貸方金額は税込で出力する。
+        // 税抜経理オフィスでは value=税抜本体・tax_value=消費税が分離保持されるため、
+        // value だけだと analyze.py 側の貸借検算(dr_amt/cr_amt は positional で
+        // row[8]/row[15] を加算)が税額分だけ歪む。value + tax_value(税込)で揃える。
+        // 税込経理オフィスは tax_value が 0/未設定のため挙動は変わらない。
+        const drAmount =
+          Number(dr.value ?? dr.amount ?? 0) + Number(dr.tax_value ?? 0);
+        const crAmount =
+          Number(cr.value ?? cr.amount ?? 0) + Number(cr.tax_value ?? 0);
         rows.push([
           String(j.number || j.id || ''),
           j.transaction_date || j.date || '',
@@ -266,14 +278,14 @@ export class ReviewService {
           dr.trade_partner_name || '',
           dr.tax_name || '',
           drInv,
-          String(dr.value || dr.amount || 0),
+          String(drAmount),
           cr.account_name || '',
           cr.sub_account_name || '',
           cr.department_name || '',
           cr.trade_partner_name || '',
           cr.tax_name || '',
           crInv,
-          String(cr.value || cr.amount || 0),
+          String(crAmount),
           b.remark || j.memo || '',
           Array.isArray(j.tags) ? j.tags.join(',') : (j.tags || ''),
           j.memo || '',

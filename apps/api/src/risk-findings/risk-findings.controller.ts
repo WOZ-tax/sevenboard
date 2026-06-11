@@ -14,6 +14,7 @@ import {
 import { FindingStatus } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { PermissionGuard } from '../auth/permission.guard';
+import { RateLimitGuard } from '../common/rate-limit.guard';
 import { RequirePermission } from '../auth/require-permission.decorator';
 import { RiskFindingsService } from './risk-findings.service';
 import { UpdateRiskFindingStatusDto } from './dto/update-status.dto';
@@ -54,7 +55,10 @@ export class RiskFindingsController {
     return this.service.updateStatus(orgId, findingId, dto.status, req.user.id);
   }
 
+  // L3 は LLM トークンを消費する高コスト処理。org 単位のレート制限を scan のみに付与
+  // (list/updateStatus は制限しない)。
   @Post('scan')
+  @UseGuards(RateLimitGuard)
   @RequirePermission('org:risk_findings:scan')
   async runScan(
     @Param('orgId', ParseUUIDPipe) orgId: string,

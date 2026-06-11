@@ -26,13 +26,14 @@ function createService(prisma: ReturnType<typeof createPrismaMock>) {
 }
 
 function burnEntries(monthlyBurn: number) {
-  // 3か月で monthlyBurn*3 の純流出になる outflow のみのエントリを1件作る
+  // getRunway は「エントリが実際にまたぐ異なる暦月数」でバーンを平均する仕様
+  // (monthsSpanned)。よって月次バーン monthlyBurn を表現するには、3つの別々の
+  // 暦月にそれぞれ monthlyBurn の outflow を置く(合計 monthlyBurn*3 ÷ 3か月 = monthlyBurn)。
+  // 日付は mock の findMany が where を無視して返すため固定の過去3か月でよい。
   return [
-    {
-      amount: monthlyBurn * 3,
-      category: { direction: 'OUT' },
-      entryDate: new Date(),
-    },
+    { amount: monthlyBurn, category: { direction: 'OUT' }, entryDate: new Date('2026-01-15T00:00:00Z') },
+    { amount: monthlyBurn, category: { direction: 'OUT' }, entryDate: new Date('2026-02-15T00:00:00Z') },
+    { amount: monthlyBurn, category: { direction: 'OUT' }, entryDate: new Date('2026-03-15T00:00:00Z') },
   ];
 }
 
@@ -95,14 +96,35 @@ describe('CashflowService.getRunway', () => {
       expect(r.alertLevel).toBe('CRITICAL');
     });
 
-    it('SAFE with Infinity runway when monthly burn is zero', async () => {
+    it('returns UNKNOWN (not CRITICAL) when no forecast exists, even if the org is burning cash', async () => {
+      // forecast 未作成 = 現預金残高が不明。旧実装は残高0扱いで
+      // runwayMonths≈0 → 誤って CRITICAL を出していた。残高不明は
+      // cashBalance=null / runwayMonths=null / alertLevel='UNKNOWN' で表す。
+      const prisma = createPrismaMock();
+      prisma.runwaySnapshot.findFirst.mockResolvedValue(null);
+      prisma.cashFlowEntry.findMany.mockResolvedValue(burnEntries(1_000_000)); // burn > 0
+      prisma.cashFlowForecast.findFirst.mockResolvedValue(null); // 残高不明
+      const svc = createService(prisma);
+      const r = await svc.getRunway('org-1');
+      expect(r.alertLevel).toBe('UNKNOWN');
+      expect(r.alertLevel).not.toBe('CRITICAL');
+      expect(r.cashBalance).toBeNull();
+      expect(r.runwayMonths).toBeNull();
+      expect((r as { runwayInfinite?: boolean }).runwayInfinite).toBe(false);
+    });
+
+    it('SAFE with infinite-runway sentinel (999) when monthly burn is zero', async () => {
+      // JSON は Infinity を表現できない(null に化けて「データ無し」と区別不能)ため、
+      // 実装は有限センチネル 999 + runwayInfinite:true で「実質無限」を表す
+      // (フロントは >= 999 を無限として扱う既存契約)。
       const prisma = createPrismaMock();
       prisma.runwaySnapshot.findFirst.mockResolvedValue(null);
       prisma.cashFlowEntry.findMany.mockResolvedValue([]);
       prisma.cashFlowForecast.findFirst.mockResolvedValue({ closingBalance: 5_000_000 });
       const svc = createService(prisma);
       const r = await svc.getRunway('org-1');
-      expect(r.runwayMonths).toBe(Infinity);
+      expect(r.runwayMonths).toBe(999);
+      expect((r as { runwayInfinite?: boolean }).runwayInfinite).toBe(true);
       expect(r.alertLevel).toBe('SAFE');
     });
   });

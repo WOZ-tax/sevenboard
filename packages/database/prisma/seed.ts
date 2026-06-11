@@ -1,10 +1,68 @@
+import { randomUUID } from 'node:crypto';
 import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
 const isProductionSeed = process.env.IS_PRODUCTION_SEED === 'true';
+// SECURITY (WS3 #1): dev デモ seed は「フェイルオープン」だった。
+//   旧実装: IS_PRODUCTION_SEED!=='true' がデフォルトで dev seed を実行し、
+//   admin@demo.com / password123 の platform_owner/firm_owner を upsert
+//   (既存パスワードも update で上書き) していた。本番 DB に対して誤って
+//   `prisma db seed` を打つと弱クレデンシャルの管理者が注入される事故になる。
+//   → デフォルトを安全側 (no-op) に反転。dev デモ seed は SEED_DEMO==='true' を
+//     明示したときだけ実行する。さらに本番ホストへの dev seed は下記ガードで拒否。
+const isDemoSeedEnabled = process.env.SEED_DEMO === 'true';
 const SEVENRICH_TENANT_ID = '00000000-0000-0000-0000-000000000777';
+
+// dev デモ seed が本番 DB を踏むのを防ぐガード。
+// DATABASE_URL のホストが本番 (Supabase 等) を指している場合は dev seed を拒否する。
+// 明示的に許可したい場合のみ ALLOW_DEMO_SEED_ON_PROD_HOST=true を立てる (CI 検証等)。
+function assertNotProductionHostForDemoSeed(): void {
+  if (process.env.ALLOW_DEMO_SEED_ON_PROD_HOST === 'true') return;
+  const url = process.env.DATABASE_URL ?? '';
+  // 本番系ホストの目印: マネージド Postgres / 本番ドメイン。
+  const PROD_HOST_MARKERS = [
+    'supabase.co',
+    'supabase.com',
+    'pooler.supabase',
+    'amazonaws.com',
+    'neon.tech',
+    'render.com',
+    'sevenrich',
+  ];
+  let host = '';
+  try {
+    host = new URL(url).host.toLowerCase();
+  } catch {
+    // パースできない URL はローカル扱い (空文字) とし、マーカー判定に委ねる。
+    host = url.toLowerCase();
+  }
+  const hit = PROD_HOST_MARKERS.find((m) => host.includes(m));
+  if (hit) {
+    throw new Error(
+      `Refusing to run dev demo seed against a production-looking DATABASE_URL host ` +
+        `(matched "${hit}"). Set ALLOW_DEMO_SEED_ON_PROD_HOST=true only if this is intentional.`,
+    );
+  }
+}
+
+// dev デモ用パスワードを環境変数から取得する。
+//   - SEED_DEMO_PASSWORD があればそれを使う。
+//   - 無ければ毎回ランダム生成し、平文をログに 1 度だけ出す
+//     (ハードコードした弱クレデンシャルを撒かないため)。
+function resolveDemoPassword(): { password: string; generated: boolean } {
+  const fromEnv = process.env.SEED_DEMO_PASSWORD;
+  if (fromEnv && fromEnv.length >= 8) {
+    return { password: fromEnv, generated: false };
+  }
+  if (fromEnv && fromEnv.length < 8) {
+    throw new Error('SEED_DEMO_PASSWORD must be at least 8 characters.');
+  }
+  // crypto.randomUUID は Node18+ で利用可能。十分なエントロピーを持つ一時 PW。
+  const random = `${randomUUID()}-${randomUUID()}`.replace(/-/g, '');
+  return { password: random, generated: true };
+}
 
 async function ensureSevenrichTenant() {
   return prisma.tenant.upsert({
@@ -108,7 +166,15 @@ async function seedDevelopment() {
   console.log(`  ✅ Organization: ${org.name}`);
 
   // 2. ユーザー
-  const hashedPassword = await bcrypt.hash('password123', 12);
+  // SECURITY (WS3 #1): 弱クレデンシャル 'password123' のハードコードを撤廃。
+  //   SEED_DEMO_PASSWORD があればそれを、無ければランダム生成した一時 PW を使う。
+  const { password: demoPassword, generated } = resolveDemoPassword();
+  if (generated) {
+    console.log(
+      `  🔑 Generated demo password (set SEED_DEMO_PASSWORD to fix it): ${demoPassword}`,
+    );
+  }
+  const hashedPassword = await bcrypt.hash(demoPassword, 12);
 
   // admin@demo.com は SEVENRICH 事務所オーナー（内部スタッフ）。
   // G-1 設計: 内部スタッフは orgId=NULL & role=owner/advisor。
@@ -225,9 +291,11 @@ async function seedDevelopment() {
 
   for (const acc of accounts) {
     await prisma.accountMaster.upsert({
-      where: { orgId_code: { orgId: org.id, code: acc.code } },
+      // schema.prisma の @@unique([tenantId, orgId, code]) に対応。
+      where: { tenantId_orgId_code: { tenantId: tenant.id, orgId: org.id, code: acc.code } },
       update: {},
       create: {
+        tenantId: tenant.id,
         orgId: org.id,
         code: acc.code,
         name: acc.name,
@@ -241,9 +309,11 @@ async function seedDevelopment() {
 
   // 4. 会計年度
   const fy = await prisma.fiscalYear.upsert({
-    where: { orgId_year: { orgId: org.id, year: 2025 } },
+    // schema.prisma の @@unique([tenantId, orgId, year]) に対応。
+    where: { tenantId_orgId_year: { tenantId: tenant.id, orgId: org.id, year: 2025 } },
     update: {},
     create: {
+      tenantId: tenant.id,
       orgId: org.id,
       year: 2025,
       startDate: new Date('2025-04-01'),
@@ -266,7 +336,7 @@ async function seedDevelopment() {
   });
 
   // 予算データ投入（12ヶ月分、主要科目のみ）
-  const accountRecords = await prisma.accountMaster.findMany({ where: { orgId: org.id } });
+  const accountRecords = await prisma.accountMaster.findMany({ where: { tenantId: tenant.id, orgId: org.id } });
   const accountMap = Object.fromEntries(accountRecords.map((a) => [a.code, a.id]));
 
   const monthlyBudgets: Record<string, number> = {
@@ -325,6 +395,7 @@ async function seedDevelopment() {
   for (const cat of cfCategories) {
     await prisma.cashFlowCategory.create({
       data: {
+        tenantId: tenant.id,
         orgId: org.id,
         name: cat.name,
         direction: cat.direction,
@@ -340,6 +411,7 @@ async function seedDevelopment() {
   // 7. ランウェイスナップショット
   await prisma.runwaySnapshot.create({
     data: {
+      tenantId: tenant.id,
       orgId: org.id,
       snapshotDate: new Date('2026-03-31'),
       cashBalance: 25_000_000,
@@ -356,9 +428,19 @@ async function seedDevelopment() {
 async function main() {
   if (isProductionSeed) {
     await seedProduction();
-  } else {
-    await seedDevelopment();
+    return;
   }
+  // SECURITY (WS3 #1): デフォルトは安全側 (no-op)。dev デモ seed は SEED_DEMO==='true'
+  //   を明示したときだけ実行する。さらに本番ホストへの実行はガードで拒否。
+  if (isDemoSeedEnabled) {
+    assertNotProductionHostForDemoSeed();
+    await seedDevelopment();
+    return;
+  }
+  console.log(
+    '⏭️  No seed executed. Set IS_PRODUCTION_SEED=true for the owner-only ' +
+      'production seed, or SEED_DEMO=true for the dev demo seed.',
+  );
 }
 
 main()

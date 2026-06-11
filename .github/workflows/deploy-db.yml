@@ -1,15 +1,25 @@
 name: DB Migration
 
+# 本番DBへの `prisma migrate deploy` は破壊的になりうるため、
+# push トリガでの無人自動実行は禁止。手動実行(workflow_dispatch)のみとし、
+# さらに `production-db` environment の承認ゲートを通さないと migrate が走らない。
+# これによりデプロイ(コンテナ起動)と本番マイグレーションを分離する。
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'packages/database/prisma/**'
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "MIGRATE" to confirm running prisma migrate deploy against production'
+        required: true
+        default: ''
 
 jobs:
   migrate:
     name: Apply Migrations
     runs-on: ubuntu-latest
+    # GitHub の environment 承認ルール(required reviewers)で人手の承認を必須化する。
+    environment: production-db
+    # 誤起動の二重ガード: 確認文字列が一致しない限り何もしない。
+    if: ${{ github.event.inputs.confirm == 'MIGRATE' }}
 
     steps:
       - uses: actions/checkout@v4

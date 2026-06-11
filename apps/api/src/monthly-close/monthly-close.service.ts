@@ -46,6 +46,26 @@ export class MonthlyCloseService {
     }
 
     const { tenantId } = await this.prisma.orgScope(orgId);
+
+    // 「軽い締め」方針（CLOSE_REQUIRES_REVIEW=false）は維持し、締め自体は緩いまま。
+    // ただし締め済み(CLOSED)を OPEN へ直接戻す再開だけは、理由(note)を伴わない
+    // 無言の巻き戻しを禁止して監査痕跡を残す。reopen 自体は note を付ければ可能。
+    const current = await this.prisma.monthlyClose.findUnique({
+      where: {
+        tenantId_orgId_fiscalYear_month: { tenantId, orgId, fiscalYear, month },
+      },
+      select: { status: true },
+    });
+    if (
+      current?.status === 'CLOSED' &&
+      status === 'OPEN' &&
+      !(note && note.trim())
+    ) {
+      throw new BadRequestException(
+        '締め済み月を再開(OPEN)するには理由(note)が必要です',
+      );
+    }
+
     return this.prisma.monthlyClose.upsert({
       where: {
         tenantId_orgId_fiscalYear_month: {

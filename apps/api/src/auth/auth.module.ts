@@ -22,7 +22,10 @@ import { MfModule } from '../mf/mf.module';
         if (process.env.NODE_ENV === 'production') throw new Error('JWT_SECRET is required');
         return 'sevenboard-dev-secret-do-not-use-in-production';
       })(),
-      signOptions: { expiresIn: '30d' },
+      // 短命 access token: 漏洩トークンの寿命を 30d→24h に短縮し、Bearer 抜き取り時の被害を限定。
+      // 既定 '24h' は cookie.config.ts の jwtCookieOptions.maxAge(24h) と整合させること(変更時は両方更新)。
+      // 失効運用は短命 access + /auth/refresh で実現。完全失効(tokenVersion)は別途。
+      signOptions: { expiresIn: process.env.JWT_EXPIRES_IN || '24h' },
     }),
   ],
   controllers: [AuthController, MfOAuthController],

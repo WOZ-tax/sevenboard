@@ -11,6 +11,15 @@ import { CreateBudgetVersionDto } from './dto/create-budget-version.dto';
 import { UpdateBudgetEntriesDto } from './dto/update-budget-entries.dto';
 
 /**
+ * "2026-04-01" / "2026-04-15" 等を月初 (UTC) の Date に正規化する。
+ * new Date(str) のタイムゾーン依存・日付ずれで月キーが分裂するのを防ぐ。
+ */
+function normalizeMonth(month: string): Date {
+  const d = new Date(month);
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
+}
+
+/**
  * 予算バージョン / エントリ管理。
  *
  * セキュリティ: route param が orgId を持たないため（fyId / bvId 直指定）、
@@ -143,43 +152,83 @@ export class BudgetsService {
     budgetVersionId: string,
     dto: UpdateBudgetEntriesDto,
   ) {
-    await this.assertBvAccess(user, budgetVersionId, 'org:budgets:update');
-
-    // 更新対象 entry が指定 bvId に属することを保証するため、
-    // updateMany({ where: { id, budgetVersionId } }) で count を取って 0 ならエラー
-    const results = await this.prisma.$transaction(
-      dto.entries.map((entry) => {
-        if (entry.id) {
-          return this.prisma.budgetEntry.updateMany({
-            where: { id: entry.id, budgetVersionId },
-            data: { amount: entry.amount },
-          });
-        }
-        return this.prisma.budgetEntry.create({
-          data: {
-            budgetVersionId,
-            accountId: entry.accountId,
-            departmentId: entry.departmentId || null,
-            month: new Date(entry.month),
-            amount: entry.amount,
-          },
-        });
-      }),
+    const bv = await this.assertBvAccess(
+      user,
+      budgetVersionId,
+      'org:budgets:update',
     );
+    const { tenantId, orgId } = bv.fiscalYear;
 
-    // updateMany が count: 0 を返した = 別 bvId の entry id を混ぜた攻撃を検知
-    for (const r of results) {
-      if (
-        typeof r === 'object' &&
-        r !== null &&
-        'count' in r &&
-        (r as { count: number }).count === 0
-      ) {
+    // create 経路で参照する accountId / departmentId が同一 tenant/org のマスタに
+    // 属することを事前検証（IDOR で他社マスタを参照・読取されるのを防ぐ）。
+    const createEntries = dto.entries.filter((e) => !e.id);
+    const accountIds = [
+      ...new Set(createEntries.map((e) => e.accountId).filter(Boolean)),
+    ];
+    const departmentIds = [
+      ...new Set(
+        createEntries
+          .map((e) => e.departmentId)
+          .filter((d): d is string => !!d),
+      ),
+    ];
+    if (accountIds.length > 0) {
+      const found = await this.prisma.accountMaster.findMany({
+        where: { tenantId, orgId, id: { in: accountIds } },
+        select: { id: true },
+      });
+      if (found.length !== accountIds.length) {
         throw new ForbiddenException(
-          '指定された entry はこの budget version に属していません',
+          '指定された account はこの組織に属していません',
         );
       }
     }
-    return results;
+    if (departmentIds.length > 0) {
+      const found = await this.prisma.department.findMany({
+        where: { tenantId, orgId, id: { in: departmentIds } },
+        select: { id: true },
+      });
+      if (found.length !== departmentIds.length) {
+        throw new ForbiddenException(
+          '指定された department はこの組織に属していません',
+        );
+      }
+    }
+
+    // 部分書込み防止: interactive transaction 内で count===0 を検知したら throw し、
+    // トランザクション全体をロールバックする（配列 $transaction はコミット後に
+    // throw しても巻き戻せないため interactive 版へ移行）。
+    return this.prisma.$transaction(async (tx) => {
+      const results: Array<{ count: number } | { id: string }> = [];
+      for (const entry of dto.entries) {
+        if (entry.id) {
+          // 更新対象 entry が指定 bvId に属することを where 句で強制。
+          const r = await tx.budgetEntry.updateMany({
+            where: { id: entry.id, budgetVersionId },
+            data: { amount: entry.amount },
+          });
+          if (r.count === 0) {
+            // 別 bvId の entry id を混ぜた攻撃 or 存在しない id。
+            throw new ForbiddenException(
+              '指定された entry はこの budget version に属していません',
+            );
+          }
+          results.push(r);
+        } else {
+          const created = await tx.budgetEntry.create({
+            data: {
+              budgetVersionId,
+              accountId: entry.accountId,
+              departmentId: entry.departmentId || null,
+              // 月初(UTC)に正規化して "2026-04-15" 等でも月キーがぶれないようにする。
+              month: normalizeMonth(entry.month),
+              amount: entry.amount,
+            },
+          });
+          results.push(created);
+        }
+      }
+      return results;
+    });
   }
 }

@@ -25,6 +25,15 @@ async function bootstrap() {
 
   const app = await NestFactory.create(AppModule);
 
+  // Cloud Run / LB の背後では実クライアント IP は X-Forwarded-For 末尾に入る。
+  // trust proxy を有効化しないと req.ip がプロキシ IP になり、ログイン総当り
+  // スロットルや監査ログの IP が全ユーザー共通バケット化して無意味になる。
+  app.getHttpAdapter().getInstance().set('trust proxy', 1);
+
+  // SIGTERM(スケールダウン/新リビジョン切替) 時に in-flight 処理を待ってから
+  // Prisma 等の onModuleDestroy を発火させる。
+  app.enableShutdownHooks();
+
   const corsOrigin = (process.env.CORS_ORIGIN || 'http://localhost:3000')
     .split(',')
     .map((s) => s.trim())
@@ -54,20 +63,26 @@ async function bootstrap() {
   app.useGlobalGuards(new CsrfGuard());
   app.useGlobalFilters(new AllExceptionsFilter());
 
-  // Swagger / OpenAPI
-  const swaggerConfig = new DocumentBuilder()
-    .setTitle('SevenBoard API')
-    .setVersion('1.0')
-    .addBearerAuth()
-    .addCookieAuth('sb_token')
-    .build();
-  const document = SwaggerModule.createDocument(app, swaggerConfig);
-  SwaggerModule.setup('api-docs', app, document);
+  // Swagger / OpenAPI は本番では全エンドポイント/スキーマを匿名公開してしまうため、
+  // 本番以外でのみ有効化する。
+  const swaggerEnabled = process.env.NODE_ENV !== 'production';
+  if (swaggerEnabled) {
+    const swaggerConfig = new DocumentBuilder()
+      .setTitle('SevenBoard API')
+      .setVersion('1.0')
+      .addBearerAuth()
+      .addCookieAuth('sb_token')
+      .build();
+    const document = SwaggerModule.createDocument(app, swaggerConfig);
+    SwaggerModule.setup('api-docs', app, document);
+  }
 
   const port = process.env.PORT || 3001;
   await app.listen(port);
   console.log(`SevenBoard API running on http://localhost:${port}`);
-  console.log(`Swagger UI available at http://localhost:${port}/api-docs`);
+  if (swaggerEnabled) {
+    console.log(`Swagger UI available at http://localhost:${port}/api-docs`);
+  }
   // 資格情報の prefix も本番ログに載せない（有/無のみ）
   console.log(`MF token loaded: ${process.env.MF_ACCESS_TOKEN ? 'yes' : 'no'}`);
 }

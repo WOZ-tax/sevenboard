@@ -28,9 +28,14 @@ export class CsrfGuard implements CanActivate {
       return true;
     }
 
-    // 認証エンドポイントはCSRF除外（まだトークンがない）
+    // 認証エンドポイントはCSRF除外（まだトークンがない）。
+    // 除外は「まだ認証Cookieが存在しないログイン」と「ブラウザリダイレクトで戻る
+    // GET の OAuth callback」だけに限定する。
+    // 注意: /auth/mf/ を前方一致で丸ごと除外すると、副作用のある状態変更POST
+    // /auth/mf/refresh まで免除され、本番Cookie(sameSite:'none')下でCSRFを許してしまう。
+    // callback は冪等GETなので冒頭のメソッド判定でも素通りするが、意図を明示するため列挙する。
     const path = req.path || req.url || '';
-    if (path.startsWith('/auth/login') || path.startsWith('/auth/mf/')) {
+    if (path.startsWith('/auth/login') || path.startsWith('/auth/mf/callback')) {
       return true;
     }
 

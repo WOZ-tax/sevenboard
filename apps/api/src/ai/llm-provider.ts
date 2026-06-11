@@ -3,6 +3,17 @@ import { Logger } from '@nestjs/common';
 import { lastValueFrom } from 'rxjs';
 import { AxiosResponse } from 'axios';
 
+// ==========================================
+// モデルID集約（直書き散在を排除）
+// 既定値は従来の挙動を維持し、env で差し替え可能にする。
+// 挙動を変えないため既存のモデル文字列をそのまま既定値に据える（モデル移行は別途明示指示で行う）。
+// ==========================================
+const CLAUDE_MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-20250514';
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3-flash-preview';
+const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
+const ANTHROPIC_VERSION = '2023-06-01';
+const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
+
 export interface LlmResponse {
   text: string;
 }
@@ -84,16 +95,16 @@ export class ClaudeProvider implements LlmProvider {
   async generate(prompt: string, options?: { maxTokens?: number; json?: boolean }): Promise<LlmResponse> {
     const res: AxiosResponse = await lastValueFrom(
       this.httpService.post(
-        'https://api.anthropic.com/v1/messages',
+        ANTHROPIC_API_URL,
         {
-          model: 'claude-sonnet-4-20250514',
+          model: CLAUDE_MODEL,
           max_tokens: options?.maxTokens || 2048,
           messages: [{ role: 'user', content: prompt }],
         },
         {
           headers: {
             'x-api-key': this.apiKey,
-            'anthropic-version': '2023-06-01',
+            'anthropic-version': ANTHROPIC_VERSION,
             'Content-Type': 'application/json',
           },
         },
@@ -114,17 +125,17 @@ export class ClaudeProvider implements LlmProvider {
     options?: { maxTokens?: number },
   ): AsyncGenerator<string, void, unknown> {
     const body = JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
+      model: CLAUDE_MODEL,
       max_tokens: options?.maxTokens || 2048,
       messages: [{ role: 'user', content: prompt }],
       stream: true,
     });
 
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
+    const res = await fetch(ANTHROPIC_API_URL, {
       method: 'POST',
       headers: {
         'x-api-key': this.apiKey,
-        'anthropic-version': '2023-06-01',
+        'anthropic-version': ANTHROPIC_VERSION,
         'Content-Type': 'application/json',
       },
       body,
@@ -195,7 +206,7 @@ export class ClaudeProvider implements LlmProvider {
 
     for (let iter = 0; iter < maxIterations; iter++) {
       const body: Record<string, unknown> = {
-        model: 'claude-sonnet-4-20250514',
+        model: CLAUDE_MODEL,
         max_tokens: options?.maxTokens || 2048,
         messages,
         tools,
@@ -203,10 +214,10 @@ export class ClaudeProvider implements LlmProvider {
       if (options?.system) body.system = options.system;
 
       const res: AxiosResponse = await lastValueFrom(
-        this.httpService.post('https://api.anthropic.com/v1/messages', body, {
+        this.httpService.post(ANTHROPIC_API_URL, body, {
           headers: {
             'x-api-key': this.apiKey,
-            'anthropic-version': '2023-06-01',
+            'anthropic-version': ANTHROPIC_VERSION,
             'Content-Type': 'application/json',
           },
         }) as any,
@@ -283,8 +294,8 @@ export class GeminiProvider implements LlmProvider {
   ) {}
 
   async generate(prompt: string, options?: { maxTokens?: number; json?: boolean }): Promise<LlmResponse> {
-    const model = 'gemini-3-flash-preview';
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${this.apiKey}`;
+    // API キーは URL クエリ(?key=)ではなく x-goog-api-key ヘッダで送る（ログ/履歴へのキー漏れ防止）
+    const url = `${GEMINI_API_BASE}/${GEMINI_MODEL}:generateContent`;
 
     const body: any = {
       contents: [{ parts: [{ text: prompt }] }],
@@ -301,7 +312,10 @@ export class GeminiProvider implements LlmProvider {
 
     const res: AxiosResponse = await lastValueFrom(
       this.httpService.post(url, body, {
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': this.apiKey,
+        },
       }) as any,
     );
 
@@ -315,8 +329,8 @@ export class GeminiProvider implements LlmProvider {
     handler: ToolUseHandler,
     options?: LlmToolRunOptions,
   ): Promise<LlmToolRunResult> {
-    const model = 'gemini-3-flash-preview';
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${this.apiKey}`;
+    // API キーは URL クエリ(?key=)ではなく x-goog-api-key ヘッダで送る（ログ/履歴へのキー漏れ防止）
+    const url = `${GEMINI_API_BASE}/${GEMINI_MODEL}:generateContent`;
     const maxIterations = options?.maxIterations ?? 4;
 
     // Gemini は Anthropic と違い input_schema ではなく parameters を使う
@@ -354,7 +368,10 @@ export class GeminiProvider implements LlmProvider {
 
       const res: AxiosResponse = await lastValueFrom(
         this.httpService.post(url, body, {
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': this.apiKey,
+          },
         }) as any,
       );
 

@@ -6,11 +6,21 @@ import { cn } from "@/lib/utils";
 
 const DEFAULT_URL_DISPLAY_LIMIT = 44;
 
+// href に出してよいスキームのみ許可する。javascript:/data:/vbscript: 等を
+// 弾かないと、コメントの urls[](ユーザー/MF 由来文字列)経由で格納型 XSS になる。
+const SAFE_URL_SCHEMES = new Set(["http:", "https:", "mailto:", "tel:"]);
+
 export function navigableUrl(rawUrl: string): string {
   const trimmed = rawUrl.trim();
   if (!trimmed) return "#";
   if (isLocalFolderPath(trimmed)) return "#";
-  if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) return trimmed;
+  // スキーム付き: 許可リストにあるものだけ通す。それ以外(javascript: 等)は無効化。
+  const schemeMatch = trimmed.match(/^([a-z][a-z0-9+.-]*):/i);
+  if (schemeMatch) {
+    return SAFE_URL_SCHEMES.has(schemeMatch[1].toLowerCase() + ":")
+      ? trimmed
+      : "#";
+  }
   if (trimmed.startsWith("//")) return `https:${trimmed}`;
   return `https://${trimmed}`;
 }

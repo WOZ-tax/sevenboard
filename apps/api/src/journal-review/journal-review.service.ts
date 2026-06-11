@@ -6,6 +6,7 @@ import {
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { MfApiService } from '../mf/mf-api.service';
+import { fiscalMonthToCalendarYear } from '../common/fiscal-period.util';
 
 /**
  * 仕訳レビュー: 「要確認」フラグ + (Phase 2-2 で) コメントスレッド を扱う service。
@@ -409,7 +410,8 @@ export class JournalReviewService {
     month: number,
     fyStartMonth: number,
   ): Promise<void> {
-    const year = month >= fyStartMonth ? fiscalYear : fiscalYear + 1;
+    // fiscalYear は期末年(end year)。期末年基準で実カレンダー年へ変換する。
+    const year = fiscalMonthToCalendarYear(fiscalYear, month, fyStartMonth);
     const range = monthRange(year, month);
     const data = await this.mfApi.getJournals(orgId, {
       startDate: range.start,
