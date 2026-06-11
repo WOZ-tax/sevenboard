@@ -1,0 +1,6 @@
+# シェルスクリプトとコンテナ起動系は必ず LF 改行にする。
+# (Windows 編集で CRLF になると Linux コンテナの /bin/sh が起動失敗する)
+*.sh text eol=lf
+scripts/start.sh text eol=lf
+Dockerfile text eol=lf
+docker-compose.yml text eol=lf
