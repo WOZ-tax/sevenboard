@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   AlertTriangle,
+  CalendarDays,
   FileText,
   ListChecks,
   Receipt,
@@ -15,7 +16,6 @@ import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { PeriodSegmentControl } from "@/components/ui/period-segment-control";
 import { useCurrentOrg } from "@/contexts/current-org";
 import { useScopedOrgId } from "@/hooks/use-scoped-org-id";
 import { useMfOffice } from "@/hooks/use-mf-data";
@@ -27,24 +27,54 @@ import type {
   WithholdingTaxPreviewResult,
   WithholdingTaxSummaryRow,
 } from "@/lib/api";
-import { getPeriodLabel, usePeriodStore } from "@/lib/period-store";
 import { cn } from "@/lib/utils";
 
 export default function WithholdingTaxPage() {
   const { currentOrg } = useCurrentOrg();
   const orgId = useScopedOrgId();
   const office = useMfOffice();
-  const { fiscalYear, month, periods } = usePeriodStore();
-  const selectedFiscalYear =
-    fiscalYear ??
-    office.data?.accounting_periods?.[0]?.fiscal_year ??
-    new Date().getFullYear();
-  const periodLabel = getPeriodLabel(selectedFiscalYear, month, periods);
+  const initialYear = new Date().getFullYear();
+  const initializedFromOffice = useRef(false);
+  const [periodYear, setPeriodYear] = useState(initialYear);
+  const [dateRange, setDateRange] = useState(() => calendarYearRange(initialYear));
+  const officeDefaultYear = office.data?.accounting_periods?.[0]?.fiscal_year;
+  const availableYears = useMemo(() => {
+    const years = new Set<number>();
+    for (const period of office.data?.accounting_periods ?? []) {
+      if (Number.isInteger(period.fiscal_year)) years.add(period.fiscal_year);
+    }
+    years.add(new Date().getFullYear());
+    years.add(new Date().getFullYear() - 1);
+    return Array.from(years).sort((a, b) => b - a);
+  }, [office.data?.accounting_periods]);
+  const isRangeValid =
+    isDateInput(dateRange.startDate) &&
+    isDateInput(dateRange.endDate) &&
+    dateRange.startDate <= dateRange.endDate;
+  const periodLabel = `${dateRange.startDate} - ${dateRange.endDate}`;
+
+  useEffect(() => {
+    const firstYear = officeDefaultYear ?? availableYears[0];
+    if (initializedFromOffice.current || firstYear == null) return;
+    initializedFromOffice.current = true;
+    setPeriodYear(firstYear);
+    setDateRange(calendarYearRange(firstYear));
+  }, [availableYears, officeDefaultYear]);
 
   const previewQuery = useQuery<WithholdingTaxPreviewResult>({
-    queryKey: ["withholding-tax", "preview", orgId, selectedFiscalYear, month ?? null],
-    queryFn: () => api.withholdingTax.preview(orgId, selectedFiscalYear, month),
-    enabled: !!orgId && !!selectedFiscalYear,
+    queryKey: [
+      "withholding-tax",
+      "preview",
+      orgId,
+      dateRange.startDate,
+      dateRange.endDate,
+    ],
+    queryFn: () =>
+      api.withholdingTax.preview(orgId, {
+        startDate: dateRange.startDate,
+        endDate: dateRange.endDate,
+      }),
+    enabled: !!orgId && isRangeValid,
     staleTime: 5 * 60 * 1000,
   });
 
@@ -78,7 +108,7 @@ export default function WithholdingTaxPage() {
             </h1>
             <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
               <Badge variant="outline">{currentOrg.orgName}</Badge>
-              <Badge variant="outline">{periodLabel || `${selectedFiscalYear}年度`}</Badge>
+              <Badge variant="outline">{periodLabel}</Badge>
               <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100">
                 プレビュー
               </Badge>
@@ -88,7 +118,7 @@ export default function WithholdingTaxPage() {
             variant="outline"
             size="sm"
             onClick={() => previewQuery.refetch()}
-            disabled={previewQuery.isFetching}
+            disabled={previewQuery.isFetching || !isRangeValid}
             className="gap-1.5"
           >
             <RefreshCw
@@ -98,10 +128,17 @@ export default function WithholdingTaxPage() {
           </Button>
         </div>
 
-        <PeriodSegmentControl
-          showAllPeriod
-          highlightRange={false}
-          label="対象期間"
+        <DateRangeControl
+          availableYears={availableYears}
+          periodYear={periodYear}
+          startDate={dateRange.startDate}
+          endDate={dateRange.endDate}
+          isRangeValid={isRangeValid}
+          onYearChange={(year) => {
+            setPeriodYear(year);
+            setDateRange(calendarYearRange(year));
+          }}
+          onRangeChange={setDateRange}
         />
 
         {previewQuery.isError ? (
@@ -139,6 +176,109 @@ export default function WithholdingTaxPage() {
         )}
       </div>
     </DashboardShell>
+  );
+}
+
+interface DateRangeValue {
+  startDate: string;
+  endDate: string;
+}
+
+function DateRangeControl({
+  availableYears,
+  periodYear,
+  startDate,
+  endDate,
+  isRangeValid,
+  onYearChange,
+  onRangeChange,
+}: {
+  availableYears: number[];
+  periodYear: number;
+  startDate: string;
+  endDate: string;
+  isRangeValid: boolean;
+  onYearChange: (year: number) => void;
+  onRangeChange: (range: DateRangeValue) => void;
+}) {
+  const setPreset = (preset: "year" | "h1" | "h2") => {
+    const range =
+      preset === "h1"
+        ? { startDate: `${periodYear}-01-01`, endDate: `${periodYear}-06-30` }
+        : preset === "h2"
+          ? { startDate: `${periodYear}-07-01`, endDate: `${periodYear}-12-31` }
+          : calendarYearRange(periodYear);
+    onRangeChange(range);
+  };
+
+  return (
+    <Card>
+      <CardContent className="flex flex-wrap items-end gap-3 p-4">
+        <div className="flex flex-col gap-1">
+          <label className="text-[11px] font-semibold text-muted-foreground">
+            集計年
+          </label>
+          <select
+            value={periodYear}
+            onChange={(event) => onYearChange(Number(event.target.value))}
+            className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+          >
+            {availableYears.map((year) => (
+              <option key={year} value={year}>
+                {year}年
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <label className="text-[11px] font-semibold text-muted-foreground">
+            開始日
+          </label>
+          <input
+            type="date"
+            value={startDate}
+            onChange={(event) =>
+              onRangeChange({ startDate: event.target.value, endDate })
+            }
+            className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+          />
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <label className="text-[11px] font-semibold text-muted-foreground">
+            終了日
+          </label>
+          <input
+            type="date"
+            value={endDate}
+            onChange={(event) =>
+              onRangeChange({ startDate, endDate: event.target.value })
+            }
+            className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+          />
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" variant="outline" size="sm" onClick={() => setPreset("year")}>
+            通年
+          </Button>
+          <Button type="button" variant="outline" size="sm" onClick={() => setPreset("h1")}>
+            1-6月
+          </Button>
+          <Button type="button" variant="outline" size="sm" onClick={() => setPreset("h2")}>
+            7-12月
+          </Button>
+        </div>
+
+        <div className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
+          <CalendarDays className="h-4 w-4" />
+          <span className={cn(!isRangeValid && "text-destructive")}>
+            {isRangeValid ? `${startDate} - ${endDate}` : "期間を確認してください"}
+          </span>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -448,6 +588,19 @@ function EntryTable({ entries }: { entries: WithholdingTaxEntry[] }) {
       </CardContent>
     </Card>
   );
+}
+
+function calendarYearRange(year: number): DateRangeValue {
+  return {
+    startDate: `${year}-01-01`,
+    endDate: `${year}-12-31`,
+  };
+}
+
+function isDateInput(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
 
 function yen(value: number | null | undefined): string {
