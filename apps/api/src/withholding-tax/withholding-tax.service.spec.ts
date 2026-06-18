@@ -2,13 +2,24 @@ import { BadRequestException } from '@nestjs/common';
 import { WithholdingTaxService } from './withholding-tax.service';
 
 describe('WithholdingTaxService', () => {
-  function createService() {
+  function createService(
+    accountingPeriods = [
+      {
+        fiscal_year: 2025,
+        start_date: '2025-01-01',
+        end_date: '2025-12-31',
+      },
+    ],
+  ) {
     const prisma = {
       organization: {
         findUniqueOrThrow: jest.fn().mockResolvedValue({ fiscalMonthEnd: 3 }),
       },
     };
     const mfApi = {
+      getOffice: jest
+        .fn()
+        .mockResolvedValue({ accounting_periods: accountingPeriods }),
       getJournals: jest.fn().mockResolvedValue({ journals: [], truncated: false }),
     };
     return {
@@ -34,6 +45,36 @@ describe('WithholdingTaxService', () => {
       fiscalYear: 2025,
       month: null,
       range: { startDate: '2025-01-01', endDate: '2025-06-30' },
+    });
+  });
+
+  it('splits explicit date ranges by MoneyForward accounting periods', async () => {
+    const { service, mfApi } = createService([
+      {
+        fiscal_year: 2025,
+        start_date: '2024-10-01',
+        end_date: '2025-09-30',
+      },
+      {
+        fiscal_year: 2026,
+        start_date: '2025-10-01',
+        end_date: '2026-09-30',
+      },
+    ]);
+
+    await service.preview('org-1', {
+      startDate: '2025-01-01',
+      endDate: '2025-12-31',
+    });
+
+    expect(mfApi.getJournals).toHaveBeenCalledTimes(2);
+    expect(mfApi.getJournals).toHaveBeenNthCalledWith(1, 'org-1', {
+      startDate: '2025-01-01',
+      endDate: '2025-09-30',
+    });
+    expect(mfApi.getJournals).toHaveBeenNthCalledWith(2, 'org-1', {
+      startDate: '2025-10-01',
+      endDate: '2025-12-31',
     });
   });
 
