@@ -3,6 +3,7 @@ import {
   ServiceUnavailableException,
   InternalServerErrorException,
   BadGatewayException,
+  BadRequestException,
   Logger,
 } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
@@ -542,6 +543,17 @@ export class MfApiService {
         );
         throw err;
       }
+      if (
+        toolName === 'mfc_ca_getJournals' &&
+        isMfJournalAccountingPeriodError(msg)
+      ) {
+        this.logger.warn(
+          `MF MCP ${toolName} rejected date range outside accounting periods: ${String(msg).substring(0, 200)}`,
+        );
+        throw new BadRequestException(
+          'Selected date range is outside MoneyForward accounting periods',
+        );
+      }
 
       this.logger.error(`MF MCP error: ${toolName}`, msg);
       this.recordHealth(orgId, 'FAILED', String(msg).substring(0, 200));
@@ -712,6 +724,14 @@ function isMfJournalPageOverflowError(value: unknown): boolean {
   return (
     /invalid_query_parameter_value/i.test(text) &&
     /page parameter must not exceed the total_pages/i.test(text)
+  );
+}
+
+function isMfJournalAccountingPeriodError(value: unknown): boolean {
+  const text = stringifyErrorText(value);
+  return (
+    /invalid_query_parameter_value/i.test(text) &&
+    /Given date is not matching any accounting periods/i.test(text)
   );
 }
 

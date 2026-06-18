@@ -34,32 +34,39 @@ export default function WithholdingTaxPage() {
   const orgId = useScopedOrgId();
   const office = useMfOffice();
   const initialYear = new Date().getFullYear();
-  const initializedFromOffice = useRef(false);
+  const initializedOrgId = useRef<string | null>(null);
   const [periodYear, setPeriodYear] = useState(initialYear);
   const [dateRange, setDateRange] = useState(() => calendarYearRange(initialYear));
-  const officeDefaultYear = office.data?.accounting_periods?.[0]?.fiscal_year;
+  const accountingPeriods = useMemo(
+    () => normalizeAccountingPeriods(office.data?.accounting_periods),
+    [office.data?.accounting_periods],
+  );
+  const hasAccountingPeriods = accountingPeriods.length > 0;
   const availableYears = useMemo(() => {
-    const years = new Set<number>();
-    for (const period of office.data?.accounting_periods ?? []) {
-      if (Number.isInteger(period.fiscal_year)) years.add(period.fiscal_year);
-    }
-    years.add(new Date().getFullYear());
-    years.add(new Date().getFullYear() - 1);
-    return Array.from(years).sort((a, b) => b - a);
-  }, [office.data?.accounting_periods]);
+    return calendarYearsForAccountingPeriods(accountingPeriods);
+  }, [accountingPeriods]);
+  const coverageRange = useMemo(
+    () => coverageForCalendarYear(periodYear, accountingPeriods),
+    [accountingPeriods, periodYear],
+  );
   const isRangeValid =
     isDateInput(dateRange.startDate) &&
     isDateInput(dateRange.endDate) &&
     dateRange.startDate <= dateRange.endDate;
   const periodLabel = `${dateRange.startDate} - ${dateRange.endDate}`;
+  const canPreview =
+    !!orgId &&
+    isRangeValid &&
+    !office.isLoading &&
+    (initializedOrgId.current === orgId || !hasAccountingPeriods);
 
   useEffect(() => {
-    const firstYear = officeDefaultYear ?? availableYears[0];
-    if (initializedFromOffice.current || firstYear == null) return;
-    initializedFromOffice.current = true;
+    const firstYear = availableYears[0];
+    if (!orgId || initializedOrgId.current === orgId || firstYear == null) return;
+    initializedOrgId.current = orgId;
     setPeriodYear(firstYear);
-    setDateRange(calendarYearRange(firstYear));
-  }, [availableYears, officeDefaultYear]);
+    setDateRange(rangeForCalendarYear(firstYear, accountingPeriods));
+  }, [accountingPeriods, availableYears, orgId]);
 
   const previewQuery = useQuery<WithholdingTaxPreviewResult>({
     queryKey: [
@@ -74,7 +81,7 @@ export default function WithholdingTaxPage() {
         startDate: dateRange.startDate,
         endDate: dateRange.endDate,
       }),
-    enabled: !!orgId && isRangeValid,
+    enabled: canPreview,
     staleTime: 5 * 60 * 1000,
   });
 
@@ -133,10 +140,11 @@ export default function WithholdingTaxPage() {
           periodYear={periodYear}
           startDate={dateRange.startDate}
           endDate={dateRange.endDate}
+          coverageRange={coverageRange}
           isRangeValid={isRangeValid}
           onYearChange={(year) => {
             setPeriodYear(year);
-            setDateRange(calendarYearRange(year));
+            setDateRange(rangeForCalendarYear(year, accountingPeriods));
           }}
           onRangeChange={setDateRange}
         />
@@ -184,11 +192,18 @@ interface DateRangeValue {
   endDate: string;
 }
 
+interface AccountingPeriod {
+  fiscalYear: number;
+  startDate: string;
+  endDate: string;
+}
+
 function DateRangeControl({
   availableYears,
   periodYear,
   startDate,
   endDate,
+  coverageRange,
   isRangeValid,
   onYearChange,
   onRangeChange,
@@ -197,6 +212,7 @@ function DateRangeControl({
   periodYear: number;
   startDate: string;
   endDate: string;
+  coverageRange: DateRangeValue | null;
   isRangeValid: boolean;
   onYearChange: (year: number) => void;
   onRangeChange: (range: DateRangeValue) => void;
@@ -208,7 +224,7 @@ function DateRangeControl({
         : preset === "h2"
           ? { startDate: `${periodYear}-07-01`, endDate: `${periodYear}-12-31` }
           : calendarYearRange(periodYear);
-    onRangeChange(range);
+    onRangeChange(clipRangeToCoverage(range, coverageRange));
   };
 
   return (
@@ -238,6 +254,8 @@ function DateRangeControl({
           <input
             type="date"
             value={startDate}
+            min={coverageRange?.startDate}
+            max={coverageRange?.endDate}
             onChange={(event) =>
               onRangeChange({ startDate: event.target.value, endDate })
             }
@@ -252,6 +270,8 @@ function DateRangeControl({
           <input
             type="date"
             value={endDate}
+            min={coverageRange?.startDate}
+            max={coverageRange?.endDate}
             onChange={(event) =>
               onRangeChange({ startDate, endDate: event.target.value })
             }
@@ -595,6 +615,104 @@ function calendarYearRange(year: number): DateRangeValue {
     startDate: `${year}-01-01`,
     endDate: `${year}-12-31`,
   };
+}
+
+function normalizeAccountingPeriods(value: unknown): AccountingPeriod[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((period) => {
+      const raw = period as {
+        fiscal_year?: unknown;
+        start_date?: unknown;
+        end_date?: unknown;
+      };
+      if (
+        !Number.isInteger(raw.fiscal_year) ||
+        typeof raw.start_date !== "string" ||
+        typeof raw.end_date !== "string" ||
+        !isDateInput(raw.start_date) ||
+        !isDateInput(raw.end_date)
+      ) {
+        return null;
+      }
+      return {
+        fiscalYear: raw.fiscal_year as number,
+        startDate: raw.start_date,
+        endDate: raw.end_date,
+      };
+    })
+    .filter((period): period is AccountingPeriod => !!period)
+    .sort((a, b) => b.endDate.localeCompare(a.endDate));
+}
+
+function calendarYearsForAccountingPeriods(periods: AccountingPeriod[]): number[] {
+  if (periods.length === 0) {
+    const currentYear = new Date().getFullYear();
+    return [currentYear, currentYear - 1];
+  }
+  const years = new Set<number>();
+  for (const period of periods) {
+    const startYear = Number(period.startDate.slice(0, 4));
+    const endYear = Number(period.endDate.slice(0, 4));
+    for (let year = startYear; year <= endYear; year += 1) {
+      years.add(year);
+    }
+  }
+  return Array.from(years).sort((a, b) => b - a);
+}
+
+function rangeForCalendarYear(
+  year: number,
+  periods: AccountingPeriod[],
+): DateRangeValue {
+  return clipRangeToCoverage(
+    calendarYearRange(year),
+    coverageForCalendarYear(year, periods),
+  );
+}
+
+function coverageForCalendarYear(
+  year: number,
+  periods: AccountingPeriod[],
+): DateRangeValue | null {
+  const yearRange = calendarYearRange(year);
+  const intersections = periods
+    .map((period) =>
+      intersectDateRange(yearRange, {
+        startDate: period.startDate,
+        endDate: period.endDate,
+      }),
+    )
+    .filter((range): range is DateRangeValue => !!range);
+  if (intersections.length === 0) return null;
+  return {
+    startDate: intersections.reduce(
+      (min, range) => (range.startDate < min ? range.startDate : min),
+      intersections[0].startDate,
+    ),
+    endDate: intersections.reduce(
+      (max, range) => (range.endDate > max ? range.endDate : max),
+      intersections[0].endDate,
+    ),
+  };
+}
+
+function clipRangeToCoverage(
+  range: DateRangeValue,
+  coverage: DateRangeValue | null,
+): DateRangeValue {
+  if (!coverage) return range;
+  const clipped = intersectDateRange(range, coverage);
+  return clipped ?? range;
+}
+
+function intersectDateRange(
+  a: DateRangeValue,
+  b: DateRangeValue,
+): DateRangeValue | null {
+  const startDate = a.startDate > b.startDate ? a.startDate : b.startDate;
+  const endDate = a.endDate < b.endDate ? a.endDate : b.endDate;
+  return startDate <= endDate ? { startDate, endDate } : null;
 }
 
 function isDateInput(value: string): boolean {
