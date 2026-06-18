@@ -2,7 +2,6 @@ import {
   Controller,
   Get,
   Param,
-  ParseIntPipe,
   ParseUUIDPipe,
   Query,
   UseGuards,
@@ -21,10 +20,18 @@ export class WithholdingTaxController {
   @RequirePermission('org:withholding_tax:read')
   async preview(
     @Param('orgId', ParseUUIDPipe) orgId: string,
-    @Query('fiscalYear', ParseIntPipe) fiscalYear: number,
+    @Query('fiscalYear') fiscalYearRaw?: string,
     @Query('month') monthRaw?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
   ) {
-    const month = monthRaw ? parseInt(monthRaw, 10) : undefined;
-    return this.service.preview(orgId, fiscalYear, month);
+    const fiscalYear = fiscalYearRaw ? Number(fiscalYearRaw) : undefined;
+    const month = monthRaw ? Number(monthRaw) : undefined;
+    return this.service.preview(orgId, {
+      fiscalYear,
+      month,
+      startDate,
+      endDate,
+    });
   }
 }

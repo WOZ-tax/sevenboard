@@ -1730,9 +1730,22 @@ export const api = {
 
   // === Withholding Tax (源泉所得税集計) ===
   withholdingTax: {
-    preview: (orgId: string, fiscalYear: number, month?: number) => {
-      const qs = new URLSearchParams({ fiscalYear: String(fiscalYear) });
-      if (month != null) qs.set('month', String(month));
+    preview: (
+      orgId: string,
+      params: {
+        fiscalYear?: number;
+        month?: number;
+        startDate?: string;
+        endDate?: string;
+      },
+    ) => {
+      const qs = new URLSearchParams();
+      if (params.fiscalYear != null) {
+        qs.set('fiscalYear', String(params.fiscalYear));
+      }
+      if (params.month != null) qs.set('month', String(params.month));
+      if (params.startDate) qs.set('startDate', params.startDate);
+      if (params.endDate) qs.set('endDate', params.endDate);
       return apiFetch<WithholdingTaxPreviewResult>(
         `/organizations/${orgId}/withholding-tax/preview?${qs.toString()}`,
       );
