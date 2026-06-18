@@ -45,6 +45,7 @@ import { ChoshoModule } from './chosho/chosho.module';
 import { JournalReviewModule } from './journal-review/journal-review.module';
 import { LocabenModule } from './locaben/locaben.module';
 import { YearEndStateModule } from './year-end-state/year-end-state.module';
+import { WithholdingTaxModule } from './withholding-tax/withholding-tax.module';
 
 @Module({
   imports: [
@@ -99,6 +100,7 @@ import { YearEndStateModule } from './year-end-state/year-end-state.module';
     JournalReviewModule,
     LocabenModule,
     YearEndStateModule,
+    WithholdingTaxModule,
   ],
   providers: [
     {
