@@ -45,15 +45,11 @@ export default function WithholdingTaxPage() {
   const availableYears = useMemo(() => {
     return calendarYearsForAccountingPeriods(accountingPeriods);
   }, [accountingPeriods]);
-  const coverageRange = useMemo(
-    () => coverageForCalendarYear(periodYear, accountingPeriods),
-    [accountingPeriods, periodYear],
-  );
   const isRangeValid =
     isDateInput(dateRange.startDate) &&
     isDateInput(dateRange.endDate) &&
     dateRange.startDate <= dateRange.endDate;
-  const periodLabel = `${dateRange.startDate} - ${dateRange.endDate}`;
+  const periodLabel = `暦年 ${dateRange.startDate} - ${dateRange.endDate}`;
   const canPreview =
     !!orgId &&
     isRangeValid &&
@@ -65,8 +61,8 @@ export default function WithholdingTaxPage() {
     if (!orgId || initializedOrgId.current === orgId || firstYear == null) return;
     initializedOrgId.current = orgId;
     setPeriodYear(firstYear);
-    setDateRange(rangeForCalendarYear(firstYear, accountingPeriods));
-  }, [accountingPeriods, availableYears, orgId]);
+    setDateRange(calendarYearRange(firstYear));
+  }, [availableYears, orgId]);
 
   const previewQuery = useQuery<WithholdingTaxPreviewResult>({
     queryKey: [
@@ -116,6 +112,9 @@ export default function WithholdingTaxPage() {
             <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
               <Badge variant="outline">{currentOrg.orgName}</Badge>
               <Badge variant="outline">{periodLabel}</Badge>
+              <Badge className="bg-sky-100 text-sky-800 hover:bg-sky-100">
+                暦年集計（1月〜12月）
+              </Badge>
               <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100">
                 プレビュー
               </Badge>
@@ -140,11 +139,10 @@ export default function WithholdingTaxPage() {
           periodYear={periodYear}
           startDate={dateRange.startDate}
           endDate={dateRange.endDate}
-          coverageRange={coverageRange}
           isRangeValid={isRangeValid}
           onYearChange={(year) => {
             setPeriodYear(year);
-            setDateRange(rangeForCalendarYear(year, accountingPeriods));
+            setDateRange(calendarYearRange(year));
           }}
           onRangeChange={setDateRange}
         />
@@ -203,7 +201,6 @@ function DateRangeControl({
   periodYear,
   startDate,
   endDate,
-  coverageRange,
   isRangeValid,
   onYearChange,
   onRangeChange,
@@ -212,7 +209,6 @@ function DateRangeControl({
   periodYear: number;
   startDate: string;
   endDate: string;
-  coverageRange: DateRangeValue | null;
   isRangeValid: boolean;
   onYearChange: (year: number) => void;
   onRangeChange: (range: DateRangeValue) => void;
@@ -224,12 +220,15 @@ function DateRangeControl({
         : preset === "h2"
           ? { startDate: `${periodYear}-07-01`, endDate: `${periodYear}-12-31` }
           : calendarYearRange(periodYear);
-    onRangeChange(clipRangeToCoverage(range, coverageRange));
+    onRangeChange(range);
   };
 
   return (
     <Card>
       <CardContent className="flex flex-wrap items-end gap-3 p-4">
+        <div className="basis-full text-xs font-medium text-sky-800">
+          源泉集計は会計期間ではなく、暦年（1月1日〜12月31日）で集計します。
+        </div>
         <div className="flex flex-col gap-1">
           <label className="text-[11px] font-semibold text-muted-foreground">
             集計年
@@ -254,8 +253,6 @@ function DateRangeControl({
           <input
             type="date"
             value={startDate}
-            min={coverageRange?.startDate}
-            max={coverageRange?.endDate}
             onChange={(event) =>
               onRangeChange({ startDate: event.target.value, endDate })
             }
@@ -270,8 +267,6 @@ function DateRangeControl({
           <input
             type="date"
             value={endDate}
-            min={coverageRange?.startDate}
-            max={coverageRange?.endDate}
             onChange={(event) =>
               onRangeChange({ startDate, endDate: event.target.value })
             }
@@ -659,60 +654,6 @@ function calendarYearsForAccountingPeriods(periods: AccountingPeriod[]): number[
     }
   }
   return Array.from(years).sort((a, b) => b - a);
-}
-
-function rangeForCalendarYear(
-  year: number,
-  periods: AccountingPeriod[],
-): DateRangeValue {
-  return clipRangeToCoverage(
-    calendarYearRange(year),
-    coverageForCalendarYear(year, periods),
-  );
-}
-
-function coverageForCalendarYear(
-  year: number,
-  periods: AccountingPeriod[],
-): DateRangeValue | null {
-  const yearRange = calendarYearRange(year);
-  const intersections = periods
-    .map((period) =>
-      intersectDateRange(yearRange, {
-        startDate: period.startDate,
-        endDate: period.endDate,
-      }),
-    )
-    .filter((range): range is DateRangeValue => !!range);
-  if (intersections.length === 0) return null;
-  return {
-    startDate: intersections.reduce(
-      (min, range) => (range.startDate < min ? range.startDate : min),
-      intersections[0].startDate,
-    ),
-    endDate: intersections.reduce(
-      (max, range) => (range.endDate > max ? range.endDate : max),
-      intersections[0].endDate,
-    ),
-  };
-}
-
-function clipRangeToCoverage(
-  range: DateRangeValue,
-  coverage: DateRangeValue | null,
-): DateRangeValue {
-  if (!coverage) return range;
-  const clipped = intersectDateRange(range, coverage);
-  return clipped ?? range;
-}
-
-function intersectDateRange(
-  a: DateRangeValue,
-  b: DateRangeValue,
-): DateRangeValue | null {
-  const startDate = a.startDate > b.startDate ? a.startDate : b.startDate;
-  const endDate = a.endDate < b.endDate ? a.endDate : b.endDate;
-  return startDate <= endDate ? { startDate, endDate } : null;
 }
 
 function isDateInput(value: string): boolean {
