@@ -92,7 +92,8 @@ const DEFAULT_FORM: FormState = {
   vatMid: "0",
 };
 
-const parseNum = (s: string): number => parseFloat(s.replace(/,/g, "")) || 0;
+const parseNum = (s: string | undefined | null): number =>
+  parseFloat((s ?? "0").replace(/,/g, "")) || 0;
 const fmtComma = (n: number): string =>
   Number.isFinite(n) ? Math.round(n).toLocaleString() : "0";
 
@@ -102,11 +103,18 @@ export function TaxForecastSection() {
   const lockedMonth = usePeriodStore((s) => s.month);
   const fiscalYear = usePeriodStore((s) => s.fiscalYear);
   const { fyStartMonth } = useFyElapsed();
-  const { value: form, setValue: setForm } = useFeatureStateLocal<FormState>(
+  const { value: rawForm, setValue: setForm } = useFeatureStateLocal<FormState>(
     "year-end-review.tax-forecast",
     String(fiscalYear ?? ""),
     DEFAULT_FORM,
   );
+  // DB復元データにフィールドが欠けている場合にデフォルト値で補完
+  const form: FormState = useMemo(() => ({
+    ...DEFAULT_FORM,
+    ...rawForm,
+    items: Array.isArray(rawForm?.items) ? rawForm.items : DEFAULT_ITEMS,
+    midPaymentsYen: { ...defaultMidPaymentsYen(), ...rawForm?.midPaymentsYen },
+  }), [rawForm]);
 
   // 旧 LocalStorage クリーンアップ (DB 化後不要)
   useEffect(() => {
