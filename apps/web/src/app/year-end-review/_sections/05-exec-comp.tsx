@@ -71,7 +71,7 @@ export function ExecCompSimulatorSection() {
   const execCompTransition = useMfAccountTransition("役員報酬", fiscalYear);
   const depreciationTransition = useMfAccountTransition("減価償却費", fiscalYear);
 
-  const { value: form, setValue: setForm } = useFeatureStateLocal<FormState>(
+  const { value: form, setValue: setForm, isHydrated } = useFeatureStateLocal<FormState>(
     "year-end-review.exec-comp",
     String(fiscalYear ?? ""),
     DEFAULT_FORM,
@@ -95,6 +95,7 @@ export function ExecCompSimulatorSection() {
   // MF実績からプリセット (空欄項目だけ補完)
   /* eslint-disable react-hooks/set-state-in-effect -- MFデータからのプリセット */
   useEffect(() => {
+    if (!isHydrated) return;
     if (!Array.isArray(pl.data)) return;
 
     const findPl = (key: string, exclude?: string[]): number => {
@@ -141,6 +142,7 @@ export function ExecCompSimulatorSection() {
       }));
     }
   }, [
+    isHydrated,
     pl.data,
     execCompTransition.data,
     depreciationTransition.data,

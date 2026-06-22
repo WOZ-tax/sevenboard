@@ -22,7 +22,7 @@ const fmtComma = (n: number): string =>
 export function CapitalReductionSection() {
   const bs = useMfBS();
   const fiscalYear = usePeriodStore((s) => s.fiscalYear);
-  const { value: form, setValue: setForm } = useFeatureStateLocal<CapitalForm>(
+  const { value: form, setValue: setForm, isHydrated } = useFeatureStateLocal<CapitalForm>(
     "year-end-review.capital-reduction",
     String(fiscalYear ?? ""),
     DEFAULT,
@@ -53,6 +53,7 @@ export function CapitalReductionSection() {
   // MF実績からの初期プリセット (デフォルト値のままなら上書き)
   /* eslint-disable react-hooks/set-state-in-effect -- MFデータからのプリセット */
   useEffect(() => {
+    if (!isHydrated) return;
     if (!bs.data) return;
     const all = [...bs.data.assets, ...bs.data.liabilitiesEquity];
     const find = (key: string, exclude?: string[]): number => {
@@ -72,7 +73,7 @@ export function CapitalReductionSection() {
           ? String(legalReserve)
           : prev.capitalLegalReserve,
     }));
-  }, [bs.data]);
+  }, [isHydrated, bs.data]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
   const capitalAmount = parseNum(capital);

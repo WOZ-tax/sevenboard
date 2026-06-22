@@ -103,7 +103,7 @@ export function TaxForecastSection() {
   const lockedMonth = usePeriodStore((s) => s.month);
   const fiscalYear = usePeriodStore((s) => s.fiscalYear);
   const { fyStartMonth } = useFyElapsed();
-  const { value: rawForm, setValue: setForm } = useFeatureStateLocal<FormState>(
+  const { value: rawForm, setValue: setForm, isHydrated } = useFeatureStateLocal<FormState>(
     "year-end-review.tax-forecast",
     String(fiscalYear ?? ""),
     DEFAULT_FORM,
@@ -135,6 +135,7 @@ export function TaxForecastSection() {
 
   /* eslint-disable react-hooks/set-state-in-effect -- MF実績からのプリセット */
   useEffect(() => {
+    if (!isHydrated) return;
     const findPl = (key: string): number | null => {
       if (!Array.isArray(pl.data)) return null;
       const row = pl.data.find((r) => r.category.includes(key));
@@ -170,7 +171,7 @@ export function TaxForecastSection() {
           ? String(annualize(vatPaid))
           : prev.vatPaid,
     }));
-  }, [pl.data, bs.data, lockedMonth, fyStartMonth]);
+  }, [isHydrated, pl.data, bs.data, lockedMonth, fyStartMonth]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
   const updateForm = (updater: (prev: FormState) => FormState) => {

@@ -51,7 +51,7 @@ export function ConsumptionTaxFilingSection() {
   const lockedMonth = usePeriodStore((s) => s.month);
   const fiscalYear = usePeriodStore((s) => s.fiscalYear);
   const { fyStartMonth } = useFyElapsed();
-  const { value: form, setValue: setForm } = useFeatureStateLocal<FormState>(
+  const { value: form, setValue: setForm, isHydrated } = useFeatureStateLocal<FormState>(
     "year-end-review.consumption-tax",
     String(fiscalYear ?? ""),
     DEFAULT_FORM,
@@ -79,6 +79,7 @@ export function ConsumptionTaxFilingSection() {
   // MF実績からプリセット (デフォルト値のままなら上書き)
   /* eslint-disable react-hooks/set-state-in-effect -- MFデータからのプリセット */
   useEffect(() => {
+    if (!isHydrated) return;
     if (!Array.isArray(pl.data)) return;
 
     const findPl = (key: string, exclude?: string[]): number => {
@@ -123,7 +124,7 @@ export function ConsumptionTaxFilingSection() {
             : p.taxablePurchase,
       }));
     }
-  }, [pl.data, lockedMonth, fyStartMonth]);
+  }, [isHydrated, pl.data, lockedMonth, fyStartMonth]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
   const result = useMemo(() => {
