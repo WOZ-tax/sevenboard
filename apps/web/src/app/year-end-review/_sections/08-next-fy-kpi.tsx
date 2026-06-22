@@ -36,7 +36,7 @@ export function NextFyKpiSection() {
   const lockedMonth = usePeriodStore((s) => s.month);
   const fiscalYear = usePeriodStore((s) => s.fiscalYear);
   const { fyStartMonth } = useFyElapsed();
-  const { value: form, setValue: setForm } = useFeatureStateLocal<FormState>(
+  const { value: form, setValue: setForm, isHydrated } = useFeatureStateLocal<FormState>(
     "year-end-review.next-fy-kpi",
     String(fiscalYear ?? ""),
     DEFAULT_FORM,
@@ -78,11 +78,12 @@ export function NextFyKpiSection() {
   // 当期実績から来期目標プリセット (空欄時のみ)
   /* eslint-disable react-hooks/set-state-in-effect -- MFデータからのプリセット */
   useEffect(() => {
+    if (!isHydrated) return;
     if (parseNum(form.targetRevenue) > 0) return;
     if (currentRevenue > 0) {
       setForm((p) => ({ ...p, targetRevenue: String(ranges.mid) }));
     }
-  }, [currentRevenue, ranges.mid, form.targetRevenue]);
+  }, [isHydrated, currentRevenue, ranges.mid, form.targetRevenue]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
   const target = parseNum(form.targetRevenue);

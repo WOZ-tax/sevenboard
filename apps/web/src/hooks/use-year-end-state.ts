@@ -232,6 +232,7 @@ export function useFeatureStateLocal<T>(
   value: T;
   setValue: (next: T | ((prev: T) => T)) => void;
   isLoading: boolean;
+  isHydrated: boolean;
   isSaving: boolean;
   saveError: Error | null;
 } {
@@ -304,6 +305,7 @@ export function useFeatureStateLocal<T>(
     value: local,
     setValue,
     isLoading: query.isLoading && !hydrated,
+    isHydrated: hydrated,
     isSaving: mutation.isPending,
     saveError: (mutation.error as Error | null) ?? null,
   };
