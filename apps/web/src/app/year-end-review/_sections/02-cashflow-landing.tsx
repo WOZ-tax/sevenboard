@@ -48,19 +48,24 @@ function monthLabel(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
-const parseNum = (s: string): number => parseFloat(s.replace(/,/g, "")) || 0;
+const parseNum = (s: string | undefined | null): number =>
+  parseFloat((s ?? "0").replace(/,/g, "")) || 0;
 const fmtComma = (n: number): string =>
   Number.isFinite(n) ? Math.round(n).toLocaleString() : "0";
 
 export function CashflowLandingSection() {
   const cf = useMfCashflow();
   const fiscalYear = usePeriodStore((s) => s.fiscalYear);
-  const { value: input, setValue: setInput } =
+  const { value: rawInput, setValue: setInput } =
     useFeatureStateLocal<CfLandingInput>(
       "year-end-review.cf-landing",
       String(fiscalYear ?? ""),
       EMPTY_INPUT,
     );
+  const input: CfLandingInput = useMemo(
+    () => ({ ...EMPTY_INPUT, ...rawInput, outflows: Array.isArray(rawInput?.outflows) ? rawInput.outflows : [] }),
+    [rawInput],
+  );
 
   // 旧 LocalStorage クリーンアップ
   useEffect(() => {

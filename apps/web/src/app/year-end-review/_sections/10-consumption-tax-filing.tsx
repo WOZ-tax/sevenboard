@@ -8,7 +8,8 @@ import { cn } from "@/lib/utils";
 import { AlertTriangle } from "lucide-react";
 import { useFeatureStateLocal } from "@/hooks/use-year-end-state";
 
-const parseNum = (s: string): number => parseFloat(s.replace(/,/g, "")) || 0;
+const parseNum = (s: string | undefined | null): number =>
+  parseFloat((s ?? "0").replace(/,/g, "")) || 0;
 const fmtComma = (n: number): string =>
   Number.isFinite(n) ? Math.round(n).toLocaleString() : "0";
 

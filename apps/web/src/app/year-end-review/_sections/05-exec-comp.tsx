@@ -55,7 +55,8 @@ const DEFAULT_FORM: FormState = {
   smallBizKyosai: "0",
 };
 
-const parseYen = (s: string): number => parseFloat(s.replace(/,/g, "")) || 0;
+const parseYen = (s: string | undefined | null): number =>
+  parseFloat((s ?? "0").replace(/,/g, "")) || 0;
 const fmtComma = (n: number): string =>
   Number.isFinite(n) ? Math.round(n).toLocaleString() : "0";
 
