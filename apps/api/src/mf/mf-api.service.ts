@@ -3,6 +3,7 @@ import {
   ServiceUnavailableException,
   InternalServerErrorException,
   BadGatewayException,
+  BadRequestException,
   Logger,
 } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
@@ -533,6 +534,27 @@ export class MfApiService {
         return data as T;
       }
 
+      if (
+        toolName === 'mfc_ca_getJournals' &&
+        isMfJournalPageOverflowError(msg)
+      ) {
+        this.logger.warn(
+          `MF MCP ${toolName} reached end of pages: ${String(msg).substring(0, 200)}`,
+        );
+        throw err;
+      }
+      if (
+        toolName === 'mfc_ca_getJournals' &&
+        isMfJournalAccountingPeriodError(msg)
+      ) {
+        this.logger.warn(
+          `MF MCP ${toolName} rejected date range outside accounting periods: ${String(msg).substring(0, 200)}`,
+        );
+        throw new BadRequestException(
+          'Selected date range is outside MoneyForward accounting periods',
+        );
+      }
+
       this.logger.error(`MF MCP error: ${toolName}`, msg);
       this.recordHealth(orgId, 'FAILED', String(msg).substring(0, 200));
       throw new InternalServerErrorException(
@@ -654,11 +676,22 @@ export class MfApiService {
     let truncated = false;
 
     while (page <= MAX_PAGES) {
-      const res = await this.mcpRequest<any>(
-        orgId,
-        'mfc_ca_getJournals',
-        page === 1 ? args : { ...args, page },
-      );
+      let res: any;
+      try {
+        res = await this.mcpRequest<any>(
+          orgId,
+          'mfc_ca_getJournals',
+          page === 1 ? args : { ...args, page },
+        );
+      } catch (err) {
+        if (page > 1 && isMfJournalPageOverflowError(err)) {
+          this.logger.warn(
+            `getJournals: MF reported page ${page} exceeds total_pages; treating page ${page - 1} as final org=${orgId}`,
+          );
+          break;
+        }
+        throw err;
+      }
       const batch: any[] = res?.journals || [];
       allJournals.push(...batch);
 
@@ -684,4 +717,40 @@ export class MfApiService {
 
     return { journals: allJournals, truncated };
   }
+}
+
+function isMfJournalPageOverflowError(value: unknown): boolean {
+  const text = stringifyErrorText(value);
+  return (
+    /invalid_query_parameter_value/i.test(text) &&
+    /page parameter must not exceed the total_pages/i.test(text)
+  );
+}
+
+function isMfJournalAccountingPeriodError(value: unknown): boolean {
+  const text = stringifyErrorText(value);
+  return (
+    /invalid_query_parameter_value/i.test(text) &&
+    /Given date is not matching any accounting periods/i.test(text)
+  );
+}
+
+function stringifyErrorText(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (!value || typeof value !== 'object') return '';
+  const err = value as {
+    message?: unknown;
+    response?: unknown;
+  };
+  const parts = [err.message, err.response].filter(Boolean);
+  return parts
+    .map((part) => {
+      if (typeof part === 'string') return part;
+      try {
+        return JSON.stringify(part);
+      } catch {
+        return String(part);
+      }
+    })
+    .join(' ');
 }

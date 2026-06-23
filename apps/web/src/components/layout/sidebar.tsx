@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   Home,
   ClipboardCheck,
+  Receipt,
   FileText,
   Wallet,
   Bot,
@@ -36,6 +37,7 @@ const menuItems = [
   { label: "ダッシュボード", href: "/", icon: Home },
   { label: "AI CFO", href: "/cfo", icon: Bot },
   { label: "会計レビュー", href: "/accounting-review", icon: ClipboardCheck },
+  { label: "源泉集計", href: "/withholding-tax", icon: Receipt },
   { label: "財務指標", href: "/indicators", icon: Gauge },
   { label: "財務諸表", href: "/financial-statements", icon: FileText },
   { label: "資金繰り", href: "/cashflow", icon: Wallet },

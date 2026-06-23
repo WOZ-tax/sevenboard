@@ -351,6 +351,88 @@ export interface JournalReviewSnapshotItem {
   fetchedAt: string;
 }
 
+export type WithholdingTaxCategory =
+  | 'SALARY'
+  | 'RETIREMENT'
+  | 'PROFESSIONAL_FEE'
+  | 'JUDICIAL_SCRIVENER'
+  | 'MANUSCRIPT_LECTURE'
+  | 'OTHER_REWARD'
+  | 'OTHER';
+
+export interface WithholdingTaxEntry {
+  id: string;
+  journalId: string;
+  journalNumber: string | null;
+  sourceDate: string | null;
+  paymentDate: string | null;
+  month: number | null;
+  payeeName: string | null;
+  memo: string | null;
+  category: WithholdingTaxCategory;
+  categoryLabel: string;
+  paymentAmount: number;
+  withholdingTax: number;
+  paymentAmountEstimated: boolean;
+  sourceAccountName: string | null;
+  sourceSubAccountName: string | null;
+  withholdingAccountName: string | null;
+  withholdingSubAccountName: string | null;
+  confidence: 'HIGH' | 'MEDIUM' | 'LOW';
+  warnings: string[];
+}
+
+export interface WithholdingTaxSummaryRow {
+  category: WithholdingTaxCategory;
+  categoryLabel: string;
+  count: number;
+  payeeCount: number;
+  paymentAmount: number;
+  withholdingTax: number;
+}
+
+export interface WithholdingTaxMonthlySummaryRow {
+  month: number;
+  count: number;
+  payeeCount: number;
+  paymentAmount: number;
+  withholdingTax: number;
+}
+
+export interface WithholdingTaxPaymentStatementRow {
+  payeeName: string;
+  category: WithholdingTaxCategory;
+  categoryLabel: string;
+  count: number;
+  h1PaymentAmount: number;
+  h1WithholdingTax: number;
+  h2PaymentAmount: number;
+  h2WithholdingTax: number;
+  totalPaymentAmount: number;
+  totalWithholdingTax: number;
+}
+
+export interface WithholdingTaxPreviewResult {
+  fiscalYear: number;
+  month: number | null;
+  fyStartMonth: number;
+  range: { startDate: string; endDate: string };
+  generatedAt: string;
+  sourceJournalCount: number;
+  truncated: boolean;
+  entries: WithholdingTaxEntry[];
+  categorySummary: WithholdingTaxSummaryRow[];
+  monthlySummary: WithholdingTaxMonthlySummaryRow[];
+  paymentStatements: WithholdingTaxPaymentStatementRow[];
+  totals: {
+    count: number;
+    payeeCount: number;
+    paymentAmount: number;
+    withholdingTax: number;
+    warningCount: number;
+  };
+}
+
 /** 保存済 chosho_versions の status (DB enum と一致)。 */
 export type ChoshoVersionStatus = 'DRAFT' | 'APPROVED' | 'ARCHIVED';
 
@@ -1644,6 +1726,30 @@ export const api = {
           body: JSON.stringify({ fiscalYear, month, layer }),
         },
       ),
+  },
+
+  // === Withholding Tax (源泉所得税集計) ===
+  withholdingTax: {
+    preview: (
+      orgId: string,
+      params: {
+        fiscalYear?: number;
+        month?: number;
+        startDate?: string;
+        endDate?: string;
+      },
+    ) => {
+      const qs = new URLSearchParams();
+      if (params.fiscalYear != null) {
+        qs.set('fiscalYear', String(params.fiscalYear));
+      }
+      if (params.month != null) qs.set('month', String(params.month));
+      if (params.startDate) qs.set('startDate', params.startDate);
+      if (params.endDate) qs.set('endDate', params.endDate);
+      return apiFetch<WithholdingTaxPreviewResult>(
+        `/organizations/${orgId}/withholding-tax/preview?${qs.toString()}`,
+      );
+    },
   },
 
   // === Chosho (残高調書) ===

@@ -19,6 +19,9 @@ COPY packages/ packages/
 COPY apps/api/ apps/api/
 COPY tsconfig*.json ./
 COPY scripts/start.sh scripts/
+# Windows 由来の CRLF 改行だと dash が `set -e\r` を不正オプションとして弾いて
+# コンテナが起動失敗するため、ビルド時に CR を除去して LF に正規化する。
+RUN sed -i 's/\r$//' scripts/start.sh
 RUN chmod +x scripts/start.sh
 
 # Generate Prisma + build
