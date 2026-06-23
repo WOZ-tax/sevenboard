@@ -48,11 +48,18 @@ export function LoanProposalSection() {
   const pl = useMfPL();
   const bs = useMfBS();
   const cashflow = useMfCashflow();
-  const { value: form, setValue: setForm } = useFeatureStateLocal<FormState>(
+  const DEFAULT_FORM: FormState = { qualitative: DEFAULT_QUALITATIVE, actualNotes: DEFAULT_ACTUAL_NOTES };
+  const { value: rawForm, setValue: setForm } = useFeatureStateLocal<FormState>(
     "year-end-review.loan-proposal",
     "",
-    { qualitative: DEFAULT_QUALITATIVE, actualNotes: DEFAULT_ACTUAL_NOTES },
+    DEFAULT_FORM,
   );
+  const form: FormState = useMemo(() => ({
+    ...DEFAULT_FORM,
+    ...rawForm,
+    qualitative: Array.isArray(rawForm?.qualitative) ? rawForm.qualitative : DEFAULT_QUALITATIVE,
+    actualNotes: { ...DEFAULT_ACTUAL_NOTES, ...rawForm?.actualNotes },
+  }), [rawForm]);
 
   // 旧 LocalStorage クリーンアップ
   useEffect(() => {
