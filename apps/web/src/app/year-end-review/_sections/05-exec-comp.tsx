@@ -126,19 +126,12 @@ export function ExecCompSimulatorSection() {
       const annualOp = annualize(operatingProfit);
       const annualExecComp = annualize(execComp);
       const annualExpenses = Math.max(0, annualRevenue - annualOp - annualExecComp);
-      // 既に入力済 (デフォルト値と異なる) なら上書きしない
       setForm((prev) => ({
         ...prev,
-        revenue: prev.revenue === DEFAULT_FORM.revenue ? String(annualRevenue) : prev.revenue,
-        expenses: prev.expenses === DEFAULT_FORM.expenses ? String(annualExpenses) : prev.expenses,
-        monthlyComp:
-          execComp > 0 && prev.monthlyComp === DEFAULT_FORM.monthlyComp
-            ? Math.round(annualExecComp / 12)
-            : prev.monthlyComp,
-        depreciation:
-          prev.depreciation === DEFAULT_FORM.depreciation
-            ? String(annualize(depreciation))
-            : prev.depreciation,
+        revenue: String(annualRevenue),
+        expenses: String(annualExpenses),
+        monthlyComp: execComp > 0 ? Math.round(annualExecComp / 12) : prev.monthlyComp,
+        depreciation: depreciation > 0 ? String(annualize(depreciation)) : prev.depreciation,
       }));
     }
   }, [
