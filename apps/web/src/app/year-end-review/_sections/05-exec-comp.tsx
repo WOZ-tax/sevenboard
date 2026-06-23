@@ -71,11 +71,15 @@ export function ExecCompSimulatorSection() {
   const execCompTransition = useMfAccountTransition("役員報酬", fiscalYear);
   const depreciationTransition = useMfAccountTransition("減価償却費", fiscalYear);
 
-  const { value: form, setValue: setForm, isHydrated } = useFeatureStateLocal<FormState>(
+  const { value: rawForm, setValue: setForm, isHydrated } = useFeatureStateLocal<FormState>(
     "year-end-review.exec-comp",
     String(fiscalYear ?? ""),
     DEFAULT_FORM,
   );
+  const form: FormState = useMemo(() => ({
+    ...DEFAULT_FORM,
+    ...rawForm,
+  }), [rawForm]);
 
   // 旧 LocalStorage クリーンアップ (DB 化後不要)
   useEffect(() => {
