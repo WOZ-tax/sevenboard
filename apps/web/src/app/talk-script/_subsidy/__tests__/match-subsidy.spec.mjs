@@ -240,6 +240,49 @@ test("S3 降格: S4 が公募開始待ちでも降格する", () => {
   assert.equal(s3.primary, false, "S4 pendingStart により S3 降格");
 });
 
+// ── missing（不足フィールド情報） ────────────────────────
+test("missing: 大型投資チェックのみ → S5/S6 の missing に投資額・年商", () => {
+  const r = matchSubsidies(RULES, input(["large_investment"]));
+  const s5 = byId(r, "S5");
+  assert.deepEqual(
+    [...s5.missing].sort(),
+    ["investmentOku", "revenueOku"].sort(),
+  );
+});
+
+test("missing: 年商だけ入力済 → S5 の missing は投資額のみ", () => {
+  const r = matchSubsidies(
+    RULES,
+    input(["large_investment"], { revenueOku: 10 }),
+  );
+  const s5 = byId(r, "S5");
+  assert.ok(s5 && s5.status === "pending");
+  assert.deepEqual(s5.missing, ["investmentOku"]);
+});
+
+test("missing: 販路開拓のみ → S7 の missing は従業員数（業種は既定入力あり）", () => {
+  const r = matchSubsidies(
+    RULES,
+    input(["sales_expansion"], { industryClass: "commerce_service" }),
+  );
+  const s7 = byId(r, "S7");
+  assert.ok(s7 && s7.status === "pending");
+  assert.deepEqual(s7.missing, ["employees"]);
+});
+
+test("missing: matched の結果は missing 空配列", () => {
+  const r = matchSubsidies(
+    RULES,
+    input(["sales_expansion"], {
+      industryClass: "commerce_service",
+      employees: 5,
+    }),
+  );
+  const s7 = byId(r, "S7");
+  assert.ok(s7 && s7.status === "matched");
+  assert.deepEqual(s7.missing, []);
+});
+
 // ── トピック未選択 ────────────────────────────────────────
 test("トピック未選択 → 何も返らない", () => {
   const r = matchSubsidies(RULES, input([]));

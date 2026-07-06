@@ -80,9 +80,15 @@ export interface MatchResult {
   /** matched=条件成立 / pending=数値未入力で判定保留 / pendingStart=公募開始待ち */
   status: MatchStatus;
   warnings: string[];
+  /**
+   * status="pending" のとき、判定に不足している入力フィールド（未入力のもの）。
+   * UI 側で「○○を入力すると判定できます」の誘導に使う。pending 以外では常に空配列。
+   */
+  missing: ConstraintField[];
 }
 
-const FIELD_LABEL: Record<ConstraintField, string> = {
+/** constraints フィールドの日本語ラベル（UI の入力誘導文に使う）。 */
+export const FIELD_LABEL: Record<ConstraintField, string> = {
   investmentOku: "投資額",
   revenueOku: "年商",
   employees: "従業員数",
@@ -183,9 +189,10 @@ export function matchSubsidies(
     // 3. constraints
     let status: MatchStatus;
     const warnings: string[] = [];
+    let missing: ConstraintField[] = [];
     if (rule.constraints) {
       const fields = constraintFields(rule.constraints);
-      const missing = fields.filter((f) => isMissing(getField(input, f)));
+      missing = fields.filter((f) => isMissing(getField(input, f)));
       if (missing.length > 0) {
         status = "pending";
         warnings.push(
@@ -200,7 +207,7 @@ export function matchSubsidies(
       status = awaitingOpen ? "pendingStart" : "matched";
     }
 
-    results.push({ rule, primary: false, status, warnings });
+    results.push({ rule, primary: false, status, warnings, missing });
   }
 
   applyPriority(results);
