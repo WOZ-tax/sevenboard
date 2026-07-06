@@ -19,24 +19,20 @@ import {
   Target,
   CalendarClock,
   AlertTriangle,
+  ArrowRight,
+  ChevronDown,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { useCurrentOrg } from "@/contexts/current-org";
 import { useMfOffice, useLocabenSourceData } from "@/hooks/use-mf-data";
 import { useLocabenState } from "@/hooks/use-year-end-state";
 import { normalizeIndustry } from "@/lib/industries";
 import {
   matchSubsidies,
+  FIELD_LABEL,
   type TopicId,
   type IndustryClass,
   type SubsidyRule,
@@ -50,18 +46,66 @@ const RULESET = rulesetJson as unknown as {
 };
 const RULES = RULESET.rules;
 
-/** UI チェックボックス（6種）→ topic の対応。省力化は shoryokuka + custom_dev の2 topic を張る。 */
-const TOPIC_CHECKBOXES: { key: string; label: string; topics: TopicId[] }[] = [
+/**
+ * トピックチップ（6種）→ topic の対応。省力化は shoryokuka + custom_dev の2 topic を張る。
+ * label は面談者が判断しやすい平易な表現、hint は判断の目安。
+ */
+const TOPIC_CHECKBOXES: {
+  key: string;
+  label: string;
+  hint?: string;
+  topics: TopicId[];
+}[] = [
   { key: "capex", label: "設備投資・新規投資", topics: ["capex"] },
-  { key: "sales_expansion", label: "販路開拓", topics: ["sales_expansion"] },
-  { key: "global", label: "グローバル", topics: ["global"] },
+  {
+    key: "sales_expansion",
+    label: "販路開拓",
+    hint: "新しい売り先・製品・サービス",
+    topics: ["sales_expansion"],
+  },
+  {
+    key: "global",
+    label: "グローバル",
+    hint: "海外展開・輸出",
+    topics: ["global"],
+  },
   {
     key: "shoryokuka",
-    label: "省力化（オーダーメイド・スクラッチ開発）",
+    label: "省力化・自動化",
+    hint: "オーダーメイド／スクラッチ開発。SaaS・パッケージ導入のみは対象外",
     topics: ["shoryokuka", "custom_dev"],
   },
   { key: "new_business", label: "新事業・組織拡大", topics: ["new_business"] },
-  { key: "large_investment", label: "大型投資", topics: ["large_investment"] },
+  {
+    key: "large_investment",
+    label: "大型投資",
+    hint: "目安1億円以上",
+    topics: ["large_investment"],
+  },
+];
+
+/**
+ * 小規模持続化（S7）の業種二択。しきい値をラベルに見せて専門用語を排す。
+ * 内部表現（industryClass）とルールJSONは不変で、UI ラベルだけ平易化する。
+ */
+const INDUSTRY_OPTIONS: {
+  value: IndustryClass;
+  label: string;
+  hint: string;
+  threshold: number;
+}[] = [
+  {
+    value: "commerce_service",
+    label: "卸売・小売・サービス業（宿泊業・娯楽業は除く）",
+    hint: "従業員5人以下で該当",
+    threshold: 5,
+  },
+  {
+    value: "other",
+    label: "製造業・建設業・宿泊業・娯楽業 など上記以外",
+    hint: "従業員20人以下で該当",
+    threshold: 20,
+  },
 ];
 
 /**
@@ -116,6 +160,13 @@ function parseNum(s: string): number | null {
 /** 該当ルールが LB 点数の底上げを推奨しているか（notes に「LB」を含む）。 */
 function ruleWantsLb(rule: SubsidyRule): boolean {
   return rule.notes.some((n) => n.includes("LB"));
+}
+
+/** 入力誘導文で使う単位サフィックス（例: 投資額（億円）を入力すると…）。 */
+function missingUnit(field: string): string {
+  if (field === "investmentOku" || field === "revenueOku") return "（億円）";
+  if (field === "employees") return "（人）";
+  return "";
 }
 
 export function SubsidyAntennaCard() {
@@ -269,6 +320,25 @@ export function SubsidyAntennaCard() {
   const lb = parseNum(state.lbScore);
   const lbBelowThreshold = lb != null && lb < 23;
 
+  // 条件付きブロックの表示制御（largeInvestment は上で定義済み）
+  const salesChecked = !!state.checked.sales_expansion;
+
+  // 大型補助金（S5/S6）がマッチしたら LB 点数欄を出す（LB23点の目安が効くのはこの時だけ）
+  const largeMatched = results.some(
+    (r) =>
+      (r.rule.id === "S5" || r.rule.id === "S6") && r.status === "matched",
+  );
+
+  // 小規模持続化のしきい値超過判定（超過なら静かに対象外表示）
+  const s7Threshold =
+    INDUSTRY_OPTIONS.find((o) => o.value === state.industryClass)?.threshold ??
+    20;
+  const employeesNum = parseNum(state.employees);
+  const s7Over = employeesNum != null && employeesNum > s7Threshold;
+
+  // 業種の自動プリセット根拠（登録業種があるときだけ表示）
+  const presetIndustryLabel = normalizeIndustry(currentOrg?.industry);
+
   const rank = (r: MatchResult) =>
     r.primary
       ? 0
@@ -363,36 +433,63 @@ export function SubsidyAntennaCard() {
         </p>
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* トピック */}
+        {/* 1. トピックチップ（常時表示） */}
         <div>
-          <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-            トピック（面談で該当したもの）
+          <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            面談で該当したトピックを選んでください
           </div>
-          <div className="grid gap-x-4 gap-y-2 sm:grid-cols-2 lg:grid-cols-3">
-            {TOPIC_CHECKBOXES.map((cb) => (
-              <label
-                key={cb.key}
-                className="inline-flex cursor-pointer items-center gap-2 text-sm text-[var(--color-text-primary)]"
-              >
-                <input
-                  type="checkbox"
-                  checked={!!state.checked[cb.key]}
-                  onChange={() => toggleTopic(cb.key)}
-                  className="h-4 w-4 accent-[var(--color-primary)]"
-                />
-                {cb.label}
-              </label>
-            ))}
+          <div className="grid gap-2 sm:grid-cols-2">
+            {TOPIC_CHECKBOXES.map((cb) => {
+              const on = !!state.checked[cb.key];
+              return (
+                <button
+                  key={cb.key}
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() => toggleTopic(cb.key)}
+                  className={
+                    "flex items-start gap-2.5 rounded-lg border px-3 py-2.5 text-left transition-colors " +
+                    (on
+                      ? "border-[var(--color-tertiary)] bg-[var(--color-tertiary)]/10"
+                      : "border-[var(--color-border)] bg-background hover:bg-muted/50")
+                  }
+                >
+                  <span
+                    className={
+                      "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border " +
+                      (on
+                        ? "border-[var(--color-tertiary)] bg-[var(--color-tertiary)] text-white"
+                        : "border-[var(--color-border)] bg-background")
+                    }
+                  >
+                    {on && <Check className="h-3 w-3" />}
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-sm font-medium text-[var(--color-text-primary)]">
+                      {cb.label}
+                    </span>
+                    {cb.hint && (
+                      <span className="mt-0.5 block text-[11px] leading-snug text-muted-foreground">
+                        {cb.hint}
+                      </span>
+                    )}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         </div>
 
-        {/* 規模感の入力 */}
-        <div>
-          <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-            規模感（年商・従業員はロカベンから自動入力・上書き可）
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {largeInvestment && (
+        {/* 2A. 大型投資の判定（大型投資チェック時のみ） */}
+        {largeInvestment && (
+          <div className="space-y-3 rounded-lg border border-[var(--color-border)] bg-muted/30 p-3">
+            <div className="text-sm font-semibold text-[var(--color-text-primary)]">
+              大型投資の判定
+            </div>
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              投資額1億円〜／15億円〜／20億円〜と年商レンジで該当する補助金が変わります。
+            </p>
+            <div className="grid gap-3 sm:grid-cols-2">
               <div>
                 <label className="mb-1 block text-xs font-medium text-[var(--color-text-secondary)]">
                   投資額（億円）
@@ -409,26 +506,62 @@ export function SubsidyAntennaCard() {
                   className="text-right tabular-nums"
                 />
               </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-[var(--color-text-secondary)]">
+                  年商（億円）
+                  <span className="ml-1 font-normal text-muted-foreground">
+                    ・ロカベンから自動入力
+                  </span>
+                </label>
+                <Input
+                  type="number"
+                  inputMode="decimal"
+                  step="any"
+                  value={state.revenueOku}
+                  onChange={(e) =>
+                    setState((p) => ({ ...p, revenueOku: e.target.value }))
+                  }
+                  placeholder="--"
+                  className="text-right tabular-nums"
+                />
+              </div>
+            </div>
+            {largeMatched && (
+              <div>
+                <label className="mb-1 block text-xs font-medium text-[var(--color-text-secondary)]">
+                  LB点数（ロカベン・任意）
+                </label>
+                <Input
+                  type="number"
+                  inputMode="numeric"
+                  step="1"
+                  value={state.lbScore}
+                  onChange={(e) =>
+                    setState((p) => ({ ...p, lbScore: e.target.value }))
+                  }
+                  placeholder="--"
+                  className="max-w-[8rem] text-right tabular-nums"
+                />
+                <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
+                  大型補助金は LB（ロカベン）23点以上が望ましいため、点数があれば入力してください。
+                </p>
+              </div>
             )}
-            <div>
-              <label className="mb-1 block text-xs font-medium text-[var(--color-text-secondary)]">
-                年商（億円）
-              </label>
-              <Input
-                type="number"
-                inputMode="decimal"
-                step="any"
-                value={state.revenueOku}
-                onChange={(e) =>
-                  setState((p) => ({ ...p, revenueOku: e.target.value }))
-                }
-                placeholder="--"
-                className="text-right tabular-nums"
-              />
+          </div>
+        )}
+
+        {/* 2B. 小規模事業者チェック（販路開拓チェック時のみ） */}
+        {salesChecked && (
+          <div className="space-y-3 rounded-lg border border-[var(--color-border)] bg-muted/30 p-3">
+            <div className="text-sm font-semibold text-[var(--color-text-primary)]">
+              小規模事業者チェック（持続化補助金）
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-[var(--color-text-secondary)]">
-                従業員数（パート含む）
+                従業員数（パート・アルバイト含む）
+                <span className="ml-1 font-normal text-muted-foreground">
+                  ・ロカベンから自動入力
+                </span>
               </label>
               <Input
                 type="number"
@@ -439,61 +572,69 @@ export function SubsidyAntennaCard() {
                   setState((p) => ({ ...p, employees: e.target.value }))
                 }
                 placeholder="--"
-                className="text-right tabular-nums"
+                className="max-w-[8rem] text-right tabular-nums"
               />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-medium text-[var(--color-text-secondary)]">
-                業種区分
-              </label>
-              <Select
-                value={state.industryClass}
-                onValueChange={(v) =>
-                  v &&
-                  setState((p) => ({
-                    ...p,
-                    industryClass: v as IndustryClass,
-                  }))
-                }
-              >
-                <SelectTrigger className="h-8 w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="commerce_service">
-                    商業・サービス業
-                  </SelectItem>
-                  <SelectItem value="other">それ以外</SelectItem>
-                </SelectContent>
-              </Select>
+              <div className="mb-1 text-xs font-medium text-[var(--color-text-secondary)]">
+                業種
+              </div>
+              <div className="grid gap-2">
+                {INDUSTRY_OPTIONS.map((o) => {
+                  const on = state.industryClass === o.value;
+                  return (
+                    <label
+                      key={o.value}
+                      className={
+                        "flex cursor-pointer items-start gap-2.5 rounded-lg border px-3 py-2 transition-colors " +
+                        (on
+                          ? "border-[var(--color-primary)] bg-[var(--color-primary)]/5"
+                          : "border-[var(--color-border)] bg-background hover:bg-muted/50")
+                      }
+                    >
+                      <input
+                        type="radio"
+                        name="s7-industry"
+                        checked={on}
+                        onChange={() =>
+                          setState((p) => ({ ...p, industryClass: o.value }))
+                        }
+                        className="mt-0.5 h-4 w-4 accent-[var(--color-primary)]"
+                      />
+                      <span className="min-w-0">
+                        <span className="block text-sm text-[var(--color-text-primary)]">
+                          {o.label}
+                        </span>
+                        <span className="mt-0.5 block text-[11px] text-muted-foreground">
+                          {o.hint}
+                        </span>
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+              {presetIndustryLabel && (
+                <p className="mt-1.5 text-[11px] text-muted-foreground">
+                  登録業種「{presetIndustryLabel}」から自動選択しました（変更可）
+                </p>
+              )}
             </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-[var(--color-text-secondary)]">
-                LB点数（ロカベン・任意）
-              </label>
-              <Input
-                type="number"
-                inputMode="numeric"
-                step="1"
-                value={state.lbScore}
-                onChange={(e) =>
-                  setState((p) => ({ ...p, lbScore: e.target.value }))
-                }
-                placeholder="--"
-                className="text-right tabular-nums"
-              />
-            </div>
+            {s7Over && (
+              <p className="text-xs text-muted-foreground">
+                従業員数が基準を超えるため持続化補助金は対象外です。
+              </p>
+            )}
           </div>
-        </div>
+        )}
 
-        {/* 結果 */}
+        {/* 3. 結果 */}
         <div>
           <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
             該当候補
           </div>
           {!hasAnyResult ? (
             <p className="rounded-md border border-dashed border-[var(--color-border)] bg-background px-3 py-3 text-xs text-muted-foreground">
-              トピックを選択すると、該当しうる補助金が表示されます。
+              面談で該当したトピックを選ぶと、該当しうる補助金が表示されます。
             </p>
           ) : (
             <ul className="space-y-2">
@@ -502,6 +643,12 @@ export function SubsidyAntennaCard() {
                   ruleWantsLb(r.rule) &&
                   lbBelowThreshold &&
                   r.status !== "pending";
+                const actionText =
+                  r.status === "pending" && r.missing.length > 0
+                    ? `${r.missing
+                        .map((f) => FIELD_LABEL[f] + missingUnit(f))
+                        .join("・")}を入力すると判定できます`
+                    : null;
                 return (
                   <li
                     key={r.rule.id}
@@ -545,6 +692,12 @@ export function SubsidyAntennaCard() {
                         </Badge>
                       )}
                     </div>
+                    {actionText && (
+                      <p className="mt-1 flex items-start gap-1 pl-6 text-xs text-[var(--color-text-secondary)]">
+                        <ArrowRight className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                        {actionText}
+                      </p>
+                    )}
                     {r.rule.notes.length > 0 && (
                       <ul className="mt-1 space-y-0.5 pl-6 text-xs text-muted-foreground">
                         {r.rule.notes.map((n, i) => (
@@ -552,14 +705,6 @@ export function SubsidyAntennaCard() {
                         ))}
                       </ul>
                     )}
-                    {r.warnings.map((w, i) => (
-                      <p
-                        key={i}
-                        className="mt-1 pl-6 text-xs text-[var(--color-warning)]"
-                      >
-                        {w}
-                      </p>
-                    ))}
                     {showLbWarning && (
                       <p className="mt-1 flex items-center gap-1 pl-6 text-xs text-[var(--color-error)]">
                         <AlertTriangle className="h-3.5 w-3.5" />
@@ -573,26 +718,33 @@ export function SubsidyAntennaCard() {
           )}
         </div>
 
-        {/* エスカレーション */}
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[var(--color-border)] pt-3">
-          <span className="text-xs text-muted-foreground">
-            {RULESET.escalationTeam}へのエスカレーション文面を生成
-          </span>
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-1.5"
-            onClick={handleCopy}
-            disabled={!hasAnyResult}
-          >
-            {copied ? (
-              <Check className="h-3.5 w-3.5 text-green-600" />
-            ) : (
-              <Copy className="h-3.5 w-3.5" />
-            )}
-            エスカレーション文面をコピー
-          </Button>
-        </div>
+        {/* 4. エスカレーション（折りたたみプレビュー + コピー） */}
+        {hasAnyResult && (
+          <div className="space-y-2 border-t border-[var(--color-border)] pt-3">
+            <details className="group rounded-md border border-[var(--color-border)] bg-background">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-xs font-medium text-[var(--color-text-secondary)]">
+                <span>エスカレーション文面をプレビュー</span>
+                <ChevronDown className="h-4 w-4 shrink-0 transition-transform group-open:rotate-180" />
+              </summary>
+              <pre className="max-h-64 overflow-auto border-t border-[var(--color-border)] px-3 py-2 text-[11px] leading-relaxed whitespace-pre-wrap text-[var(--color-text-secondary)]">
+                {escalationText}
+              </pre>
+            </details>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-xs text-muted-foreground">
+                {RULESET.escalationTeam}へ共有する文面です
+              </span>
+              <Button size="sm" className="gap-1.5" onClick={handleCopy}>
+                {copied ? (
+                  <Check className="h-3.5 w-3.5" />
+                ) : (
+                  <Copy className="h-3.5 w-3.5" />
+                )}
+                {copied ? "コピーしました" : "エスカレーション文面をコピー"}
+              </Button>
+            </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
