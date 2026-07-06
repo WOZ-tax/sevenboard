@@ -23,6 +23,7 @@ import { MfEmptyState } from "@/components/ui/mf-empty-state";
 import { PrintButton } from "@/components/ui/print-button";
 import { usePeriodStore, getPeriodLabel } from "@/lib/period-store";
 import type { TalkScript, TalkScriptSection } from "@/lib/api-types";
+import { SubsidyAntennaCard } from "./_subsidy/subsidy-antenna-card";
 
 function buildPlainText(script: TalkScript): string {
   const parts: string[] = [];
@@ -404,6 +405,9 @@ export default function TalkScriptPage() {
             </div>
           </>
         )}
+
+        {/* 補助金アンテナ（スクリプト未生成でも表示） */}
+        <SubsidyAntennaCard />
       </div>
     </DashboardShell>
   );
