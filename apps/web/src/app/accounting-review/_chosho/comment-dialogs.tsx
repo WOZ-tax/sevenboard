@@ -138,6 +138,7 @@ export function RowCommentDialog({
 
   useEffect(() => {
     if (!open) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- dialog close resets form state
       setBody("");
       setUrls([]);
     }
@@ -279,6 +280,7 @@ export function CellCommentDialog({
   // open するたび existing を反映
   useEffect(() => {
     if (open) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- dialog open initializes form from existing data
       setBody(existing?.body ?? "");
       setUrls(existing?.urls ?? []);
     }

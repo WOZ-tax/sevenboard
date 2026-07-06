@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -34,7 +34,7 @@ export default function WithholdingTaxPage() {
   const orgId = useScopedOrgId();
   const office = useMfOffice();
   const initialYear = new Date().getFullYear();
-  const initializedOrgId = useRef<string | null>(null);
+  const [initializedOrgId, setInitializedOrgId] = useState<string | null>(null);
   const [periodYear, setPeriodYear] = useState(initialYear);
   const [dateRange, setDateRange] = useState(() => calendarYearRange(initialYear));
   const accountingPeriods = useMemo(
@@ -54,15 +54,16 @@ export default function WithholdingTaxPage() {
     !!orgId &&
     isRangeValid &&
     !office.isLoading &&
-    (initializedOrgId.current === orgId || !hasAccountingPeriods);
+    (initializedOrgId === orgId || !hasAccountingPeriods);
 
   useEffect(() => {
     const firstYear = availableYears[0];
-    if (!orgId || initializedOrgId.current === orgId || firstYear == null) return;
-    initializedOrgId.current = orgId;
+    if (!orgId || initializedOrgId === orgId || firstYear == null) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- initialize period to first available year when org changes
+    setInitializedOrgId(orgId);
     setPeriodYear(firstYear);
     setDateRange(calendarYearRange(firstYear));
-  }, [availableYears, orgId]);
+  }, [availableYears, orgId, initializedOrgId]);
 
   const previewQuery = useQuery<WithholdingTaxPreviewResult>({
     queryKey: [

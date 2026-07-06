@@ -15,3 +15,6 @@ __pycache__/
 ss/
 # 一回限りの手動 Supabase Dashboard 流し込み用 SQL (適用済の dead scratch)
 packages/database/migration-pending-*.sql
+
+# GAS 資材・大容量動画などリポジトリ外管理の手動資材 (誤コミット防止)
+/gensen/

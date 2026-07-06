@@ -33,6 +33,7 @@ export function CopilotLauncher() {
         typeof parsed?.right === "number" &&
         typeof parsed?.bottom === "number"
       ) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- restore launcher position from localStorage on mount
         setPos({ right: parsed.right, bottom: parsed.bottom });
       }
     } catch {

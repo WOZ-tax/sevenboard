@@ -715,6 +715,7 @@ function ChoshoTable({
     if (!row) return;
 
     const byKey = new Map(data.rows.map((r) => [r.rowKey, r]));
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- expand ancestor rows to make focused cell visible
     setExpanded((prev) => {
       const next = new Set(prev);
       let cur: ChoshoPreviewRow | undefined = row;

@@ -5,6 +5,7 @@ import { Lock, Unlock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { usePeriodStore } from "@/lib/period-store";
 import { useMfOffice } from "@/hooks/use-mf-data";
+import type { MfAccountingPeriod } from "@/lib/api-types";
 
 interface PeriodSegmentControlProps {
   /** 「全期間」ボタンを出すか */
@@ -137,9 +138,10 @@ export function PeriodSegmentControl({
 export function useFyStartMonth(): number {
   const fiscalYear = usePeriodStore((s) => s.fiscalYear);
   const office = useMfOffice();
-  const period = (office.data as any)?.accounting_periods?.find(
-    (p: any) => p.fiscal_year === fiscalYear,
-  ) ?? (office.data as any)?.accounting_periods?.[0];
+  const period: MfAccountingPeriod | undefined =
+    office.data?.accounting_periods?.find(
+      (p) => p.fiscal_year === fiscalYear,
+    ) ?? office.data?.accounting_periods?.[0];
   const fyStartDate = period?.start_date;
   return fyStartDate ? Number(String(fyStartDate).slice(5, 7)) : 1;
 }
