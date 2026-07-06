@@ -67,3 +67,88 @@ describe('MfApiService.getJournals', () => {
     await expect(service.getJournals('org-1')).rejects.toBe(pageOverflow);
   });
 });
+
+describe('MfApiService 401 token refresh single-flight', () => {
+  function unauthorized() {
+    const err: any = new Error('unauthorized');
+    err.response = { status: 401, headers: {}, data: { error: 'invalid_token' } };
+    return err;
+  }
+
+  function createService(prisma: any) {
+    return new MfApiService(
+      {} as any,
+      prisma,
+      { get: jest.fn().mockReturnValue(undefined), set: jest.fn() } as any,
+      { record: jest.fn().mockResolvedValue(undefined) } as any,
+    );
+  }
+
+  it('collapses concurrent 401s into a single refresh and lets both calls succeed', async () => {
+    const prisma = {
+      orgScope: jest.fn().mockResolvedValue({ tenantId: 't1' }),
+      integration: {
+        findUnique: jest.fn().mockResolvedValue({
+          accessToken: 'stale-token',
+          refreshToken: 'refresh-token',
+          tokenExpiry: new Date(Date.now() + 3_600_000),
+        }),
+      },
+    };
+    const service = createService(prisma);
+
+    // getAccessToken は失効トークンを返す（キャッシュ済みトークンが実は失効しているケース）
+    (service as any).getAccessToken = jest.fn().mockResolvedValue('stale-token');
+    (service as any).initSession = jest.fn().mockResolvedValue('sess');
+    // 失効トークンでの呼び出しは 401、新トークンなら成功
+    (service as any).callTool = jest
+      .fn()
+      .mockImplementation(async (token: string) => {
+        if (token === 'stale-token') throw unauthorized();
+        return { ok: true, token };
+      });
+    // 実 refresh は 1 回だけ走ることを検証するためカウントする
+    const refreshSpy = jest.fn().mockImplementation(async () => {
+      await new Promise((r) => setTimeout(r, 5));
+      return 'new-token';
+    });
+    (service as any).refreshToken = refreshSpy;
+
+    // 別ツール = 別 cacheKey なので requestInFlight で dedupe されず、2 本が並列に 401 を受ける
+    const [a, b] = await Promise.all([
+      (service as any).mcpRequest('org-1', 'toolA'),
+      (service as any).mcpRequest('org-1', 'toolB'),
+    ]);
+
+    expect(refreshSpy).toHaveBeenCalledTimes(1);
+    expect(a).toEqual({ ok: true, token: 'new-token' });
+    expect(b).toEqual({ ok: true, token: 'new-token' });
+    // single-flight エントリが後片付けされていること
+    expect((service as any).tokenInFlight.size).toBe(0);
+  });
+
+  it('reuses an already-refreshed newer token from the DB without refreshing again', async () => {
+    const prisma = {
+      orgScope: jest.fn().mockResolvedValue({ tenantId: 't1' }),
+      integration: {
+        // 別リクエストが先に refresh 済み: DB のトークンは失効トークンより新しい
+        findUnique: jest.fn().mockResolvedValue({
+          accessToken: 'fresh-token',
+          refreshToken: 'refresh-token',
+          tokenExpiry: new Date(Date.now() + 3_600_000),
+        }),
+      },
+    };
+    const service = createService(prisma);
+    const refreshSpy = jest.fn().mockResolvedValue('should-not-be-called');
+    (service as any).refreshToken = refreshSpy;
+
+    const token = await (service as any).refreshTokenOnAuthFailure(
+      'org-1',
+      'stale-token',
+    );
+
+    expect(token).toBe('fresh-token');
+    expect(refreshSpy).not.toHaveBeenCalled();
+  });
+});

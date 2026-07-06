@@ -228,6 +228,83 @@ export class MfApiService {
     }
   }
 
+  /**
+   * 401/403 を受けた際のトークン再取得。getAccessToken と同じ orgId 単位の
+   * single-flight (tokenInFlight) に相乗りして、同時多発 401 が refresh_token を
+   * 同時ローテートして invalid_grant を誘発する race を防ぐ。
+   *
+   * 世代管理: single-flight に相乗りして得たトークンが「401 を受けた失効トークンと
+   * 同値」だった場合、それは DB/キャッシュの失効トークンを配っただけで新しくなって
+   * いない（= まだ refresh されていない）ため、改めて自分で refresh を起動する。
+   * 相乗り結果が失効トークンと異なる（= より新しい）ならそれをそのまま採用する。
+   * これにより「単純合流で同じ失効トークンを掴んだまま再試行してしまう」バグを避ける。
+   *
+   * tokenInFlight の read→set は await を挟まない同期区間で行うため、複数の 401 が
+   * 同時に到達しても実 refresh は 1 回に collapse する。
+   */
+  private refreshTokenOnAuthFailure(
+    orgId: string,
+    staleToken: string,
+  ): Promise<string> {
+    const pending = this.tokenInFlight.get(orgId);
+    if (pending) {
+      // 進行中の取得/refresh があれば相乗り。結果が失効トークンより新しければ採用、
+      // 同値（未更新）または失敗なら自分で refresh を起動する。
+      return pending.then(
+        (candidate) =>
+          candidate && candidate !== staleToken
+            ? candidate
+            : this.refreshTokenOnAuthFailure(orgId, staleToken),
+        () => this.refreshTokenOnAuthFailure(orgId, staleToken),
+      );
+    }
+
+    const promise = this.buildAuthFailureRefresh(orgId, staleToken);
+    this.tokenInFlight.set(orgId, promise);
+    // 自分がセットした promise のみ後片付けする（後発が上書きしていたら消さない）。
+    void promise
+      .catch(() => undefined)
+      .finally(() => {
+        if (this.tokenInFlight.get(orgId) === promise) {
+          this.tokenInFlight.delete(orgId);
+        }
+      });
+    return promise;
+  }
+
+  /**
+   * refreshTokenOnAuthFailure の実処理。DB 上のトークンが失効トークンより既に
+   * 新しい（別リクエスト/別インスタンスが先に refresh 済み）なら refresh せず再利用し、
+   * そうでなければ refresh_token で再取得する。
+   */
+  private async buildAuthFailureRefresh(
+    orgId: string,
+    staleToken: string,
+  ): Promise<string> {
+    const integration = await this.prisma.integration.findUnique({
+      where: await this.integrationWhere(orgId),
+    });
+
+    if (integration?.accessToken) {
+      const current = decryptIfAvailable(integration.accessToken);
+      if (
+        current &&
+        current !== staleToken &&
+        (!integration.tokenExpiry || integration.tokenExpiry > new Date())
+      ) {
+        // 別リクエストが先に refresh 済み。失効トークンより新しいので再利用（再 refresh 不要）。
+        return current;
+      }
+    }
+
+    return this.refreshToken(
+      orgId,
+      integration?.refreshToken
+        ? decryptIfAvailable(integration.refreshToken)
+        : null,
+    );
+  }
+
   // ============================
   // MCP transport
   // ============================
@@ -518,15 +595,12 @@ export class MfApiService {
       // 401/403: try token refresh (MCP server returns 401 for expired/invalid tokens)
       if (status === 401 || status === 403 || String(msg).includes('invalid_token')) {
         this.logger.warn('MF MCP 401, attempting token refresh');
-        const integration = await this.prisma.integration.findUnique({
-          where: await this.integrationWhere(orgId),
-        });
-        const newToken = await this.refreshToken(
-          orgId,
-          integration?.refreshToken
-            ? decryptIfAvailable(integration.refreshToken)
-            : null,
-        );
+        // 401 回復のリフレッシュも orgId 単位の single-flight (tokenInFlight) に合流させる。
+        // 直接 refreshToken を呼ぶと、複数リクエストが同時に 401 を受けた際にそれぞれ
+        // refresh を発火し、MF が refresh_token をローテートするため先勝ち以外が
+        // invalid_grant → 再接続要求になる（2026-06-02 の MF 全断と同型）。
+        // getAccessToken が返した失効トークン(token)を渡し、それより新しい結果だけ採用する。
+        const newToken = await this.refreshTokenOnAuthFailure(orgId, token);
         const sessionId = await this.initSession(newToken);
         const data = await this.callTool(newToken, sessionId, toolName, args);
         this.cache.set(cacheKey, data, 5 * 60 * 1000);
