@@ -27,12 +27,17 @@ import {
 export class AuthController {
   constructor(private authService: AuthService) {}
 
-  private setAuthCookies(res: ExpressResponse, accessToken: string) {
+  // CSRF トークンを発行して Cookie にセットし、その値を返す。
+  // 本番は web(Vercel) と API(Cloud Run) がクロスオリジンで、web は API ドメインの
+  // sb_csrf Cookie を document.cookie から読めない。呼び出し側はこの戻り値を
+  // レスポンス body に含め、web が Double Submit ヘッダー用に保持できるようにする。
+  private setAuthCookies(res: ExpressResponse, accessToken: string): string {
     // JWT httpOnly Cookie
     res.cookie(JWT_COOKIE_NAME, accessToken, jwtCookieOptions);
     // CSRF token (readable by frontend)
     const csrfToken = randomBytes(32).toString('hex');
     res.cookie(CSRF_COOKIE_NAME, csrfToken, csrfCookieOptions);
+    return csrfToken;
   }
 
   // 総当たり対策: IP 単位で 60 秒あたり 5 回までに制限（グローバル ThrottlerGuard が
@@ -46,8 +51,9 @@ export class AuthController {
     @Response({ passthrough: true }) res: ExpressResponse,
   ) {
     const result = await this.authService.login(dto);
-    this.setAuthCookies(res, result.accessToken);
-    return result;
+    // csrfToken は既存クライアント互換の追加フィールド (未知フィールドは無視される)。
+    const csrfToken = this.setAuthCookies(res, result.accessToken);
+    return { ...result, csrfToken };
   }
 
   // 総当たり対策: IP 単位で 60 秒あたり 5 回までに制限（グローバル ThrottlerGuard が
@@ -61,8 +67,8 @@ export class AuthController {
     @Response({ passthrough: true }) res: ExpressResponse,
   ) {
     const result = await this.authService.refresh(req.user.id);
-    this.setAuthCookies(res, result.accessToken);
-    return result;
+    const csrfToken = this.setAuthCookies(res, result.accessToken);
+    return { ...result, csrfToken };
   }
 
   @Post('logout')
@@ -106,7 +112,7 @@ export class AuthController {
     @Response({ passthrough: true }) res: ExpressResponse,
   ) {
     const result = await this.authService.switchOrg(req.user.id, dto.orgId);
-    this.setAuthCookies(res, result.accessToken);
-    return result;
+    const csrfToken = this.setAuthCookies(res, result.accessToken);
+    return { ...result, csrfToken };
   }
 }
