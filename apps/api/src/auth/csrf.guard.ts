@@ -39,6 +39,17 @@ export class CsrfGuard implements CanActivate {
       return true;
     }
 
+    // /auth/refresh も除外する(完全一致のみ)。web がリロード後や旧セッションで
+    // csrfToken を失った際に取り直す唯一の経路で、除外しないと鶏卵で詰む。
+    // CSRF 除外が安全な理由: cookie 認証必須(JwtAuthGuard)で本人の資格情報を
+    // 同一ユーザー向けに再発行するだけ。攻撃者はクロスサイトから発火できても
+    // レスポンスを読めず(CORS)、被害者の状態を悪化させる副作用がない。
+    // 5回/分のレート制限あり。/auth/mf/refresh(外部トークン更新の副作用あり)とは
+    // 別物なので前方一致にしないこと。
+    if (path === '/auth/refresh') {
+      return true;
+    }
+
     // Bearer認証を使っている場合はCSRFリスクなし（トークンは自動送信されない）
     const authHeader = req.headers['authorization'] || '';
     if (authHeader.startsWith('Bearer ')) {

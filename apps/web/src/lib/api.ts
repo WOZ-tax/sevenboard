@@ -66,22 +66,76 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 // 認証は httpOnly Cookie(sb_token)で行うが、本番は web(Vercel) と API(Cloud Run,
 // *.run.app) がクロスオリジンのため、API ドメインに発行された sb_csrf Cookie を
 // web の document.cookie から読めない。そこで login/switch-org のレスポンス body で
-// 受け取った CSRF トークンをメモリに保持して x-csrf-token ヘッダーに使う。
+// 受け取った CSRF トークンを x-csrf-token ヘッダーに使う。
+// メモリだけだとページリロードで消えて全 mutation が 403 になるため localStorage にも
+// 永続化する(double-submit トークンは設計上クライアント JS から読める値であり、
+// 「攻撃者のクロスサイトフォームはカスタムヘッダーに載せられない」という防御性質は
+// 保存場所によらず変わらない)。
 // Cookie 読み取りは同一サイト (ローカル開発 localhost:3000↔3001) 用フォールバック。
+const CSRF_STORAGE_KEY = 'sb_csrf_token';
 let csrfTokenInMemory: string | null = null;
 
 export function setCsrfToken(token: string | null): void {
   csrfTokenInMemory = token;
+  if (typeof window === 'undefined') return;
+  if (token) {
+    localStorage.setItem(CSRF_STORAGE_KEY, token);
+  } else {
+    localStorage.removeItem(CSRF_STORAGE_KEY);
+  }
 }
 
 function getCsrfToken(): string | null {
   if (csrfTokenInMemory) return csrfTokenInMemory;
+  if (typeof window !== 'undefined') {
+    const stored = localStorage.getItem(CSRF_STORAGE_KEY);
+    if (stored) {
+      csrfTokenInMemory = stored;
+      return stored;
+    }
+  }
   if (typeof document === 'undefined') return null;
   const match = document.cookie.match(/sb_csrf=([^;]+)/);
   return match ? match[1] : null;
 }
 
-async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
+// CSRF 403 時の自動回復。/auth/refresh (CSRF 除外・cookie 認証・5回/分) で
+// csrfToken を取り直す。cookie 一本化デプロイ以前からのセッション(body 経由の
+// csrfToken を一度も受け取っていない)を再ログインなしで救済する経路。
+// 同時多発 403 で refresh を連打しないよう single-flight にする。
+let csrfHealInFlight: Promise<boolean> | null = null;
+
+async function tryHealCsrfToken(): Promise<boolean> {
+  if (!csrfHealInFlight) {
+    csrfHealInFlight = (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/auth/refresh`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+        });
+        if (!res.ok) return false;
+        const body = (await res.json().catch(() => null)) as {
+          csrfToken?: string;
+        } | null;
+        if (!body?.csrfToken) return false;
+        setCsrfToken(body.csrfToken);
+        return true;
+      } catch {
+        return false;
+      } finally {
+        csrfHealInFlight = null;
+      }
+    })();
+  }
+  return csrfHealInFlight;
+}
+
+async function apiFetch<T>(
+  path: string,
+  options?: RequestInit,
+  isCsrfRetry = false,
+): Promise<T> {
   const csrfToken = getCsrfToken();
   const method = options?.method?.toUpperCase() || 'GET';
   const needsCsrf = !['GET', 'HEAD', 'OPTIONS'].includes(method);
@@ -101,7 +155,7 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
       localStorage.removeItem('user');
       // 旧実装が localStorage に残した 'token' の掃除 (マイグレーション。数リリース後に削除)
       localStorage.removeItem('token');
-      csrfTokenInMemory = null;
+      setCsrfToken(null);
       if (!window.location.pathname.includes('/login')) {
         window.location.href = '/login';
       }
@@ -110,9 +164,19 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    const err = new Error(
-      body.message || `API error: ${res.status}`,
-    ) as Error & { statusCode?: number };
+    const message: string = body.message || `API error: ${res.status}`;
+    // CSRF 不一致は保持トークンの欠落/陳腐化が原因のことが多い。
+    // refresh で取り直して 1 回だけ再試行する(無限ループ防止に isCsrfRetry ガード)。
+    if (
+      res.status === 403 &&
+      needsCsrf &&
+      !isCsrfRetry &&
+      message.includes('CSRF') &&
+      (await tryHealCsrfToken())
+    ) {
+      return apiFetch<T>(path, options, true);
+    }
+    const err = new Error(message) as Error & { statusCode?: number };
     err.statusCode = res.status;
     throw err;
   }
