@@ -37,9 +37,10 @@ jobs:
 
       - name: Apply migrations to production
         id: migrate
-        run: npx prisma migrate deploy --schema=packages/database/prisma/schema.prisma
+        run: npm run migrate:deploy -w packages/database
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
 
       - name: Notify on failure
         if: failure()

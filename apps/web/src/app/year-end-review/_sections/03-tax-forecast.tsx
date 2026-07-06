@@ -97,6 +97,21 @@ const parseNum = (s: string | undefined | null): number =>
 const fmtComma = (n: number): string =>
   Number.isFinite(n) ? Math.round(n).toLocaleString() : "0";
 
+/**
+ * DB から復元した生の値を欠損フィールド補完済みの FormState に正規化する。
+ * 古いスキーマのレコードでは items が配列でない / midPaymentsYen が欠ける
+ * 可能性があるため、レンダリング (useMemo) と書込 (updateForm / プリセット) の
+ * 双方でこれを通して p.items.map 等のクラッシュを防ぐ。
+ */
+function normalizeForm(raw: FormState | undefined | null): FormState {
+  return {
+    ...DEFAULT_FORM,
+    ...raw,
+    items: Array.isArray(raw?.items) ? raw.items : DEFAULT_ITEMS,
+    midPaymentsYen: { ...defaultMidPaymentsYen(), ...raw?.midPaymentsYen },
+  };
+}
+
 export function TaxForecastSection() {
   const pl = useMfPL();
   const bs = useMfBS();
@@ -109,12 +124,7 @@ export function TaxForecastSection() {
     DEFAULT_FORM,
   );
   // DB復元データにフィールドが欠けている場合にデフォルト値で補完
-  const form: FormState = useMemo(() => ({
-    ...DEFAULT_FORM,
-    ...rawForm,
-    items: Array.isArray(rawForm?.items) ? rawForm.items : DEFAULT_ITEMS,
-    midPaymentsYen: { ...defaultMidPaymentsYen(), ...rawForm?.midPaymentsYen },
-  }), [rawForm]);
+  const form: FormState = useMemo(() => normalizeForm(rawForm), [rawForm]);
 
   // 旧 LocalStorage クリーンアップ (DB 化後不要)
   useEffect(() => {
@@ -133,7 +143,6 @@ export function TaxForecastSection() {
     }
   }, []);
 
-  /* eslint-disable react-hooks/set-state-in-effect -- MF実績からのプリセット */
   useEffect(() => {
     if (!isHydrated) return;
     const findPl = (key: string): number | null => {
@@ -158,7 +167,9 @@ export function TaxForecastSection() {
     const vatPaid = findBs("仮払消費税") ?? 0;
 
     // 既に値が入っている (ユーザー編集 or プリセット済) 項目は上書きしない
-    setForm((prev) => ({
+    setForm((prevRaw) => {
+      const prev = normalizeForm(prevRaw);
+      return {
       ...prev,
       pretaxProfit: ord ? String(annualizeManYen(ord)) : prev.pretaxProfit,
       capital: cap ? String(cap) : prev.capital,
@@ -170,12 +181,12 @@ export function TaxForecastSection() {
         vatPaid && (prev.vatPaid === "" || prev.vatPaid === "0")
           ? String(annualize(vatPaid))
           : prev.vatPaid,
-    }));
+      };
+    });
   }, [isHydrated, pl.data, bs.data, lockedMonth, fyStartMonth]);
-  /* eslint-enable react-hooks/set-state-in-effect */
 
   const updateForm = (updater: (prev: FormState) => FormState) => {
-    setForm((prev) => updater(prev));
+    setForm((prev) => updater(normalizeForm(prev)));
   };
 
   const taxableIncome = useMemo(() => {

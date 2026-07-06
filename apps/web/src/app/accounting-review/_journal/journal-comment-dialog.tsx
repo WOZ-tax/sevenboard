@@ -129,6 +129,7 @@ export function JournalCommentDialog({
   // open 切替時に reset
   useEffect(() => {
     if (open) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- dialog open resets comment form
       setBody("");
       setUrls([]);
       setReplyTarget(null);

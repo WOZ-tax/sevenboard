@@ -86,6 +86,7 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
   useEffect(() => {
     if (observedFiscalYearRef.current === fiscalYear) return;
     observedFiscalYearRef.current = fiscalYear;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reset filter when fiscal year changes
     setFilterMonth("all");
     setUserOverride(false);
     setJournalPage(1);
@@ -95,6 +96,7 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
     const prev = observedGlobalMonthRef.current;
     observedGlobalMonthRef.current = month;
     if (prev == null || month == null || month === prev || userOverride) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- sync filter month from global period selector
     setFilterMonth(month);
     setJournalPage(1);
     setChoshoPage(1);
@@ -193,6 +195,7 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
   useEffect(() => {
     if (memoSource !== "journal" || !flagsPage) return;
     if (journalPage > flagsPage.totalPages)
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- clamp page to totalPages when data changes
       setJournalPage(flagsPage.totalPages);
   }, [memoSource, flagsPage, journalPage]);
 
@@ -296,6 +299,7 @@ export function MemoTab({ orgId, fiscalYear, month }: Props) {
   // URL ?focusJournal=&compose=1 で来たら自動展開 + 新規入力モード
   useEffect(() => {
     if (focusJournal) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- URL param drives initial memo source and expand state
       setMemoSource("journal");
       setExpanded((prev) => new Set(prev).add(focusJournal));
       if (composeOnLoad) {

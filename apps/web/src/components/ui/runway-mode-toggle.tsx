@@ -35,6 +35,7 @@ export function useRunwayMode(): [RunwayMode, (m: RunwayMode) => void] {
     if (typeof window === "undefined") return;
     const saved = window.localStorage.getItem(STORAGE_KEY) as RunwayMode | null;
     if (saved === "worstCase" || saved === "netBurn" || saved === "actual") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- restore saved runway mode from localStorage on mount
       setModeState(saved);
     }
   }, []);

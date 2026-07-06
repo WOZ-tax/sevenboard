@@ -2,6 +2,8 @@
 
 作成日: 2026-04-30
 
+> ⚠️ master への push では API は自動デプロイされない。Cloud Run へは `gcloud run deploy sevenboard-api --source .` 等の手動実行が必要（Web/Vercel は自動）。デプロイ時はデプロイ元コミット SHA を記録すること。
+
 ## 現行方針
 
 SevenBoard は Cloud Run に一本化する。

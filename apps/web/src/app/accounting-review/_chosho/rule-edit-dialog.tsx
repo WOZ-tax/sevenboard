@@ -60,6 +60,7 @@ export function RuleEditDialog({
 
   useEffect(() => {
     if (open) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- dialog open initializes form fields from props
       setRule(initial.expectedRule);
       setValueInput(initial.expectedValue == null ? "" : String(initial.expectedValue));
       setAging(initial.agingCheckEnabled);

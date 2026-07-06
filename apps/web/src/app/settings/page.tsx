@@ -118,8 +118,8 @@ function IntegrationCard({
 
   // 期限が 5 分以内なら警告色で表示（factory-hybrid-v2 と同仕様）
   const expiresAtMs = mfStatus?.expiresAt ? new Date(mfStatus.expiresAt).getTime() : null;
-  const expiresSoon =
-    expiresAtMs != null && expiresAtMs - Date.now() < 5 * 60 * 1000;
+  // eslint-disable-next-line react-hooks/purity -- Date.now() checks expiry at render time; value is display-only and recomputed on each render
+  const expiresSoon = expiresAtMs != null && expiresAtMs - Date.now() < 5 * 60 * 1000;
 
   const badgeNode = (() => {
     if (isSyncing || syncStatus === "IN_PROGRESS") {

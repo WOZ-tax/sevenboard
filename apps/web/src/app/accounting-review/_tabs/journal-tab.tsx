@@ -239,6 +239,7 @@ export function JournalReviewTab({ orgId, fiscalYear, month }: Props) {
   // ドリルダウン経由で来た時に search を自動セット (取引先名があれば優先、なければ勘定名)
   useEffect(() => {
     const next = focusPartner || focusAccount || "";
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- sync search text from URL drill-down params
     if (next) setSearchText(next);
   }, [focusAccount, focusPartner]);
 

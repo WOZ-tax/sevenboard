@@ -62,34 +62,46 @@ import type {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
+// CSRF トークン (Double Submit Cookie パターン)。
+// 認証は httpOnly Cookie(sb_token)で行うが、本番は web(Vercel) と API(Cloud Run,
+// *.run.app) がクロスオリジンのため、API ドメインに発行された sb_csrf Cookie を
+// web の document.cookie から読めない。そこで login/switch-org のレスポンス body で
+// 受け取った CSRF トークンをメモリに保持して x-csrf-token ヘッダーに使う。
+// Cookie 読み取りは同一サイト (ローカル開発 localhost:3000↔3001) 用フォールバック。
+let csrfTokenInMemory: string | null = null;
+
+export function setCsrfToken(token: string | null): void {
+  csrfTokenInMemory = token;
+}
+
 function getCsrfToken(): string | null {
+  if (csrfTokenInMemory) return csrfTokenInMemory;
   if (typeof document === 'undefined') return null;
   const match = document.cookie.match(/sb_csrf=([^;]+)/);
   return match ? match[1] : null;
 }
 
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
-  const token =
-    typeof window !== 'undefined' ? localStorage.getItem('token') : null;
   const csrfToken = getCsrfToken();
   const method = options?.method?.toUpperCase() || 'GET';
   const needsCsrf = !['GET', 'HEAD', 'OPTIONS'].includes(method);
 
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
-    credentials: 'include', // Cookie送信
+    credentials: 'include', // httpOnly Cookie(sb_token)で認証
     headers: {
       'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(needsCsrf && csrfToken ? { 'x-csrf-token': csrfToken } : {}),
       ...options?.headers,
     },
   });
   if (res.status === 401) {
-    // トークン期限切れ → ログイン画面にリダイレクト
+    // Cookie 期限切れ/無効 → ログイン画面にリダイレクト
     if (typeof window !== 'undefined') {
-      localStorage.removeItem('token');
       localStorage.removeItem('user');
+      // 旧実装が localStorage に残した 'token' の掃除 (マイグレーション。数リリース後に削除)
+      localStorage.removeItem('token');
+      csrfTokenInMemory = null;
       if (!window.location.pathname.includes('/login')) {
         window.location.href = '/login';
       }
@@ -512,11 +524,24 @@ export interface ChoshoVersionDetail {
 
 export const api = {
   // Auth
-  login: (email: string, password: string) =>
-    apiFetch<{ accessToken: string; user: AuthUser }>('/auth/login', {
+  login: async (email: string, password: string) => {
+    const result = await apiFetch<{
+      accessToken: string;
+      user: AuthUser;
+      csrfToken?: string;
+    }>('/auth/login', {
       method: 'POST',
       body: JSON.stringify({ email, password }),
-    }),
+    });
+    // クロスオリジン本番では sb_csrf Cookie を読めないため、body 経由の
+    // トークンをメモリに保持する (API が返す場合。同一サイト開発では Cookie 側で動く)。
+    if (result.csrfToken) setCsrfToken(result.csrfToken);
+    return result;
+  },
+
+  // 認証 Cookie(sb_token/sb_csrf)をサーバ側でクリアする。
+  logout: () =>
+    apiFetch<{ message: string }>('/auth/logout', { method: 'POST' }),
 
   // Advisor organizations
   getAdvisorOrgs: () =>
@@ -551,11 +576,18 @@ export const api = {
     >('/auth/me/memberships'),
 
   // Switch org (ADVISOR)
-  switchOrg: (orgId: string) =>
-    apiFetch<{ accessToken: string; user: AuthUser }>('/auth/switch-org', {
+  switchOrg: async (orgId: string) => {
+    const result = await apiFetch<{
+      accessToken: string;
+      user: AuthUser;
+      csrfToken?: string;
+    }>('/auth/switch-org', {
       method: 'POST',
       body: JSON.stringify({ orgId }),
-    }),
+    });
+    if (result.csrfToken) setCsrfToken(result.csrfToken);
+    return result;
+  },
 
   // Organizations
   getOrganization: (orgId: string) =>

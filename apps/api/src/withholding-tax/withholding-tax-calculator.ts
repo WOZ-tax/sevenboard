@@ -15,6 +15,12 @@ const TAX_PAYMENT_RE =
   /(源泉|所得税|預り金).*(納付|支払|振替)|納付書|税務署|ダイレクト納付|e-?tax/i;
 const OPENING_OR_TRANSFER_RE = /(開始残高|期首|繰越|振替|年末調整|還付|充当)/;
 const WITHHOLDING_RE = /(源泉|所得税|預り金)/;
+// 源泉所得税であることを積極的に示すマーカー（住民税・社保等は含まない）
+const WITHHOLDING_MARKER_RE = /(源泉|所得税)/;
+const DEPOSIT_ACCOUNT_RE = /預り金/;
+// 預り金でも源泉所得税ではないもの（住民税・社会保険料等）。合算すると納付書照合が破綻する
+const NON_WITHHOLDING_WITHHELD_RE =
+  /(住民税|市県民税|市民税|県民税|都民税|特別徴収|社会保険|健康保険|厚生年金|雇用保険|労働保険|介護保険|労使折半|社保)/;
 const SOURCE_ACCOUNT_RE =
   /(役員報酬|給料|給与|賞与|退職|報酬|士業|税理士|弁護士|司法書士|行政書士|社労士|原稿|講演|業務委託|外注費|支払手数料)/;
 const UNPAID_ACCOUNT_RE = /(未払金|未払費用|未払給与|未払報酬)/;
@@ -44,7 +50,8 @@ export function extractWithholdingEntry(
     return null;
   }
 
-  const taxSides = journal.credits.filter((side) => isWithholdingTaxSide(side));
+  const selection = selectWithholdingTaxSides(journal);
+  const taxSides = selection.sides;
   if (taxSides.length === 0) return null;
 
   const withholdingTax = sumAmounts(taxSides);
@@ -83,6 +90,11 @@ export function extractWithholdingEntry(
   if (sourceSides.length === 0) {
     warnings.push('支払側の科目を明確に特定できません。');
   }
+  if (selection.markerless) {
+    warnings.push(
+      '預り金に源泉所得税の補助科目が無いため、給与・報酬の文脈から源泉税と推定しています。',
+    );
+  }
 
   const payeeName =
     sourceSide?.partnerName ??
@@ -108,7 +120,13 @@ export function extractWithholdingEntry(
     sourceSubAccountName: sourceSide?.subAccountName ?? null,
     withholdingAccountName: taxSide?.accountName ?? null,
     withholdingSubAccountName: taxSide?.subAccountName ?? null,
-    confidence: warnings.length === 0 ? 'HIGH' : sourceSides.length > 0 ? 'MEDIUM' : 'LOW',
+    confidence: selection.markerless
+      ? 'LOW'
+      : warnings.length === 0
+        ? 'HIGH'
+        : sourceSides.length > 0
+          ? 'MEDIUM'
+          : 'LOW',
     warnings,
   };
 }
@@ -271,9 +289,49 @@ function summarizeRows(rows: WithholdingTaxEntry[]): {
   };
 }
 
-function isWithholdingTaxSide(side: WithholdingTaxJournalSide): boolean {
-  const text = joinText(sideTextParts(side));
-  return WITHHOLDING_RE.test(text);
+/**
+ * 仕訳の貸方から源泉所得税サイドだけを選び出す。
+ *
+ * 1. 「源泉」または「所得税」マーカーを持ち、住民税・社保等の除外語に該当しない
+ *    サイドがあれば、それのみを採用する（HIGH）。マーカー付きが1つでもあれば、
+ *    同一仕訳内の補助科目なし預り金（住民税・社保が補助なしで並ぶケース）は採用しない。
+ * 2. マーカー付きが無い場合のみ、除外語に該当しない「預り金」サイドを候補にし、
+ *    仕訳全体（memo/取引先/借方科目）が源泉徴収の文脈のときだけ採用する（markerless=LOW）。
+ *    源泉のみを補助なし預り金で計上する会社を取りこぼさないための救済。
+ */
+function selectWithholdingTaxSides(journal: WithholdingTaxJournalInput): {
+  sides: WithholdingTaxJournalSide[];
+  markerless: boolean;
+} {
+  const markedSides = journal.credits.filter((side) => {
+    const text = joinText(sideTextParts(side));
+    return WITHHOLDING_MARKER_RE.test(text) && !NON_WITHHOLDING_WITHHELD_RE.test(text);
+  });
+  if (markedSides.length > 0) {
+    return { sides: markedSides, markerless: false };
+  }
+
+  const contextText = joinText([
+    journal.memo,
+    journal.partnerName,
+    ...journal.debits.flatMap(sideTextParts),
+  ]);
+  if (!SOURCE_ACCOUNT_RE.test(contextText)) {
+    return { sides: [], markerless: false };
+  }
+
+  const depositSides = journal.credits.filter((side) => {
+    const text = joinText(sideTextParts(side));
+    return (
+      DEPOSIT_ACCOUNT_RE.test(text) &&
+      !WITHHOLDING_MARKER_RE.test(text) &&
+      !NON_WITHHOLDING_WITHHELD_RE.test(text)
+    );
+  });
+  if (depositSides.length === 0) {
+    return { sides: [], markerless: false };
+  }
+  return { sides: depositSides, markerless: true };
 }
 
 function isSourcePaymentSide(side: WithholdingTaxJournalSide): boolean {

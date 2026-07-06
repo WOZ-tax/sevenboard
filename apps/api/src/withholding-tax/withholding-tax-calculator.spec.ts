@@ -97,6 +97,87 @@ describe('extractWithholdingEntry', () => {
     expect(entry?.paymentAmountEstimated).toBe(true);
     expect(entry?.confidence).toBe('LOW');
   });
+
+  it('picks only the income-tax deposit from a salary journal with resident tax and social insurance', () => {
+    const entry = extractWithholdingEntry(
+      journal({
+        memo: '給与支給',
+        debits: [{ accountName: '給料手当', amount: 350_000 }],
+        credits: [
+          { accountName: '普通預金', amount: 300_000 },
+          { accountName: '預り金', subAccountName: '源泉所得税', amount: 8_000 },
+          { accountName: '預り金', subAccountName: '住民税', amount: 15_000 },
+          { accountName: '預り金', subAccountName: '社会保険料', amount: 27_000 },
+        ],
+      }),
+    );
+
+    expect(entry?.withholdingTax).toBe(8_000);
+    expect(entry?.category).toBe('SALARY');
+  });
+
+  it('adopts a single sub-account-less 預り金 in a salary context (markerless, LOW confidence)', () => {
+    const entry = extractWithholdingEntry(
+      journal({
+        memo: '給与支給',
+        debits: [{ accountName: '給料手当', amount: 300_000 }],
+        credits: [
+          { accountName: '普通預金', amount: 293_000 },
+          { accountName: '預り金', amount: 7_000 },
+        ],
+      }),
+    );
+
+    expect(entry?.withholdingTax).toBe(7_000);
+    expect(entry?.confidence).toBe('LOW');
+    expect(entry?.warnings).toContain(
+      '預り金に源泉所得税の補助科目が無いため、給与・報酬の文脈から源泉税と推定しています。',
+    );
+  });
+
+  it('does not adopt a sub-account-less 預り金 when a marked income-tax side exists', () => {
+    const entry = extractWithholdingEntry(
+      journal({
+        memo: '給与支給',
+        debits: [{ accountName: '給料手当', amount: 350_000 }],
+        credits: [
+          { accountName: '普通預金', amount: 320_000 },
+          { accountName: '預り金', subAccountName: '源泉所得税', amount: 8_000 },
+          { accountName: '預り金', amount: 22_000 },
+        ],
+      }),
+    );
+
+    expect(entry?.withholdingTax).toBe(8_000);
+  });
+
+  it('ignores a non-salary deposit (敷金預かり) booked to 預り金', () => {
+    const entry = extractWithholdingEntry(
+      journal({
+        memo: '敷金預かり',
+        partnerName: '入居者A',
+        debits: [{ accountName: '現金', amount: 200_000 }],
+        credits: [{ accountName: '預り金', subAccountName: '保証金', amount: 200_000 }],
+      }),
+    );
+
+    expect(entry).toBeNull();
+  });
+
+  it('still adopts a professional-fee withholding side', () => {
+    const entry = extractWithholdingEntry(
+      journal({
+        debits: [{ accountName: '支払手数料', subAccountName: '税理士報酬', amount: 100_000 }],
+        credits: [
+          { accountName: '普通預金', amount: 89_790 },
+          { accountName: '預り金', subAccountName: '源泉所得税', amount: 10_210 },
+        ],
+      }),
+    );
+
+    expect(entry?.withholdingTax).toBe(10_210);
+    expect(entry?.category).toBe('PROFESSIONAL_FEE');
+  });
 });
 
 describe('buildWithholdingTaxSummary', () => {

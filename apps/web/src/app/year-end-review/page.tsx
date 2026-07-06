@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { CalendarClock, Lock } from "lucide-react";
+import { AlertTriangle, CalendarClock, Lock } from "lucide-react";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -12,6 +12,7 @@ import { getIndustryOptions } from "@/lib/industry-knowledge";
 import type { IndustryCode } from "@/lib/industry-knowledge";
 import { usePeriodStore, getPeriodLabel } from "@/lib/period-store";
 import { useMfBS } from "@/hooks/use-mf-data";
+import { useYearEndStateLoadError } from "@/hooks/use-year-end-state";
 
 import { LandingPlSection } from "./_sections/01-landing-pl";
 import { CashflowLandingSection } from "./_sections/02-cashflow-landing";
@@ -67,6 +68,10 @@ export default function YearEndReviewPage() {
     () => (isLargeCap ? SECTIONS : SECTIONS.filter((s) => !s.largeCapOnly)),
     [isLargeCap],
   );
+
+  // 保存済み入力 (feature-state) の GET がいずれかのセクションで失敗しているか。
+  // ページ全体で 1 箇所だけバナー表示する (セクション個別では出さない)。
+  const loadError = useYearEndStateLoadError();
 
   const [activeId, setActiveId] = useState<string>(visibleSections[0]?.id ?? "");
   useEffect(() => {
@@ -161,6 +166,14 @@ export default function YearEndReviewPage() {
             remainingMonths={remainingMonths}
             periodLabel={periodLabel}
           />
+          {loadError && (
+            <div className="flex items-start gap-2 rounded-md border-l-4 border-l-rose-500 bg-rose-50/60 p-3 text-xs text-rose-800">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-rose-500" />
+              <span>
+                保存済みデータの読込に失敗しました。ページを再読み込みしてください。
+              </span>
+            </div>
+          )}
           {visibleSections.map((s) => {
             const C = s.component;
             return (

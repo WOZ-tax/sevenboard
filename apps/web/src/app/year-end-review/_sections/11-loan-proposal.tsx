@@ -44,22 +44,38 @@ interface FormState {
   actualNotes: typeof DEFAULT_ACTUAL_NOTES;
 }
 
+const DEFAULT_FORM: FormState = {
+  qualitative: DEFAULT_QUALITATIVE,
+  actualNotes: DEFAULT_ACTUAL_NOTES,
+};
+
+/**
+ * DB から復元した生の値を欠損フィールド補完済みの FormState に正規化する。
+ * 古いスキーマのレコードでは qualitative / actualNotes が欠けていたり配列でない
+ * 可能性があるため、レンダリング (useMemo) と書込 (setForm コールバック) の
+ * 双方でこれを通して p.qualitative.map 等のクラッシュを防ぐ。
+ */
+function normalizeForm(raw: FormState | undefined | null): FormState {
+  return {
+    ...DEFAULT_FORM,
+    ...raw,
+    qualitative: Array.isArray(raw?.qualitative)
+      ? raw.qualitative
+      : DEFAULT_QUALITATIVE,
+    actualNotes: { ...DEFAULT_ACTUAL_NOTES, ...raw?.actualNotes },
+  };
+}
+
 export function LoanProposalSection() {
   const pl = useMfPL();
   const bs = useMfBS();
   const cashflow = useMfCashflow();
-  const DEFAULT_FORM: FormState = { qualitative: DEFAULT_QUALITATIVE, actualNotes: DEFAULT_ACTUAL_NOTES };
   const { value: rawForm, setValue: setForm } = useFeatureStateLocal<FormState>(
     "year-end-review.loan-proposal",
     "",
     DEFAULT_FORM,
   );
-  const form: FormState = useMemo(() => ({
-    ...DEFAULT_FORM,
-    ...rawForm,
-    qualitative: Array.isArray(rawForm?.qualitative) ? rawForm.qualitative : DEFAULT_QUALITATIVE,
-    actualNotes: { ...DEFAULT_ACTUAL_NOTES, ...rawForm?.actualNotes },
-  }), [rawForm]);
+  const form: FormState = useMemo(() => normalizeForm(rawForm), [rawForm]);
 
   // 旧 LocalStorage クリーンアップ
   useEffect(() => {
@@ -113,10 +129,15 @@ export function LoanProposalSection() {
   }, [pl.data, bs.data, cashflow.data]);
 
   const setQual = (id: string, value: CheckValue) =>
-    setForm((p) => ({
-      ...p,
-      qualitative: p.qualitative.map((q) => (q.id === id ? { ...q, value } : q)),
-    }));
+    setForm((p) => {
+      const cur = normalizeForm(p);
+      return {
+        ...cur,
+        qualitative: cur.qualitative.map((q) =>
+          q.id === id ? { ...q, value } : q,
+        ),
+      };
+    });
 
   return (
     <div className="space-y-3">
@@ -214,21 +235,30 @@ export function LoanProposalSection() {
             label="回収不能売上債権の有無"
             value={form.actualNotes.uncollectableAr}
             onChange={(v) =>
-              setForm((p) => ({ ...p, actualNotes: { ...p.actualNotes, uncollectableAr: v } }))
+              setForm((p) => {
+                const cur = normalizeForm(p);
+                return { ...cur, actualNotes: { ...cur.actualNotes, uncollectableAr: v } };
+              })
             }
           />
           <NoteField
             label="換金不能な不良在庫"
             value={form.actualNotes.obsoleteInventory}
             onChange={(v) =>
-              setForm((p) => ({ ...p, actualNotes: { ...p.actualNotes, obsoleteInventory: v } }))
+              setForm((p) => {
+                const cur = normalizeForm(p);
+                return { ...cur, actualNotes: { ...cur.actualNotes, obsoleteInventory: v } };
+              })
             }
           />
           <NoteField
             label="貸付金の回収可能性"
             value={form.actualNotes.loanRecoverability}
             onChange={(v) =>
-              setForm((p) => ({ ...p, actualNotes: { ...p.actualNotes, loanRecoverability: v } }))
+              setForm((p) => {
+                const cur = normalizeForm(p);
+                return { ...cur, actualNotes: { ...cur.actualNotes, loanRecoverability: v } };
+              })
             }
           />
         </div>

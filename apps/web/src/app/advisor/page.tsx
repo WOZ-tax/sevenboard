@@ -932,6 +932,7 @@ function NewOrgDialog({ open, onOpenChange, onCreated }: NewOrgDialogProps) {
   // open/close 切替時にフォームをリセット
   useEffect(() => {
     if (!open) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- dialog close resets all org form fields
       setName("");
       setCode("");
       setManagementNo("");
@@ -1132,6 +1133,7 @@ function EditOrgDialog({ target, onClose, onUpdated }: EditOrgDialogProps) {
   // target が変わるたびにフォームに流し込み
   useEffect(() => {
     if (target) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync edit form with selected org data
       setName(target.name);
       setCode(target.code ?? "");
       setFiscalMonthEnd(String(target.fiscalMonthEnd));
@@ -1369,6 +1371,7 @@ function DeleteOrgDialog({ target, onClose, onDeleted }: DeleteOrgDialogProps) {
 
   useEffect(() => {
     if (target) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- reset confirmation text when delete target changes
       setConfirmText("");
       setError(null);
       setSubmitting(false);

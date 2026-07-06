@@ -126,11 +126,11 @@ export function computeHealthScore(
     ),
   };
 
-  let activity =
+  const activity =
     detail.operatingProfitMargin + detail.roe + detail.roa;
   let safety =
     detail.currentRatio + detail.equityRatio + detail.debtCoverage;
-  let efficiency =
+  const efficiency =
     detail.totalAssetTurnover + detail.receivablesTurnover;
 
   // CRD ライクな倒産リスク即時減点

@@ -271,6 +271,7 @@ function CreateStaffDialog({
 
   useEffect(() => {
     if (!open) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- dialog close resets all form fields
       setEmail("");
       setName("");
       setPassword("");
@@ -438,6 +439,7 @@ function EditStaffDialog({
 
   useEffect(() => {
     if (target) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync edit form with selected staff member
       setName(target.name);
       setRole(target.role);
       setPassword("");
@@ -567,6 +569,7 @@ function DeleteStaffDialog({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reset error when delete target changes
     if (target) setError(null);
   }, [target]);
 
