@@ -53,6 +53,20 @@ const parseNum = (s: string | undefined | null): number =>
 const fmtComma = (n: number): string =>
   Number.isFinite(n) ? Math.round(n).toLocaleString() : "0";
 
+/**
+ * DB から復元した生の値を欠損フィールド補完済みの CfLandingInput に正規化する。
+ * 古いスキーマのレコードでは outflows が配列でない可能性があるため、
+ * レンダリング (useMemo) と書込 (updateInput) の双方でこれを通して
+ * p.outflows.map / .filter / スプレッド のクラッシュを防ぐ。
+ */
+function normalizeInput(raw: CfLandingInput | undefined | null): CfLandingInput {
+  return {
+    ...EMPTY_INPUT,
+    ...raw,
+    outflows: Array.isArray(raw?.outflows) ? raw.outflows : [],
+  };
+}
+
 export function CashflowLandingSection() {
   const cf = useMfCashflow();
   const fiscalYear = usePeriodStore((s) => s.fiscalYear);
@@ -63,7 +77,7 @@ export function CashflowLandingSection() {
       EMPTY_INPUT,
     );
   const input: CfLandingInput = useMemo(
-    () => ({ ...EMPTY_INPUT, ...rawInput, outflows: Array.isArray(rawInput?.outflows) ? rawInput.outflows : [] }),
+    () => normalizeInput(rawInput),
     [rawInput],
   );
 
@@ -83,7 +97,7 @@ export function CashflowLandingSection() {
   }, []);
 
   const updateInput = (updater: (prev: CfLandingInput) => CfLandingInput) => {
-    setInput((prev) => updater(prev));
+    setInput((prev) => updater(normalizeInput(prev)));
   };
 
   const summary = useMemo(() => {

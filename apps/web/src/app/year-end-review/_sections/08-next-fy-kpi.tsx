@@ -36,10 +36,17 @@ export function NextFyKpiSection() {
   const lockedMonth = usePeriodStore((s) => s.month);
   const fiscalYear = usePeriodStore((s) => s.fiscalYear);
   const { fyStartMonth } = useFyElapsed();
-  const { value: form, setValue: setForm, isHydrated } = useFeatureStateLocal<FormState>(
+  const { value: rawForm, setValue: setForm, isHydrated } = useFeatureStateLocal<FormState>(
     "year-end-review.next-fy-kpi",
     String(fiscalYear ?? ""),
     DEFAULT_FORM,
+  );
+  // DB復元データにフィールドが欠けている場合にデフォルト値で補完
+  // (他セクション 03/05/11 と同じ正規化パターン。欠損フィールドが parseFloat で
+  //  NaN になり無言でゼロ表示される問題を防ぐ)
+  const form: FormState = useMemo(
+    () => ({ ...DEFAULT_FORM, ...rawForm }),
+    [rawForm],
   );
 
   // 旧 LocalStorage クリーンアップ
@@ -76,7 +83,6 @@ export function NextFyKpiSection() {
   }, [currentRevenue]);
 
   // 当期実績から来期目標プリセット (空欄時のみ)
-  /* eslint-disable react-hooks/set-state-in-effect -- MFデータからのプリセット */
   useEffect(() => {
     if (!isHydrated) return;
     if (parseNum(form.targetRevenue) > 0) return;
@@ -84,7 +90,6 @@ export function NextFyKpiSection() {
       setForm((p) => ({ ...p, targetRevenue: String(ranges.mid) }));
     }
   }, [isHydrated, currentRevenue, ranges.mid, form.targetRevenue]);
-  /* eslint-enable react-hooks/set-state-in-effect */
 
   const target = parseNum(form.targetRevenue);
   const gm = parseFloat(form.targetGrossMargin) / 100;

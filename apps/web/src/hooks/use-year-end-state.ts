@@ -15,7 +15,14 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
+import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useCurrentOrg } from "@/contexts/current-org";
 
@@ -235,6 +242,7 @@ export function useFeatureStateLocal<T>(
   isHydrated: boolean;
   isSaving: boolean;
   saveError: Error | null;
+  isError: boolean;
 } {
   const orgId = useOrgId();
   const query = useFeatureState<T>(featureKey, scope);
@@ -246,7 +254,6 @@ export function useFeatureStateLocal<T>(
   const scopeHash = `${orgId}|${featureKey}|${scope}`;
   const lastScopeRef = useRef<string>("");
 
-  /* eslint-disable react-hooks/set-state-in-effect -- サーバー値からの hydrate + scope 切替対応 */
   // scope 切替検知: 旧 scope の debounce タイマーを破棄して hydrated をリセット
   useEffect(() => {
     if (lastScopeRef.current === scopeHash) return;
@@ -274,7 +281,22 @@ export function useFeatureStateLocal<T>(
     }
     setHydrated(true);
   }, [hydrated, query.isLoading, query.data]);
-  /* eslint-enable react-hooks/set-state-in-effect */
+
+  // 保存失敗の通知: 失敗状態が変化した時 (成功 → 失敗) のみ toast を出し、
+  // 連続失敗 (ユーザーが入力を続けて何度も PUT が失敗) でスパムしないようにする。
+  const notifiedSaveErrorRef = useRef(false);
+  useEffect(() => {
+    if (mutation.isError && !notifiedSaveErrorRef.current) {
+      notifiedSaveErrorRef.current = true;
+      toast.error(
+        "保存に失敗しました。ネットワークを確認してください（入力は画面に残っていますが未保存です）",
+      );
+    }
+    // 保存が成功したら通知フラグをリセット。次の失敗を再度知らせる。
+    if (mutation.isSuccess) {
+      notifiedSaveErrorRef.current = false;
+    }
+  }, [mutation.isError, mutation.isSuccess]);
 
   const setValue = useMemo(() => {
     return (next: T | ((prev: T) => T)) => {
@@ -308,5 +330,29 @@ export function useFeatureStateLocal<T>(
     isHydrated: hydrated,
     isSaving: mutation.isPending,
     saveError: (mutation.error as Error | null) ?? null,
+    isError: query.isError,
   };
+}
+
+/**
+ * year-end-review の feature-state GET (保存済み入力の読込) が
+ * いずれかのセクションで失敗しているかを監視する。
+ * ページ全体で 1 箇所だけエラーバナーを出すために使う (セクション個別改修は不要)。
+ */
+export function useYearEndStateLoadError(): boolean {
+  const qc = useQueryClient();
+  return useSyncExternalStore(
+    (onChange) => qc.getQueryCache().subscribe(onChange),
+    () =>
+      qc
+        .getQueryCache()
+        .getAll()
+        .some(
+          (q) =>
+            q.queryKey[0] === "yes" &&
+            q.queryKey[1] === "feature" &&
+            q.state.status === "error",
+        ),
+    () => false,
+  );
 }
