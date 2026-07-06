@@ -254,6 +254,24 @@ const FUNDING_REVENUE_CAP_RATIO = 0.5;
 /** 年商ベースでも超えさせない絶対上限（1 億円） */
 const FUNDING_REVENUE_CAP_ABS = 100_000_000;
 
+/**
+ * 補助金アンテナ: 全トークスクリプトに決定論で付与する共通ヒアリングセクション。
+ * 該当トピックが出たら talk-script 画面の補助金アンテナカードでチェック→
+ * 補助金・助成金チームへエスカレーションする運用の起点。
+ */
+const SUBSIDY_ANTENNA_SECTION: TalkScriptSection = {
+  title: '補助金アンテナ（共通ヒアリング）',
+  content:
+    '面談の締めに、補助金の対象になりうる動きがないかを確認します。該当する話題が出たら、トークスクリプト画面の「補助金アンテナ」でチェックして補助金・助成金チームへエスカレーションしてください。',
+  hearings: [
+    '今期・来期で設備投資や新規投資のご予定はありますか？',
+    '人手不足で自動化・省力化したい工程はありますか？（パッケージ導入か、オーダーメイド／スクラッチ開発かも伺ってください）',
+    '新しい販路の開拓や、新製品・新サービスのご計画はありますか？',
+    '海外展開・輸出など、グローバルに向けた動きはありますか？',
+    '新規事業への進出や組織拡大のご構想はありますか？（おおよその投資規模も伺ってください）',
+  ],
+};
+
 export interface SanitizedFundingAmount {
   /** false のときこのオプションは下流(融資シミュ元本)へ流さず除外する */
   kept: boolean;
@@ -1195,7 +1213,8 @@ ${trendBlock ? '\n' + trendBlock + '\n' : ''}`;
 
       return {
         opening: parsed?.opening || '',
-        sections: parsed?.sections || [],
+        // 補助金アンテナはLLM生成に任せず決定論で毎回付与する(捏造ゼロ・網羅漏れゼロ)
+        sections: [...(parsed?.sections || []), SUBSIDY_ANTENNA_SECTION],
         closing: parsed?.closing || '',
         nextActionsForAdvisor: parsed?.nextActionsForAdvisor || [],
         nextActionsForExecutive: parsed?.nextActionsForExecutive || [],

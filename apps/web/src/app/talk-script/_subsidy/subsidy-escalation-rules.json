@@ -1,0 +1,117 @@
+{
+  "$comment": "補助金アンテナのSSOT。公募期限・金額基準の変更はこのファイルだけで完結する。topics は全て満たす必要がある（AND）。constraints.anyOf は OR、その中の allOf は AND。validity は ISO 日付（YYYY-MM-DD）。マッチャーのロジック（match-subsidy.ts）は変更不要。",
+  "escalationTeam": "補助金・助成金チーム",
+  "rules": [
+    {
+      "id": "S1",
+      "program": "中小企業省力化投資補助金（一般型）",
+      "topics": ["shoryokuka", "capex", "custom_dev"],
+      "notes": [
+        "SaaS導入は対象外",
+        "議事録に「オーダーメイド」または「スクラッチ」を必ず記載する"
+      ],
+      "validity": {},
+      "escalationTeam": "補助金・助成金チーム"
+    },
+    {
+      "id": "S2",
+      "program": "ものづくり補助金 グローバル枠",
+      "topics": ["capex", "global", "sales_expansion"],
+      "notes": [],
+      "validity": {},
+      "escalationTeam": "補助金・助成金チーム"
+    },
+    {
+      "id": "S3",
+      "program": "ものづくり補助金 製品・サービス高付加価値化枠",
+      "topics": ["capex", "sales_expansion"],
+      "notes": [],
+      "validity": {},
+      "escalationTeam": "補助金・助成金チーム"
+    },
+    {
+      "id": "S4",
+      "program": "ものづくり補助金 新事業進出枠",
+      "topics": ["capex", "new_business", "sales_expansion"],
+      "notes": ["2026年8月以降に増設予定（それまでは公募待ち）"],
+      "validity": { "from": "2026-08-01" },
+      "escalationTeam": "補助金・助成金チーム"
+    },
+    {
+      "id": "S4-legacy",
+      "program": "新事業進出補助金",
+      "topics": ["capex", "new_business", "sales_expansion"],
+      "notes": [],
+      "validity": { "to": "2026-06-19" },
+      "escalationTeam": "補助金・助成金チーム"
+    },
+    {
+      "id": "S5",
+      "program": "成長加速化補助金",
+      "topics": ["large_investment"],
+      "constraints": {
+        "anyOf": [
+          {
+            "allOf": [
+              { "field": "investmentOku", "op": "gte", "value": 1 },
+              { "field": "revenueOku", "op": "gte", "value": 10 },
+              { "field": "revenueOku", "op": "lt", "value": 100 }
+            ]
+          }
+        ]
+      },
+      "notes": ["LB（ロカベン）23点以上が望ましい"],
+      "validity": {},
+      "escalationTeam": "補助金・助成金チーム"
+    },
+    {
+      "id": "S6",
+      "program": "大規模成長投資補助金",
+      "topics": ["large_investment"],
+      "constraints": {
+        "anyOf": [
+          {
+            "allOf": [
+              { "field": "investmentOku", "op": "gte", "value": 15 },
+              { "field": "revenueOku", "op": "gte", "value": 10 },
+              { "field": "revenueOku", "op": "lt", "value": 100 }
+            ]
+          },
+          {
+            "allOf": [
+              { "field": "investmentOku", "op": "gte", "value": 20 },
+              { "field": "revenueOku", "op": "gte", "value": 50 }
+            ]
+          }
+        ]
+      },
+      "notes": ["LB（ロカベン）23点以上が望ましい"],
+      "validity": {},
+      "escalationTeam": "補助金・助成金チーム"
+    },
+    {
+      "id": "S7",
+      "program": "小規模事業者持続化補助金",
+      "topics": ["sales_expansion"],
+      "constraints": {
+        "anyOf": [
+          {
+            "allOf": [
+              { "field": "industryClass", "op": "eq", "value": "commerce_service" },
+              { "field": "employees", "op": "lte", "value": 5 }
+            ]
+          },
+          {
+            "allOf": [
+              { "field": "industryClass", "op": "eq", "value": "other" },
+              { "field": "employees", "op": "lte", "value": 20 }
+            ]
+          }
+        ]
+      },
+      "notes": ["従業員数はアルバイト・パート含む"],
+      "validity": {},
+      "escalationTeam": "補助金・助成金チーム"
+    }
+  ]
+}
