@@ -75,7 +75,7 @@ jobs:
         run: npm run db:generate
 
       - name: Apply migrations
-        run: npx prisma migrate deploy --schema=packages/database/prisma/schema.prisma
+        run: npm run migrate:deploy -w packages/database
 
       - name: Run API tests
         run: npm run test -w apps/api --if-present
