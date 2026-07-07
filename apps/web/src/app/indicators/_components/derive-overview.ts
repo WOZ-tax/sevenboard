@@ -41,12 +41,42 @@ export interface Judgment {
   tone: JudgmentTone;
 }
 
+/** tone → 日本語ラベルの正準写像（tone-styles / ゲージの状態 pill が参照する）。 */
+export const JUDGMENT_LABEL: Record<JudgmentTone, Judgment["label"]> = {
+  good: "良好",
+  caution: "注意",
+  warning: "要改善",
+};
+
 /** tone の深刻度。数字が大きいほど悪い（カテゴリ / 総合の最悪値を取るのに使う）。 */
 const TONE_SEVERITY: Record<JudgmentTone, number> = {
   good: 0,
   caution: 1,
   warning: 2,
 };
+
+/** ゲージの針スコア算出用の tone → 点数。良好=100 / 注意=50 / 要改善=0。 */
+const SCORE_BY_TONE: Record<JudgmentTone, number> = {
+  good: 100,
+  caution: 50,
+  warning: 0,
+};
+
+/**
+ * カテゴリのゲージ針が指す 0-100 スコア。各指標の判定を 良好=100 / 注意=50 / 要改善=0 で
+ * 数値化した単純平均（四捨五入した整数）。
+ *
+ * NOTE: これはスピードメーターの「針」専用。中央に出す状態ラベルは別途カテゴリの「最悪判定」
+ * （deriveOverview().categories[key]）を使う。役割が異なる:
+ *   - 針（このスコア）= カテゴリ全体の底上げ度合い（複数指標の平均的な健全さ）
+ *   - 状態ラベル      = 最も注意すべき水準（1 つでも要改善なら要改善を表示）
+ * 両者は意図的に食い違い得る（例: 3 指標中 2 良好 1 要改善 → 針≈67 / ラベル=要改善）。
+ */
+export function categoryScore(judgments: Pick<Judgment, "tone">[]): number {
+  if (judgments.length === 0) return 0;
+  const sum = judgments.reduce((acc, j) => acc + SCORE_BY_TONE[j.tone], 0);
+  return Math.round(sum / judgments.length);
+}
 
 type JudgeableDef = Pick<IndicatorDef, "good" | "caution" | "higherIsBetter">;
 

@@ -6,6 +6,8 @@ import { cn } from "@/lib/utils";
 import { Bot, RefreshCw, Sparkles } from "lucide-react";
 import { useAiIndicatorsCommentary } from "@/hooks/use-mf-data";
 import { ThinkingIndicator } from "@/components/ai/thinking-indicator";
+import { PRINT_EXACT_CLASS } from "./indicator-tokens";
+import { TONE_PILL_STYLE } from "./tone-styles";
 
 /**
  * AI CFO 解説ブロック（トリガーカード + 解説カード）。
@@ -44,13 +46,11 @@ function AiCommentaryCard() {
   // useAiIndicatorsCommentary は render 時点で fetch する（トリガー後のみ mount される）。
   const commentary = useAiIndicatorsCommentary();
 
-  const levelBadge: Record<
-    "good" | "caution" | "warning",
-    { label: string; className: string }
-  > = {
-    good: { label: "良好", className: "bg-[#e8f5e9] text-[var(--color-success)] border-[#c8e6c9]" },
-    caution: { label: "注意", className: "bg-[#fff8e1] text-[#8d6e00] border-[#ffe082]" },
-    warning: { label: "要対応", className: "bg-[#fce4ec] text-[var(--color-error)] border-[#f8bbd0]" },
+  // 色は indicator-tokens（TONE_PILL_STYLE）を参照。ラベルのみ AI 解説用に持つ。
+  const levelBadge: Record<"good" | "caution" | "warning", { label: string }> = {
+    good: { label: "良好" },
+    caution: { label: "注意" },
+    warning: { label: "要対応" },
   };
 
   return (
@@ -128,7 +128,12 @@ function AiCommentaryCard() {
                       <span className="text-sm font-semibold text-[var(--color-text-primary)]">
                         {cat.name}
                       </span>
-                      <Badge className={cn("border text-[10px]", badge.className)}>{badge.label}</Badge>
+                      <Badge
+                        className={cn("border-transparent text-[10px]", PRINT_EXACT_CLASS)}
+                        style={TONE_PILL_STYLE[cat.level]}
+                      >
+                        {badge.label}
+                      </Badge>
                     </div>
                     <p className="mb-2 text-xs leading-relaxed text-[var(--color-text-secondary)]">
                       {cat.summary}
