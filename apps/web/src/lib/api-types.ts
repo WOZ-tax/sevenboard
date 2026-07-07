@@ -445,6 +445,132 @@ export interface LoanSimulationResult {
   };
 }
 
+// === 借入金管理 (Loan management) ===
+// 注: 上記 LoanSimulation* / LoanScheduleEntry はシミュレーション用。
+// こちらは登録済み借入の管理用で別系統。
+
+export type LoanRateType = "FIXED" | "VARIABLE";
+export type LoanRepaymentMethod =
+  | "EQUAL_INSTALLMENT"
+  | "EQUAL_PRINCIPAL"
+  | "BULLET"
+  | "OTHER";
+export type LoanStatus = "ACTIVE" | "REPAID";
+
+/** 一覧の 1 行。金額は全て円 (number)。 */
+export interface LoanSummary {
+  id: string;
+  lenderName: string;
+  branchName: string | null;
+  loanType: string | null;
+  principal: number;
+  interestRate: number;
+  rateType: LoanRateType;
+  startDate: string;
+  termMonths: number;
+  maturityDate: string | null;
+  repaymentMethod: LoanRepaymentMethod;
+  status: LoanStatus;
+  currentBalance: number;
+  nextDueDate: string | null;
+  nextPaymentAmount: number | null;
+  driveUrl: string | null;
+}
+
+export interface LoanTotals {
+  outstandingBalance: number;
+  monthlyPayment: number;
+  monthlyPrincipal: number;
+  monthlyInterest: number;
+  annualInterestEstimate: number;
+}
+
+/** MF 帳簿(借入金)残高との照合。amount=null は MF 未接続/取得不可。 */
+export interface LoanMfBookBalance {
+  amount: number | null;
+  accounts: { name: string; amount: number }[];
+  diff: number | null;
+}
+
+export interface LoanListResponse {
+  loans: LoanSummary[];
+  totals: LoanTotals;
+  mfBookBalance: LoanMfBookBalance;
+}
+
+/** 償還スケジュール 1 行。金額は全て円。 */
+export interface LoanScheduleRow {
+  id?: string;
+  seq: number;
+  dueDate: string;
+  principalAmount: number;
+  interestAmount: number;
+  totalAmount: number;
+  balanceAfter: number;
+  interestRate?: number | null;
+  isEstimated?: boolean;
+}
+
+export interface LoanDocumentRef {
+  id: string;
+  fileName: string;
+  createdAt: string;
+}
+
+/** 詳細レスポンス = 基本情報 + スケジュール + 添付書類。 */
+export interface LoanDetail extends LoanSummary {
+  scheduleEntries: LoanScheduleRow[];
+  documents: LoanDocumentRef[];
+}
+
+/** 作成/更新で送る基本情報。 */
+export interface LoanBasicInput {
+  lenderName: string;
+  branchName?: string | null;
+  loanType?: string | null;
+  principal: number;
+  interestRate: number;
+  rateType: LoanRateType;
+  startDate: string;
+  termMonths: number;
+  maturityDate?: string | null;
+  repaymentMethod: LoanRepaymentMethod;
+  status?: LoanStatus;
+  driveUrl?: string | null;
+}
+
+export interface LoanCreateInput extends LoanBasicInput {
+  scheduleEntries: LoanScheduleRow[];
+  documentId?: string;
+}
+
+export interface LoanExtractRowIssue {
+  seq: number;
+  code: string;
+  message: string;
+}
+
+export interface LoanExtractGlobalIssue {
+  code: string;
+  message: string;
+}
+
+export interface LoanExtractValidation {
+  ok: boolean;
+  rowIssues: LoanExtractRowIssue[];
+  globalIssues: LoanExtractGlobalIssue[];
+}
+
+/** POST /loans/extract の戻り値。draft=null は読取失敗 (人が手入力に切替)。 */
+export interface LoanExtractResult {
+  documentId: string;
+  draft: {
+    loan: Partial<LoanBasicInput>;
+    entries: LoanScheduleRow[];
+  } | null;
+  validation: LoanExtractValidation;
+}
+
 export interface LinkedStatementsInput {
   revenueOverride?: number;
   cogsOverride?: number;

@@ -59,8 +59,16 @@ export interface LlmToolRunResult {
   }>;
 }
 
+/** generate() のオプション。pdfBase64 を渡すと PDF を添付して構造化抽出できる。 */
+export interface LlmGenerateOptions {
+  maxTokens?: number;
+  json?: boolean;
+  /** application/pdf を base64 で渡す。指定時はテキスト prompt と一緒に添付する。 */
+  pdfBase64?: string;
+}
+
 export interface LlmProvider {
-  generate(prompt: string, options?: { maxTokens?: number; json?: boolean }): Promise<LlmResponse>;
+  generate(prompt: string, options?: LlmGenerateOptions): Promise<LlmResponse>;
   /**
    * tools を渡して会話ループを回す。tool_use → handler → tool_result を end_turn まで繰り返す。
    * tools をサポートしないプロバイダーは null を返す。
@@ -92,14 +100,28 @@ export class ClaudeProvider implements LlmProvider {
     private apiKey: string,
   ) {}
 
-  async generate(prompt: string, options?: { maxTokens?: number; json?: boolean }): Promise<LlmResponse> {
+  async generate(prompt: string, options?: LlmGenerateOptions): Promise<LlmResponse> {
+    // pdfBase64 指定時は document content block を先頭に付ける（PDF は GA なので beta header 不要）。
+    const content = options?.pdfBase64
+      ? [
+          {
+            type: 'document',
+            source: {
+              type: 'base64',
+              media_type: 'application/pdf',
+              data: options.pdfBase64,
+            },
+          },
+          { type: 'text', text: prompt },
+        ]
+      : prompt;
     const res: AxiosResponse = await lastValueFrom(
       this.httpService.post(
         ANTHROPIC_API_URL,
         {
           model: CLAUDE_MODEL,
           max_tokens: options?.maxTokens || 2048,
-          messages: [{ role: 'user', content: prompt }],
+          messages: [{ role: 'user', content }],
         },
         {
           headers: {
@@ -293,12 +315,20 @@ export class GeminiProvider implements LlmProvider {
     private apiKey: string,
   ) {}
 
-  async generate(prompt: string, options?: { maxTokens?: number; json?: boolean }): Promise<LlmResponse> {
+  async generate(prompt: string, options?: LlmGenerateOptions): Promise<LlmResponse> {
     // API キーは URL クエリ(?key=)ではなく x-goog-api-key ヘッダで送る（ログ/履歴へのキー漏れ防止）
     const url = `${GEMINI_API_BASE}/${GEMINI_MODEL}:generateContent`;
 
+    // pdfBase64 指定時は inline_data で PDF を添付する。
+    const parts: Array<Record<string, unknown>> = options?.pdfBase64
+      ? [
+          { inline_data: { mime_type: 'application/pdf', data: options.pdfBase64 } },
+          { text: prompt },
+        ]
+      : [{ text: prompt }];
+
     const body: any = {
-      contents: [{ parts: [{ text: prompt }] }],
+      contents: [{ parts }],
       generationConfig: {
         maxOutputTokens: options?.maxTokens || 4096,
         // Gemini 2.5は thinkingトークンが maxOutputTokens を食って出力が途中で切れる。無効化する。

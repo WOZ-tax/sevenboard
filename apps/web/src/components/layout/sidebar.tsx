@@ -19,6 +19,7 @@ import {
   Gauge,
   CalendarClock,
   Building2,
+  Landmark,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
@@ -42,6 +43,7 @@ const menuItems = [
   { label: "財務諸表", href: "/financial-statements", icon: FileText },
   { label: "資金繰り", href: "/cashflow", icon: Wallet },
   { label: "資金調達レポート", href: "/funding-report", icon: FileBarChart },
+  { label: "借入金管理", href: "/loans", icon: Landmark },
   { label: "変動損益", href: "/variable-cost", icon: TrendingDown },
   { label: "ロカベン", href: "/locaben", icon: Building2 },
   { label: "決算検討", href: "/year-end-review", icon: CalendarClock },
