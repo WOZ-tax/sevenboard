@@ -1,8 +1,15 @@
-import { Prisma } from '@prisma/client';
+import type { Prisma } from '@prisma/client';
 import { LoansService } from './loans.service';
 
 function d(iso: string): Date {
   return new Date(`${iso}T00:00:00.000Z`);
+}
+
+// Prisma.Decimal のランタイムコンストラクタは生成クライアントの解決状況
+// (CI とローカルで異なる)に依存するため使わない。service 側は toString()
+// しか呼ばないので、それだけ満たすモックで十分。
+function dec(value: string): Prisma.Decimal {
+  return { toString: () => value } as unknown as Prisma.Decimal;
 }
 
 /** MF BS の負債行（closing は index 3） */
@@ -25,7 +32,7 @@ function buildService(overrides?: {
     loanNumber: 'A-001',
     loanType: '証書貸付',
     principal: BigInt(1_200_000),
-    interestRate: new Prisma.Decimal('1.5'),
+    interestRate: dec('1.5'),
     rateType: 'FIXED',
     startDate: d('2025-04-01'),
     termMonths: 12,
@@ -58,7 +65,7 @@ function buildService(overrides?: {
         interestAmount: BigInt(1_300),
         totalAmount: BigInt(101_300),
         balanceAfter: BigInt(900_000),
-        interestRate: new Prisma.Decimal('2.375'),
+        interestRate: dec('2.375'),
         isEstimated: false,
       },
       {
