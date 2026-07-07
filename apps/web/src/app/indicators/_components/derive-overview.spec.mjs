@@ -14,6 +14,7 @@ import {
   getJudgment,
   deriveOverview,
   buildScale,
+  categoryScore,
   formatBenchmark,
   formatThreshold,
 } from "./derive-overview.ts";
@@ -182,6 +183,47 @@ test("buildScale: 負値 marker は 0 にクランプし clampedLow を立てる
   const m = buildScale({ good: 100, caution: 200, unit: "%", higherIsBetter: false }, -10);
   assert.equal(m.marker.pct, 0);
   assert.equal(m.marker.clampedLow, true);
+});
+
+// --- categoryScore（ゲージ針スコア） ---------------------------------------
+test("categoryScore: 全良好 → 100", () => {
+  assert.equal(
+    categoryScore([{ tone: "good" }, { tone: "good" }, { tone: "good" }]),
+    100,
+  );
+});
+
+test("categoryScore: 全要改善 → 0", () => {
+  assert.equal(
+    categoryScore([{ tone: "warning" }, { tone: "warning" }, { tone: "warning" }]),
+    0,
+  );
+});
+
+test("categoryScore: 混在（良好+注意+要改善） → 50", () => {
+  assert.equal(
+    categoryScore([{ tone: "good" }, { tone: "caution" }, { tone: "warning" }]),
+    50,
+  );
+});
+
+test("categoryScore: 2指標（良好+注意） → 75（四捨五入）", () => {
+  assert.equal(categoryScore([{ tone: "good" }, { tone: "caution" }]), 75);
+});
+
+test("categoryScore: 2指標（注意+要改善） → 25", () => {
+  assert.equal(categoryScore([{ tone: "caution" }, { tone: "warning" }]), 25);
+});
+
+test("categoryScore: 3指標（良好2+要改善1） → 67（四捨五入）", () => {
+  assert.equal(
+    categoryScore([{ tone: "good" }, { tone: "good" }, { tone: "warning" }]),
+    67,
+  );
+});
+
+test("categoryScore: 空入力 → 0", () => {
+  assert.equal(categoryScore([]), 0);
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

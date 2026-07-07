@@ -3,7 +3,8 @@ import { AlertCircle, AlertTriangle, CheckCircle2, type LucideIcon } from "lucid
 import type { HealthSnapshotItem } from "@/lib/api";
 import type { CategoryKey, JudgmentTone, OverviewResult } from "./derive-overview";
 import { CATEGORY_META } from "./indicator-defs";
-import { TONE_SOFT_BG, TONE_SOFT_BORDER, TONE_SOLID_BG, TONE_TEXT } from "./tone-styles";
+import { PRINT_EXACT_CLASS, SEMANTIC_COLOR } from "./indicator-tokens";
+import { TONE_SOFT_BG_STYLE, TONE_TEXT_STYLE } from "./tone-styles";
 import { HealthSparkline } from "./health-sparkline";
 
 const OVERALL_ICON: Record<JudgmentTone, LucideIcon> = {
@@ -26,7 +27,9 @@ function scrollToPanel(anchorId: string) {
 
 /**
  * ページ最上部のヒーローバンド。
- * 左=総合判定 / 中=カテゴリ別ステータスチップ / 右=件数・期間・健康スコア。
+ * ニュートラル面（bg-surface）+ 左 4px の状態アクセント。総合判定アイコンは淡色の丸チップに収め、
+ * 面塗り（ピンク等）は使わない。件数は色ドット + 数字のコンパクトチップ。
+ * カテゴリチップ（スクロールジャンプ）と健康スコアスパークラインは維持。狭幅では flex-wrap で折り返す。
  */
 export function OverviewHero({
   overview,
@@ -46,22 +49,33 @@ export function OverviewHero({
   ];
 
   return (
-    <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
+    <div
+      className={cn(
+        "rounded-lg border border-l-4 border-[var(--color-border)] bg-[var(--color-surface)] p-4",
+        PRINT_EXACT_CLASS,
+      )}
+      style={{ borderLeftColor: SEMANTIC_COLOR[overview.overall] }}
+    >
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
-        {/* 総合判定 */}
-        <div
-          className={cn(
-            "flex items-center gap-3 rounded-lg border px-4 py-3 lg:min-w-[240px]",
-            TONE_SOFT_BG[overview.overall],
-            TONE_SOFT_BORDER[overview.overall],
-          )}
-        >
-          <OverallIcon className={cn("h-8 w-8 shrink-0", TONE_TEXT[overview.overall])} />
+        {/* 総合判定: 淡色チップのアイコン + ラベル */}
+        <div className="flex items-center gap-3 lg:min-w-[220px]">
+          <span
+            className={cn(
+              "flex h-11 w-11 shrink-0 items-center justify-center rounded-full",
+              PRINT_EXACT_CLASS,
+            )}
+            style={TONE_SOFT_BG_STYLE[overview.overall]}
+          >
+            <OverallIcon className="h-6 w-6" style={TONE_TEXT_STYLE[overview.overall]} />
+          </span>
           <div>
             <div className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-text-secondary)]">
               総合判定
             </div>
-            <div className={cn("text-xl font-bold leading-tight", TONE_TEXT[overview.overall])}>
+            <div
+              className="text-xl font-bold leading-tight"
+              style={TONE_TEXT_STYLE[overview.overall]}
+            >
               {overview.overallLabel}
             </div>
             <div className="text-[11px] text-[var(--color-text-secondary)]">
@@ -70,7 +84,7 @@ export function OverviewHero({
           </div>
         </div>
 
-        {/* カテゴリ別ステータスチップ */}
+        {/* カテゴリ別ステータスチップ（クリックでパネルへスクロール） */}
         <div className="flex flex-wrap gap-2 lg:flex-1">
           {CATEGORY_ORDER.map((key) => {
             const meta = CATEGORY_META[key];
@@ -84,10 +98,12 @@ export function OverviewHero({
                 title={`${meta.label}のパネルへ移動`}
               >
                 <span
-                  className={cn(
-                    "h-2.5 w-2.5 rounded-full",
-                    tone ? TONE_SOLID_BG[tone] : "bg-[var(--color-text-disabled)]",
-                  )}
+                  className={cn("h-2.5 w-2.5 rounded-full", PRINT_EXACT_CLASS)}
+                  style={
+                    tone
+                      ? { backgroundColor: SEMANTIC_COLOR[tone] }
+                      : { backgroundColor: "var(--color-text-disabled)" }
+                  }
                 />
                 <span className="font-medium text-[var(--color-text-primary)]">{meta.label}</span>
               </button>
@@ -95,19 +111,23 @@ export function OverviewHero({
           })}
         </div>
 
-        {/* 件数 + 期間 + 健康スコア */}
+        {/* 件数（色ドット + 数字のコンパクトチップ）+ 期間 + 健康スコア */}
         <div className="flex flex-col items-start gap-2 lg:items-end">
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2">
             {counts.map((c) => (
-              <div key={c.tone} className="flex items-center gap-1.5">
-                <span className={cn("h-2 w-2 rounded-full", TONE_SOLID_BG[c.tone])} />
-                <span className="text-xs text-[var(--color-text-secondary)]">
-                  {c.label}
-                  <span className="ml-1 font-bold tabular-nums text-[var(--color-text-primary)]">
-                    {c.n}
-                  </span>
+              <span
+                key={c.tone}
+                className="inline-flex items-center gap-1.5 rounded-full border border-[var(--color-border)] px-2 py-0.5 text-xs"
+              >
+                <span
+                  className={cn("h-2 w-2 rounded-full", PRINT_EXACT_CLASS)}
+                  style={{ backgroundColor: SEMANTIC_COLOR[c.tone] }}
+                />
+                <span className="text-[var(--color-text-secondary)]">{c.label}</span>
+                <span className="font-bold tabular-nums text-[var(--color-text-primary)]">
+                  {c.n}
                 </span>
-              </div>
+              </span>
             ))}
           </div>
           <div className="text-xs text-muted-foreground">{periodLabel || "期間未指定"}</div>

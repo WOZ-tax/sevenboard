@@ -1,54 +1,44 @@
-import type { JudgmentTone } from "./derive-overview";
+import type { CSSProperties } from "react";
+import type { Judgment, JudgmentTone } from "./derive-overview";
+import { JUDGMENT_LABEL } from "./derive-overview";
+import { SEMANTIC_COLOR, SEMANTIC_SOFT_BG, SEMANTIC_TEXT } from "./indicator-tokens";
 
 /**
- * tone → Tailwind クラスの写像。既存トークン（--color-success/warning/error）と
- * 既存カード配色（#e8f5e9 / #fff8e1 / #fce4ec, 注意テキスト #8d6e00）に揃える。
- * 新しい原色は持ち込まない。
+ * tone → inline style（React.CSSProperties）の写像。
+ *
+ * 色「値」の真実点は indicator-tokens.ts にあり、ここはそれを束ねるだけ（重複定義を持たない）。
+ * className の Tailwind 任意値（bg-[var(--…)] 等）は JIT が文字列リテラルを検出する必要があり、
+ * 定数から動的合成できない。そのため tone 着色は inline style に統一している。
+ *
+ * 印刷での塗り欠けは PRINT_EXACT_CLASS（indicator-tokens）を className 側で局所付与して防ぐ。
  */
 
-export const TONE_LABEL: Record<JudgmentTone, string> = {
-  good: "良好",
-  caution: "注意",
-  warning: "要改善",
-};
+/** tone → 日本語ラベル（良好 / 注意 / 要改善）。derive-overview の正準写像を再輸出。 */
+export const TONE_LABEL: Record<JudgmentTone, Judgment["label"]> = JUDGMENT_LABEL;
 
-/** 状態ドット / スケールバーのマーカー（濃色ソリッド）。 */
-export const TONE_SOLID_BG: Record<JudgmentTone, string> = {
-  good: "bg-[var(--color-success)]",
-  caution: "bg-[var(--color-warning)]",
-  warning: "bg-[var(--color-error)]",
-};
+const byTone = <T,>(fn: (tone: JudgmentTone) => T): Record<JudgmentTone, T> => ({
+  good: fn("good"),
+  caution: fn("caution"),
+  warning: fn("warning"),
+});
 
-/** 文字色。注意だけは薄背景上での可読性のため濃いアンバーを使う。 */
-export const TONE_TEXT: Record<JudgmentTone, string> = {
-  good: "text-[var(--color-success)]",
-  caution: "text-[#8d6e00]",
-  warning: "text-[var(--color-error)]",
-};
+/** 濃色ソリッド背景（状態ドット / ミニステータスバーのフィル）。 */
+export const TONE_SOLID_STYLE = byTone<CSSProperties>((tone) => ({
+  backgroundColor: SEMANTIC_COLOR[tone],
+}));
 
-/** カード左端の状態アクセントボーダー色（border-l-4 と併用）。 */
-export const TONE_ACCENT_BORDER: Record<JudgmentTone, string> = {
-  good: "border-l-[var(--color-success)]",
-  caution: "border-l-[var(--color-warning)]",
-  warning: "border-l-[var(--color-error)]",
-};
+/** 状態文字色。 */
+export const TONE_TEXT_STYLE = byTone<CSSProperties>((tone) => ({
+  color: SEMANTIC_TEXT[tone],
+}));
 
-/** ヒーローの総合判定ボックス等に使う淡いトーン背景。 */
-export const TONE_SOFT_BG: Record<JudgmentTone, string> = {
-  good: "bg-[#e8f5e9]",
-  caution: "bg-[#fff8e1]",
-  warning: "bg-[#fce4ec]",
-};
+/** pill バッジ（淡背景 + 濃文字）。 */
+export const TONE_PILL_STYLE = byTone<CSSProperties>((tone) => ({
+  backgroundColor: SEMANTIC_SOFT_BG[tone],
+  color: SEMANTIC_TEXT[tone],
+}));
 
-export const TONE_SOFT_BORDER: Record<JudgmentTone, string> = {
-  good: "border-green-200",
-  caution: "border-amber-200",
-  warning: "border-red-200",
-};
-
-/** ゾーンスケールバーの各ゾーン（淡色塗り）。 */
-export const ZONE_BG: Record<JudgmentTone, string> = {
-  good: "bg-green-100",
-  caution: "bg-amber-100",
-  warning: "bg-red-100",
-};
+/** 淡背景のみ（アイコンチップ等）。 */
+export const TONE_SOFT_BG_STYLE = byTone<CSSProperties>((tone) => ({
+  backgroundColor: SEMANTIC_SOFT_BG[tone],
+}));

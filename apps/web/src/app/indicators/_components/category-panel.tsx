@@ -1,52 +1,45 @@
 import type { ReactNode } from "react";
-import { cn } from "@/lib/utils";
 import type { LucideIcon } from "lucide-react";
-import type { JudgmentTone } from "./derive-overview";
-import { TONE_LABEL, TONE_SOLID_BG, TONE_TEXT } from "./tone-styles";
+import type { Judgment } from "./derive-overview";
+import { CategoryGauge } from "./category-gauge";
 
 /**
- * カテゴリ（安全性 / 収益性 / 効率性）を 1 枠にまとめるパネル。
- * ヘッダー行にアイコン + タイトル + カテゴリ状態ドット、内部は密度あるグリッド。
+ * カテゴリ（安全性 / 収益性 / 効率性）の 1 カラム。
+ * 上に スピードメーターのゲージカード、直下にそのカテゴリの指標カードを縦積みする。
+ * ヒーローのカテゴリチップからのスクロール先アンカー（id）を保持する。
  */
 export function CategoryPanel({
   id,
   title,
-  icon: Icon,
+  icon,
   iconClassName,
-  tone,
+  score,
+  judgment,
   note,
   children,
-  className,
 }: {
   id: string;
   title: string;
   icon: LucideIcon;
   iconClassName?: string;
-  tone: JudgmentTone | null;
+  /** ゲージの針が指すスコア（categoryScore）。 */
+  score: number;
+  /** 中央 pill に出すカテゴリの最悪判定。 */
+  judgment: Judgment;
   note?: ReactNode;
   children: ReactNode;
-  className?: string;
 }) {
   return (
-    <section
-      id={id}
-      className={cn(
-        "scroll-mt-4 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4",
-        className,
-      )}
-    >
-      <div className="mb-3 flex items-center gap-2">
-        <Icon className={cn("h-5 w-5", iconClassName)} />
-        <h2 className="text-base font-semibold text-[var(--color-text-primary)]">{title}</h2>
-        {tone && (
-          <span className="ml-auto flex items-center gap-1.5">
-            <span className={cn("h-2 w-2 rounded-full", TONE_SOLID_BG[tone])} />
-            <span className={cn("text-xs font-medium", TONE_TEXT[tone])}>{TONE_LABEL[tone]}</span>
-          </span>
-        )}
-      </div>
+    <section id={id} className="flex scroll-mt-4 flex-col gap-4">
+      <CategoryGauge
+        title={title}
+        icon={icon}
+        iconClassName={iconClassName}
+        score={score}
+        judgment={judgment}
+      />
       {note}
-      {children}
+      <div className="flex flex-col gap-3">{children}</div>
     </section>
   );
 }

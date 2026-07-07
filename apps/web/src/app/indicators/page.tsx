@@ -20,11 +20,37 @@ import {
   efficiencyIndicators,
   CATEGORY_META,
 } from "./_components/indicator-defs";
-import { deriveOverview, type OverviewItem } from "./_components/derive-overview";
+import {
+  categoryScore,
+  deriveOverview,
+  getJudgment,
+  JUDGMENT_LABEL,
+  type IndicatorDef,
+  type Judgment,
+  type JudgmentTone,
+  type OverviewItem,
+} from "./_components/derive-overview";
+import type { FinancialIndicators } from "@/lib/mf-types";
 import { OverviewHero } from "./_components/overview-hero";
 import { CategoryPanel } from "./_components/category-panel";
 import { IndicatorCard } from "./_components/indicator-card";
 import { AiCfoBlock } from "./_components/ai-commentary";
+
+/**
+ * カテゴリのゲージ表示値を導出する。
+ *  - 針スコア = categoryScore（良好100/注意50/要改善0 の平均）
+ *  - 中央 pill = カテゴリの最悪判定（deriveOverview のカテゴリ集計を単一の真実点として流用）
+ * 両者は役割が異なり意図的に食い違い得る（derive-overview の categoryScore 参照）。
+ */
+function deriveCategoryGauge(
+  defs: IndicatorDef[],
+  data: FinancialIndicators,
+  worstTone: JudgmentTone | null,
+): { score: number; judgment: Judgment } {
+  const score = categoryScore(defs.map((def) => getJudgment(def, data[def.key] || 0)));
+  const tone = worstTone ?? "good";
+  return { score, judgment: { label: JUDGMENT_LABEL[tone], tone } };
+}
 
 export default function IndicatorsPage() {
   const indicators = useMfFinancialIndicators();
@@ -67,6 +93,17 @@ export default function IndicatorsPage() {
       }))
     : [];
   const overview = deriveOverview(overviewItems);
+
+  // カテゴリごとのゲージ表示値（針スコア + 最悪判定 pill）
+  const safetyGauge = data
+    ? deriveCategoryGauge(safetyIndicators, data, overview.categories.safety)
+    : null;
+  const profitGauge = data
+    ? deriveCategoryGauge(visibleProfitIndicators, data, overview.categories.profit)
+    : null;
+  const efficiencyGauge = data
+    ? deriveCategoryGauge(efficiencyIndicators, data, overview.categories.efficiency)
+    : null;
 
   return (
     <DashboardShell>
@@ -116,59 +153,60 @@ export default function IndicatorsPage() {
                 healthHistory={healthHistory.data ?? undefined}
               />
 
-              {/* カテゴリパネル（xl 以上はベントー: 安全性=左1/3 縦, 収益性=右2/3 上, 効率性=右2/3 下） */}
-              <div className="grid grid-cols-1 gap-4 xl:grid-cols-3 xl:items-start">
-                <CategoryPanel
-                  id={CATEGORY_META.safety.anchorId}
-                  title={CATEGORY_META.safety.label}
-                  icon={Shield}
-                  iconClassName="text-blue-600"
-                  tone={overview.categories.safety}
-                  className="xl:col-span-1"
-                >
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 xl:grid-cols-1">
+              {/* カテゴリ二段構え: 各カラム = ゲージカード + 直下に指標カード縦積み。
+                  1カラム(base) → 2カラム(md, 効率性が2段目) → 3カラム(xl) */}
+              <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-2 xl:grid-cols-3">
+                {safetyGauge && (
+                  <CategoryPanel
+                    id={CATEGORY_META.safety.anchorId}
+                    title={CATEGORY_META.safety.label}
+                    icon={Shield}
+                    iconClassName="text-blue-600"
+                    score={safetyGauge.score}
+                    judgment={safetyGauge.judgment}
+                  >
                     {safetyIndicators.map((def) => (
                       <IndicatorCard key={def.key} def={def} value={data[def.key] || 0} />
                     ))}
-                  </div>
-                </CategoryPanel>
+                  </CategoryPanel>
+                )}
 
-                <div className="space-y-4 xl:col-span-2">
+                {profitGauge && (
                   <CategoryPanel
                     id={CATEGORY_META.profit.anchorId}
                     title={CATEGORY_META.profit.label}
                     icon={TrendingUp}
                     iconClassName="text-green-600"
-                    tone={overview.categories.profit}
+                    score={profitGauge.score}
+                    judgment={profitGauge.judgment}
                     note={
                       !usesCostAccounting ? (
-                        <p className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                        <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
                           原価計算が未設定のため、売上総利益率は表示していません（中小企業では実態と乖離しやすい指標のため）。設定 → 分析設定 で「原価計算を運用している」を ON にすると表示されます。
                         </p>
                       ) : null
                     }
                   >
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                      {visibleProfitIndicators.map((def) => (
-                        <IndicatorCard key={def.key} def={def} value={data[def.key] || 0} />
-                      ))}
-                    </div>
+                    {visibleProfitIndicators.map((def) => (
+                      <IndicatorCard key={def.key} def={def} value={data[def.key] || 0} />
+                    ))}
                   </CategoryPanel>
+                )}
 
+                {efficiencyGauge && (
                   <CategoryPanel
                     id={CATEGORY_META.efficiency.anchorId}
                     title={CATEGORY_META.efficiency.label}
                     icon={Zap}
                     iconClassName="text-amber-600"
-                    tone={overview.categories.efficiency}
+                    score={efficiencyGauge.score}
+                    judgment={efficiencyGauge.judgment}
                   >
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                      {efficiencyIndicators.map((def) => (
-                        <IndicatorCard key={def.key} def={def} value={data[def.key] || 0} />
-                      ))}
-                    </div>
+                    {efficiencyIndicators.map((def) => (
+                      <IndicatorCard key={def.key} def={def} value={data[def.key] || 0} />
+                    ))}
                   </CategoryPanel>
-                </div>
+                )}
               </div>
 
               {/* AI CFO 解説（画面下部、ボタン押下式） */}
