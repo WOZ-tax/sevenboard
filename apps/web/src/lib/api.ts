@@ -36,6 +36,12 @@ import type {
   FundingReport,
   LinkedStatementsInput,
   LinkedStatementsResult,
+  LoanBasicInput,
+  LoanCreateInput,
+  LoanDetail,
+  LoanExtractResult,
+  LoanListResponse,
+  LoanScheduleRow,
   LoanSimulationInput,
   LoanSimulationResult,
   MfAccountsResponse,
@@ -185,6 +191,56 @@ async function apiFetch<T>(
 
 export function isMfNotConnected(err: unknown): boolean {
   return (err as { statusCode?: number })?.statusCode === 503;
+}
+
+/**
+ * multipart/form-data 用の fetch。apiFetch は Content-Type: application/json 固定
+ * のためファイルアップロードに使えない。ここでは Content-Type を敢えて設定せず
+ * ブラウザに boundary 付き multipart ヘッダーを生成させる。
+ * 認証(httpOnly Cookie) と CSRF(x-csrf-token) 処理は apiFetch と揃える。
+ */
+async function apiFetchForm<T>(
+  path: string,
+  form: FormData,
+  isCsrfRetry = false,
+): Promise<T> {
+  const csrfToken = getCsrfToken();
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'POST',
+    credentials: 'include',
+    // Content-Type は付けない (boundary をブラウザに任せる)
+    headers: {
+      ...(csrfToken ? { 'x-csrf-token': csrfToken } : {}),
+    },
+    body: form,
+  });
+  if (res.status === 401) {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('user');
+      localStorage.removeItem('token');
+      setCsrfToken(null);
+      if (!window.location.pathname.includes('/login')) {
+        window.location.href = '/login';
+      }
+    }
+    throw new Error('Unauthorized');
+  }
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    const message: string = body.message || `API error: ${res.status}`;
+    if (
+      res.status === 403 &&
+      !isCsrfRetry &&
+      message.includes('CSRF') &&
+      (await tryHealCsrfToken())
+    ) {
+      return apiFetchForm<T>(path, form, true);
+    }
+    const err = new Error(message) as Error & { statusCode?: number };
+    err.statusCode = res.status;
+    throw err;
+  }
+  return res.json();
 }
 
 export type MonthlyReviewApprovalStatus =
@@ -1580,6 +1636,65 @@ export const api = {
           method: 'POST',
           body: JSON.stringify(params),
         },
+      ),
+  },
+
+  // === 借入金管理 (Loan management) ===
+  loans: {
+    /** 一覧 + サマリ + MF帳簿残高照合。 */
+    list: (orgId: string) =>
+      apiFetch<LoanListResponse>(`/organizations/${orgId}/loans`),
+
+    /** 詳細 (基本情報 + スケジュール + 書類)。 */
+    get: (orgId: string, loanId: string) =>
+      apiFetch<LoanDetail>(`/organizations/${orgId}/loans/${loanId}`),
+
+    /** 新規作成 (スケジュール・書類ID同梱)。 */
+    create: (orgId: string, input: LoanCreateInput) =>
+      apiFetch<LoanDetail>(`/organizations/${orgId}/loans`, {
+        method: 'POST',
+        body: JSON.stringify(input),
+      }),
+
+    /** 基本情報更新。 */
+    update: (orgId: string, loanId: string, input: LoanBasicInput) =>
+      apiFetch<LoanDetail>(`/organizations/${orgId}/loans/${loanId}`, {
+        method: 'PUT',
+        body: JSON.stringify(input),
+      }),
+
+    /** 償還スケジュール全置換。 */
+    updateSchedule: (
+      orgId: string,
+      loanId: string,
+      entries: LoanScheduleRow[],
+    ) =>
+      apiFetch<LoanDetail>(`/organizations/${orgId}/loans/${loanId}/schedule`, {
+        method: 'PUT',
+        body: JSON.stringify({ entries }),
+      }),
+
+    /** 削除。 */
+    remove: (orgId: string, loanId: string) =>
+      apiFetch<{ success: boolean }>(
+        `/organizations/${orgId}/loans/${loanId}`,
+        { method: 'DELETE' },
+      ),
+
+    /** 契約書PDFから基本情報 + スケジュールを読み取り (multipart)。 */
+    extract: (orgId: string, file: File) => {
+      const form = new FormData();
+      form.append('file', file);
+      return apiFetchForm<LoanExtractResult>(
+        `/organizations/${orgId}/loans/extract`,
+        form,
+      );
+    },
+
+    /** 書類の signed URL を取得 (新規タブで開く用)。 */
+    downloadDocument: (orgId: string, loanId: string, docId: string) =>
+      apiFetch<{ url: string }>(
+        `/organizations/${orgId}/loans/${loanId}/documents/${docId}/download`,
       ),
   },
 

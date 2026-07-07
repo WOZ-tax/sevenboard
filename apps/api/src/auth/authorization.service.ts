@@ -165,6 +165,7 @@ export class AuthorizationService {
       permission === 'org:chosho:read' ||
       permission === 'org:journal_review:read' ||
       permission === 'org:withholding_tax:read' ||
+      permission === 'org:loans:read' ||
       permission === 'org:year_end_review:read' ||
       permission === 'org:locaben:read' ||
       permission === 'org:feature_state:read'
@@ -203,6 +204,7 @@ export class AuthorizationService {
       permission === 'org:chosho:manage' ||
       permission === 'org:journal_review:manage' ||
       permission === 'org:withholding_tax:manage' ||
+      permission === 'org:loans:manage' ||
       permission === 'org:year_end_review:manage' ||
       permission === 'org:locaben:manage' ||
       permission === 'org:feature_state:write'

@@ -46,6 +46,7 @@ import { JournalReviewModule } from './journal-review/journal-review.module';
 import { LocabenModule } from './locaben/locaben.module';
 import { YearEndStateModule } from './year-end-state/year-end-state.module';
 import { WithholdingTaxModule } from './withholding-tax/withholding-tax.module';
+import { LoansModule } from './loans/loans.module';
 
 @Module({
   imports: [
@@ -101,6 +102,7 @@ import { WithholdingTaxModule } from './withholding-tax/withholding-tax.module';
     LocabenModule,
     YearEndStateModule,
     WithholdingTaxModule,
+    LoansModule,
   ],
   providers: [
     {
