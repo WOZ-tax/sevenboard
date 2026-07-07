@@ -88,6 +88,8 @@ model Organization {
   yearEndScheduleItems        YearEndScheduleItemState[]
   locabenState                LocabenState?
   featureStates               FeatureState[]
+  loans                       Loan[]
+  loanDocuments               LoanDocument[]
 
   @@unique([id, tenantId])
   @@unique([tenantId, code])
@@ -1699,4 +1701,117 @@ model FeatureState {
   @@unique([orgId, featureKey, scope])
   @@index([tenantId, orgId, featureKey])
   @@map("feature_states")
+}
+
+/// 借入金管理: 借入1本 = 1レコード。償還予定は LoanScheduleEntry に行単位で保持。
+/// 「その月の残高」はスケジュール行から導出する(月末以前の直近 balanceAfter)。
+model Loan {
+  id               String              @id @default(uuid()) @db.Uuid
+  tenantId         String              @map("tenant_id") @db.Uuid
+  orgId            String              @map("org_id") @db.Uuid
+  /// 銀行・金融機関名(関係会社借入は会社名)
+  lenderName       String              @map("lender_name")
+  branchName       String?             @map("branch_name")
+  /// 融資番号・取引番号
+  loanNumber       String?             @map("loan_number")
+  /// 証書貸付・手形貸付・当座貸越・関係会社借入 等(自由記述)
+  loanType         String?             @map("loan_type")
+  /// 借入総額(円)
+  principal        BigInt
+  /// 当初利率(%)。期中変動は LoanScheduleEntry.interestRate に行単位で保持
+  interestRate     Decimal?            @map("interest_rate") @db.Decimal(6, 4)
+  rateType         LoanRateType        @default(FIXED) @map("rate_type")
+  /// 融資実行日
+  startDate        DateTime?           @map("start_date") @db.Date
+  termMonths       Int?                @map("term_months")
+  /// 償還期限(期日一括はここで全額)
+  maturityDate     DateTime?           @map("maturity_date") @db.Date
+  repaymentMethod  LoanRepaymentMethod @default(EQUAL_INSTALLMENT) @map("repayment_method")
+  /// 返済口座(表示用テキスト)
+  repaymentAccount String?             @map("repayment_account")
+  /// 原本の Google Drive 等のリンク(v1 は URL 保持のみ、同期なし)
+  driveUrl         String?             @map("drive_url")
+  memo             String?
+  status           LoanStatus          @default(ACTIVE)
+  /// 更新者(User.id)。リレーションは張らず参照のみ
+  updatedById      String?             @map("updated_by_id") @db.Uuid
+  createdAt        DateTime            @default(now()) @map("created_at")
+  updatedAt        DateTime            @updatedAt @map("updated_at")
+
+  organization    Organization        @relation(fields: [orgId, tenantId], references: [id, tenantId])
+  scheduleEntries LoanScheduleEntry[]
+  documents       LoanDocument[]
+
+  @@index([tenantId, orgId])
+  @@map("loans")
+}
+
+enum LoanRateType {
+  FIXED
+  VARIABLE
+}
+
+enum LoanRepaymentMethod {
+  /// 元利均等
+  EQUAL_INSTALLMENT
+  /// 元金均等
+  EQUAL_PRINCIPAL
+  /// 期日一括(利息のみ支払い期間あり)
+  BULLET
+  OTHER
+}
+
+enum LoanStatus {
+  ACTIVE
+  REPAID
+}
+
+/// 償還予定表の1行。銀行の返済予定表をそのまま写す(検算は API 層の決定論バリデータ)。
+model LoanScheduleEntry {
+  id              String   @id @default(uuid()) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  loanId          String   @map("loan_id") @db.Uuid
+  /// 回数(表の「回数」。利息のみ行等で欠番があるため連番は強制しない)
+  seq             Int
+  dueDate         DateTime @map("due_date") @db.Date
+  principalAmount BigInt   @map("principal_amount")
+  interestAmount  BigInt   @map("interest_amount")
+  totalAmount     BigInt   @map("total_amount")
+  /// 返済後残高
+  balanceAfter    BigInt   @map("balance_after")
+  /// その回の適用利率(%)。公庫等の期中変動対応。NULL = Loan.interestRate
+  interestRate    Decimal? @map("interest_rate") @db.Decimal(6, 4)
+  /// 利率見直し等で金額未確定(別途通知待ち)の推定行
+  isEstimated     Boolean  @default(false) @map("is_estimated")
+
+  loan Loan @relation(fields: [loanId], references: [id], onDelete: Cascade)
+
+  @@unique([loanId, seq])
+  @@index([loanId, dueDate])
+  @@index([tenantId])
+  @@map("loan_schedule_entries")
+}
+
+/// アップロードされた返済予定表 PDF(Supabase Storage)。
+/// 借入作成前のアップロード(抽出プレビュー段階)は loanId NULL。
+model LoanDocument {
+  id           String   @id @default(uuid()) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  orgId        String   @map("org_id") @db.Uuid
+  loanId       String?  @map("loan_id") @db.Uuid
+  fileName     String   @map("file_name")
+  /// Supabase Storage のオブジェクトパス
+  storagePath  String   @map("storage_path")
+  contentType  String?  @map("content_type")
+  sizeBytes    Int?     @map("size_bytes")
+  /// アップロード者(User.id)。リレーションは張らず参照のみ
+  uploadedById String?  @map("uploaded_by_id") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [orgId, tenantId], references: [id, tenantId])
+  loan         Loan?        @relation(fields: [loanId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, orgId])
+  @@index([loanId])
+  @@map("loan_documents")
 }
