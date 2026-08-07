@@ -18,6 +18,10 @@
     "lint": "npm run lint --workspaces --if-present"
   },
   "devDependencies": {
+    "prisma": "^6.6.0",
     "typescript": "^5.5.0"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.6.0"
   }
 }
