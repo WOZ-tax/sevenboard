@@ -14,8 +14,14 @@ import type { TbReviewResponse } from './tbreview-adapter';
 /** tb-review-api 側の上限（app/main.py MAX_API_CSV_BYTES）と同じ。超過分は送らず手前で落とす。 */
 export const MAX_CSV_BYTES = 10 * 1024 * 1024;
 
-/** エンジン3本の subprocess 実行ぶん。tb-review 側は1本あたり最大900秒。 */
-const REQUEST_TIMEOUT_MS = 600_000;
+/**
+ * タイムアウトチェーン（2026-08-08 レビュー指摘(c)で整合させた値。変更時は3点セットで見直す）:
+ *   sevenboard-api の Cloud Run inbound 300s
+ *     > このクライアント 240s
+ *       > tb-review-api 側の各エンジン subprocess（TBW_ENGINE_TIMEOUT_SEC=240 でデプロイ）
+ * 実測はエンジン3本で約3秒。240s は巨大仕訳帳向けの安全余裕。
+ */
+const REQUEST_TIMEOUT_MS = 240_000;
 
 export interface TbReviewRequest {
   journal_csv: string;

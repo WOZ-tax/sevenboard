@@ -141,6 +141,15 @@ export class ReviewService {
             })
           : this.mfApi.getTransitionBS(orgId, fiscalYear),
         this.mfApi.getJournals(orgId, { startDate: fyStartDate, endDate }).catch((err) => {
+          // legacy: 従来どおり仕訳なしで PL/BS 分析だけ続行する（挙動不変）。
+          // tbreview: 空仕訳で続行すると仕訳系エンジン（仕訳異常・消費税の仕訳走査）が
+          // 「指摘ゼロ」に見えてしまうため、失敗を握り潰さず上位の catch（HIGHアラート化）へ
+          // 投げる（失敗 ≠ 指摘ゼロ 契約。2026-08-08 レビュー指摘(a)）。
+          if (mode === 'tbreview') {
+            throw new Error(
+              `仕訳帳の取得に失敗したため tb-review レビューを中止しました: ${err?.message || err}`,
+            );
+          }
           this.logger.warn('Journal fetch failed, proceeding without journals', err?.message);
           return { journals: [] };
         }),
