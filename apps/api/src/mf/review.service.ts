@@ -6,8 +6,27 @@ import { promisify } from 'util';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { buildTbReviewBsCsv, buildTbReviewPlCsv } from './tbreview-csv';
+import { TbReviewClient } from './tbreview-client';
+import { adaptTbReviewResponse } from './tbreview-adapter';
 
 const execFileAsync = promisify(execFile);
+
+/**
+ * 使用する分析エンジン。
+ * - legacy  : apps/api/scripts/analyze.py を subprocess 実行（既定）
+ * - tbreview: tb-review-api へ CSV3本を POST（月次 / 消費税 / 仕訳異常の3エンジン）
+ * 未設定・不明値は legacy。既定挙動は一切変えない。
+ */
+export type ReviewEngineMode = 'legacy' | 'tbreview';
+
+export function reviewEngineMode(
+  env: NodeJS.ProcessEnv = process.env,
+): ReviewEngineMode {
+  return (env.REVIEW_ENGINE || '').trim().toLowerCase() === 'tbreview'
+    ? 'tbreview'
+    : 'legacy';
+}
 
 export interface ReviewAlert {
   severity: 'HIGH' | 'MEDIUM' | 'LOW';
@@ -57,6 +76,7 @@ export class ReviewService {
     fiscalYear?: number,
     targetMonth?: number,
   ): Promise<ReviewResult> {
+    const mode = reviewEngineMode();
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-review-'));
 
     try {
@@ -113,7 +133,13 @@ export class ReviewService {
 
       const [plTransition, bsTransition, journals] = await Promise.all([
         this.mfApi.getTransitionPL(orgId, fiscalYear),
-        this.mfApi.getTransitionBS(orgId, fiscalYear),
+        // tb-review の推移表パーサは補助科目行を勘定科目に帰属させて評価するため、
+        // tbreview モードのみ補助科目を展開して取得する（legacy は従来どおり畳んだ値）。
+        mode === 'tbreview'
+          ? this.mfApi.getTransitionBS(orgId, fiscalYear, undefined, {
+              withSubAccounts: true,
+            })
+          : this.mfApi.getTransitionBS(orgId, fiscalYear),
         this.mfApi.getJournals(orgId, { startDate: fyStartDate, endDate }).catch((err) => {
           this.logger.warn('Journal fetch failed, proceeding without journals', err?.message);
           return { journals: [] };
@@ -121,6 +147,17 @@ export class ReviewService {
       ]);
 
       const companyName = office?.name || orgId;
+
+      if (mode === 'tbreview') {
+        return await this.runTbReviewEngine({
+          companyName,
+          clientId: mfCode,
+          period: `${endYear}${String(endMonth).padStart(2, '0')}`,
+          plTransition,
+          bsTransition,
+          journals,
+        });
+      }
 
       // 2. CSV形式に変換して一時ファイルに書き出し
       this.writePlCsv(tmpDir, plTransition);
@@ -240,12 +277,19 @@ export class ReviewService {
   }
 
   private writeJournalCsv(dir: string, data: any) {
+    fs.writeFileSync(path.join(dir, '仕訳帳.csv'), this.buildJournalCsv(data), 'utf-8');
+  }
+
+  /**
+   * 仕訳帳CSV（19列）。legacy / tbreview 共通。
+   * tb-review 側は「日付/取引日」「借方金額/借方金額(円)」のヘッダ別名を受容するため
+   * 列構成は両モードで同一でよい（INTEGRATION_SEVENBOARD.md で実測確認済み）。
+   */
+  private buildJournalCsv(data: any): string {
     const journals = data?.journals || [];
     if (journals.length === 0) {
       // 空の仕訳帳CSVを書く（analyze.pyがファイルを要求するため）
-      const header = '取引No,日付,借方勘定科目,借方補助科目,借方部門,借方取引先,借方税区分,借方インボイス,借方金額,貸方勘定科目,貸方補助科目,貸方部門,貸方取引先,貸方税区分,貸方インボイス,貸方金額,摘要,タグ,メモ';
-      fs.writeFileSync(path.join(dir, '仕訳帳.csv'), header, 'utf-8');
-      return;
+      return '取引No,日付,借方勘定科目,借方補助科目,借方部門,借方取引先,借方税区分,借方インボイス,借方金額,貸方勘定科目,貸方補助科目,貸方部門,貸方取引先,貸方税区分,貸方インボイス,貸方金額,摘要,タグ,メモ';
     }
 
     const header = ['取引No', '日付', '借方勘定科目', '借方補助科目', '借方部門', '借方取引先', '借方税区分', '借方インボイス', '借方金額', '貸方勘定科目', '貸方補助科目', '貸方部門', '貸方取引先', '貸方税区分', '貸方インボイス', '貸方金額', '摘要', 'タグ', 'メモ'];
@@ -293,7 +337,41 @@ export class ReviewService {
       }
     }
 
-    fs.writeFileSync(path.join(dir, '仕訳帳.csv'), rows.map((r) => r.map((c) => `"${c.replace(/"/g, '""')}"`).join(',')).join('\n'), 'utf-8');
+    return rows.map((r) => r.map((c) => `"${c.replace(/"/g, '""')}"`).join(',')).join('\n');
+  }
+
+  // ============================
+  // tbreview モード（tb-review-api 呼び出し）
+  // ============================
+
+  /**
+   * CSV3本を組み立てて tb-review-api へ POST し、findings を ReviewResult へ変換する。
+   * 失敗時は例外を投げて runReview の catch（HIGH アラート化）に乗せる。握り潰さない。
+   */
+  private async runTbReviewEngine(args: {
+    companyName: string;
+    clientId: string;
+    period: string;
+    plTransition: any;
+    bsTransition: any;
+    journals: any;
+  }): Promise<ReviewResult> {
+    const client = TbReviewClient.fromEnv();
+    const response = await client.review({
+      journal_csv: this.buildJournalCsv(args.journals),
+      bs_csv: buildTbReviewBsCsv(args.bsTransition),
+      pl_csv: buildTbReviewPlCsv(args.plTransition),
+      client_id: args.clientId,
+      company_name: args.companyName,
+      period: args.period,
+    });
+
+    const engines = (response.engines || [])
+      .map((e) => `${e.key}=${e.returncode}`)
+      .join(' ');
+    this.logger.log(`tb-review engines: ${engines || '(none)'}`);
+
+    return adaptTbReviewResponse(response, args.companyName);
   }
 
   private walkRows(rows: any[], fn: (row: any, depth: number) => void, depth = 0) {
