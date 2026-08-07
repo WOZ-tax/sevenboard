@@ -8,6 +8,7 @@ describe('MfApiService.getJournals', () => {
       {} as any,
       { get: jest.fn(), set: jest.fn() } as any,
       { record: jest.fn() } as any,
+      {} as any,
     );
   }
 
@@ -81,6 +82,7 @@ describe('MfApiService 401 token refresh single-flight', () => {
       prisma,
       { get: jest.fn().mockReturnValue(undefined), set: jest.fn() } as any,
       { record: jest.fn().mockResolvedValue(undefined) } as any,
+      {} as any,
     );
   }
 

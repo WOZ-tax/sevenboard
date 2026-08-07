@@ -4,6 +4,7 @@ import {
   InternalServerErrorException,
   BadGatewayException,
   BadRequestException,
+  HttpException,
   Logger,
 } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
@@ -19,6 +20,18 @@ import {
   MfTransition,
   MfAccount,
 } from './types/mf-api.types';
+import {
+  MfV3ClientService,
+  MfV3HttpError,
+  MfV3RequestContext,
+} from './mf-v3-client.service';
+import {
+  adaptAccounts,
+  adaptJournalsResult,
+  adaptOffice,
+  adaptTransition,
+  adaptTrialBalance,
+} from './mf-v3-adapter';
 
 /**
  * MF Biz Platform API Service
@@ -31,6 +44,13 @@ import {
 export class MfApiService {
   private readonly logger = new Logger(MfApiService.name);
   private readonly mcpUrl: string;
+  /**
+   * Transport selector. 'mcp' (default) keeps the legacy MCP HTTP transport;
+   * 'api' routes through the official REST v3 client. Switched via MF_TRANSPORT
+   * at deploy time; rollback is MF_TRANSPORT=mcp. Public method signatures and
+   * return types are identical across both paths.
+   */
+  private readonly transport: 'api' | 'mcp';
   private lastHealthRecordAt: Map<string, number> = new Map();
   /**
    * orgId ごとに進行中のトークン処理を保持。並列リクエストが同時に refresh を走らせると
@@ -52,10 +72,12 @@ export class MfApiService {
     private prisma: PrismaService,
     private cache: CacheService,
     private dataHealth: DataHealthService,
+    private v3: MfV3ClientService,
   ) {
     this.mcpUrl =
       process.env.MF_MCP_URL ||
       'https://beta.mcp.developers.biz.moneyforward.com/mcp/ca/v3';
+    this.transport = process.env.MF_TRANSPORT === 'api' ? 'api' : 'mcp';
   }
 
   private async integrationWhere(orgId: string) {
@@ -648,10 +670,107 @@ export class MfApiService {
   }
 
   // ============================
+  // REST (v3) transport
+  // ============================
+
+  /**
+   * REST-path counterpart of mcpRequest: shares the cache, in-flight de-dupe,
+   * orgId-scoped token, single-flight 401 refresh, and DataHealth recording so
+   * both transports behave identically to callers. The 429/5xx backoff lives in
+   * MfV3ClientService; here we handle 401/403 refresh and Nest error mapping.
+   */
+  private async apiRequest<T>(
+    orgId: string,
+    cacheKey: string,
+    exec: (ctx: MfV3RequestContext) => Promise<T>,
+    cacheTtlMs = 30 * 60 * 1000,
+  ): Promise<T> {
+    const cached = this.cache.get<T>(cacheKey);
+    if (cached) return cached;
+
+    const inFlight = this.requestInFlight.get(cacheKey) as Promise<T> | undefined;
+    if (inFlight) return inFlight;
+
+    const promise = this.executeApiRequest<T>(orgId, cacheKey, exec, cacheTtlMs);
+    this.requestInFlight.set(cacheKey, promise);
+    try {
+      return await promise;
+    } finally {
+      this.requestInFlight.delete(cacheKey);
+    }
+  }
+
+  private async executeApiRequest<T>(
+    orgId: string,
+    cacheKey: string,
+    exec: (ctx: MfV3RequestContext) => Promise<T>,
+    cacheTtlMs: number,
+  ): Promise<T> {
+    const token = await this.getAccessToken(orgId);
+    try {
+      let data: T;
+      try {
+        data = await exec({ token, rateKey: orgId });
+      } catch (err) {
+        if (!isMfV3AuthError(err)) throw err;
+        // 401/403: reuse the orgId-scoped single-flight refresh so concurrent
+        // failures collapse into one token rotation (same guarantee as MCP).
+        this.logger.warn('MF v3 auth error, attempting token refresh');
+        const newToken = await this.refreshTokenOnAuthFailure(orgId, token);
+        data = await exec({ token: newToken, rateKey: orgId });
+        this.cache.set(cacheKey, data, 5 * 60 * 1000);
+        this.recordHealth(orgId, 'SUCCESS');
+        return data;
+      }
+      this.cache.set(cacheKey, data, cacheTtlMs);
+      this.recordHealth(orgId, 'SUCCESS');
+      return data;
+    } catch (err) {
+      throw this.mapApiError(orgId, err);
+    }
+  }
+
+  private mapApiError(orgId: string, err: unknown): Error {
+    // A refresh failure surfaces as an already-shaped Nest exception; pass through.
+    if (err instanceof HttpException) return err;
+
+    if (err instanceof MfV3HttpError) {
+      if (
+        err.status === 400 &&
+        /not matching (any|with any) accounting periods|accounting periods/i.test(
+          `${err.message} ${err.code ?? ''}`,
+        )
+      ) {
+        this.logger.warn(
+          `MF v3 rejected date range outside accounting periods: ${err.message.substring(0, 200)}`,
+        );
+        return new BadRequestException(
+          'Selected date range is outside MoneyForward accounting periods',
+        );
+      }
+      this.logger.error(`MF v3 error: status=${err.status} code=${err.code ?? '-'}`);
+      this.recordHealth(orgId, 'FAILED', err.message.substring(0, 200));
+      return new InternalServerErrorException(
+        `MF API error: ${err.status || 'unknown'}`,
+      );
+    }
+
+    const message = (err as { message?: string })?.message ?? 'unknown';
+    this.logger.error(`MF v3 error: ${message}`);
+    this.recordHealth(orgId, 'FAILED', String(message).substring(0, 200));
+    return new InternalServerErrorException('MF API error: unknown');
+  }
+
+  // ============================
   // Public API methods
   // ============================
 
   async getOffice(orgId: string): Promise<MfOffice> {
+    if (this.transport === 'api') {
+      return this.apiRequest<MfOffice>(orgId, `mf:${orgId}:api:office`, async (ctx) =>
+        adaptOffice(await this.v3.getOffice(ctx)),
+      );
+    }
     return this.mcpRequest<MfOffice>(orgId, 'mfc_ca_currentOffice');
   }
 
@@ -663,6 +782,13 @@ export class MfApiService {
     const args: Record<string, any> = {};
     if (fiscalYear) args.fiscal_year = fiscalYear;
     if (endMonth) args.end_month = endMonth;
+    if (this.transport === 'api') {
+      return this.apiRequest<MfTrialBalance>(
+        orgId,
+        `mf:${orgId}:api:tb_pl:${JSON.stringify(args)}`,
+        async (ctx) => adaptTrialBalance(await this.v3.getTrialBalancePl(ctx, args)),
+      );
+    }
     return this.mcpRequest<MfTrialBalance>(
       orgId,
       'mfc_ca_getReportsTrialBalanceProfitLoss',
@@ -682,6 +808,13 @@ export class MfApiService {
     // start_month を指定すると期間集計 (start_month..end_month の合計 debit/credit が取れる)
     if (options?.startMonth) args.start_month = options.startMonth;
     if (options?.withSubAccounts) args.with_sub_accounts = true;
+    if (this.transport === 'api') {
+      return this.apiRequest<MfTrialBalance>(
+        orgId,
+        `mf:${orgId}:api:tb_bs:${JSON.stringify(args)}`,
+        async (ctx) => adaptTrialBalance(await this.v3.getTrialBalanceBs(ctx, args)),
+      );
+    }
     return this.mcpRequest<MfTrialBalance>(
       orgId,
       'mfc_ca_getReportsTrialBalanceBalanceSheet',
@@ -697,6 +830,13 @@ export class MfApiService {
     const args: Record<string, any> = { type: 'monthly' };
     if (fiscalYear) args.fiscal_year = fiscalYear;
     if (endMonth) args.end_month = endMonth;
+    if (this.transport === 'api') {
+      return this.apiRequest<MfTransition>(
+        orgId,
+        `mf:${orgId}:api:tr_pl:${JSON.stringify(args)}`,
+        async (ctx) => adaptTransition(await this.v3.getTransitionPl(ctx, args as any)),
+      );
+    }
     return this.mcpRequest<MfTransition>(
       orgId,
       'mfc_ca_getReportsTransitionProfitLoss',
@@ -716,6 +856,13 @@ export class MfApiService {
     // 補助科目を取得したい場合のみ true (デフォルト false で MF が補助を畳んだ
     // 集約値だけ返すパターンを維持。他の caller への影響なし)
     if (options?.withSubAccounts) args.with_sub_accounts = true;
+    if (this.transport === 'api') {
+      return this.apiRequest<MfTransition>(
+        orgId,
+        `mf:${orgId}:api:tr_bs:${JSON.stringify(args)}`,
+        async (ctx) => adaptTransition(await this.v3.getTransitionBs(ctx, args as any)),
+      );
+    }
     return this.mcpRequest<MfTransition>(
       orgId,
       'mfc_ca_getReportsTransitionBalanceSheet',
@@ -724,6 +871,13 @@ export class MfApiService {
   }
 
   async getAccounts(orgId: string): Promise<{ accounts: MfAccount[] }> {
+    if (this.transport === 'api') {
+      return this.apiRequest<{ accounts: MfAccount[] }>(
+        orgId,
+        `mf:${orgId}:api:accounts`,
+        async (ctx) => adaptAccounts(await this.v3.getAccounts(ctx)),
+      );
+    }
     const data = await this.mcpRequest<any>(orgId, 'mfc_ca_getAccounts');
     return { accounts: Array.isArray(data) ? data : data?.accounts || [] };
   }
@@ -732,6 +886,16 @@ export class MfApiService {
     orgId: string,
     params?: { startDate?: string; endDate?: string },
   ): Promise<any> {
+    if (this.transport === 'api') {
+      const query: Record<string, any> = {};
+      if (params?.startDate) query.start_date = params.startDate;
+      if (params?.endDate) query.end_date = params.endDate;
+      return this.apiRequest<{ journals: any[]; truncated: boolean }>(
+        orgId,
+        `mf:${orgId}:api:journals:${JSON.stringify(query)}`,
+        async (ctx) => adaptJournalsResult(await this.v3.getAllJournals(ctx, query)),
+      );
+    }
     const PER_PAGE = 500;
     const MAX_PAGES = 50;
     const args: Record<string, any> = { per_page: PER_PAGE };
@@ -791,6 +955,12 @@ export class MfApiService {
 
     return { journals: allJournals, truncated };
   }
+}
+
+function isMfV3AuthError(err: unknown): boolean {
+  return (
+    err instanceof MfV3HttpError && (err.status === 401 || err.status === 403)
+  );
 }
 
 function isMfJournalPageOverflowError(value: unknown): boolean {

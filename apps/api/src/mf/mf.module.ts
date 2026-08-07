@@ -3,6 +3,7 @@ import { HttpModule } from '@nestjs/axios';
 import { AuthModule } from '../auth/auth.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { MfApiService } from './mf-api.service';
+import { MfV3ClientService } from './mf-v3-client.service';
 import { MfTransformService } from './mf-transform.service';
 import { ReviewService } from './review.service';
 import { MfController } from './mf.controller';
@@ -20,7 +21,7 @@ import { MonthlyCloseModule } from '../monthly-close/monthly-close.module';
     MonthlyCloseModule,
   ],
   controllers: [MfController],
-  providers: [MfApiService, MfTransformService, ReviewService],
-  exports: [MfApiService, MfTransformService, ReviewService],
+  providers: [MfApiService, MfV3ClientService, MfTransformService, ReviewService],
+  exports: [MfApiService, MfV3ClientService, MfTransformService, ReviewService],
 })
 export class MfModule {}

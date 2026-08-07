@@ -86,7 +86,10 @@ export class MfOAuthController {
       response_type: 'code',
       client_id: clientId,
       redirect_uri: redirectUri,
-      scope: 'mfc/accounting/offices.read mfc/accounting/accounts.read mfc/accounting/departments.read mfc/accounting/journal.read mfc/accounting/journal.write mfc/accounting/report.read mfc/accounting/taxes.read mfc/accounting/trade_partners.read mfc/accounting/trade_partners.write mfc/accounting/connected_account.read mfc/accounting/transaction.write',
+      // MCP CA v3 エンドポイントが要求する12 scope（401/403 の WWW-Authenticate に出る必須セット）。
+      // transaction.read は 2026-07 の MF 側更新で必須化。クライアント登録側に未登録の scope は
+      // MF が黙って間引くため、パートナー管理画面のアプリ登録にも同じ scope が必要。
+      scope: 'mfc/accounting/offices.read mfc/accounting/accounts.read mfc/accounting/departments.read mfc/accounting/journal.read mfc/accounting/journal.write mfc/accounting/report.read mfc/accounting/taxes.read mfc/accounting/trade_partners.read mfc/accounting/trade_partners.write mfc/accounting/connected_account.read mfc/accounting/transaction.read mfc/accounting/transaction.write',
       state,
       resource,
     });
