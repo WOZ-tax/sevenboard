@@ -189,5 +189,7 @@ describe('tbreview: 仕訳取得失敗はHIGHアラート化（2026-08-08 昇格
     expect(
       result.alerts.some((a) => a.detail.includes('仕訳帳の取得に失敗')),
     ).toBe(false);
+    // legacy レスポンスに tbreview は付かない（フロントは従来レイアウトのまま）
+    expect(result.tbreview).toBeUndefined();
   });
 });

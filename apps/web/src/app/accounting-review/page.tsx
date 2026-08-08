@@ -29,11 +29,12 @@ import {
 import { ChoshoTab } from "./_tabs/chosho-tab";
 import { JournalReviewTab } from "./_tabs/journal-tab";
 import { MemoTab } from "./_tabs/memo-tab";
+import { ReviewAlertsList } from "./_review/review-alerts-list";
+import { TbReviewResult } from "./_review/tbreview-result";
 import { ActionizeButton } from "@/components/ui/actionize-button";
 import { ThinkingIndicator } from "@/components/ai/thinking-indicator";
 import type {
   KintoneMonthlyProgress,
-  ReviewAlert,
   ReviewBsRatio,
   ReviewCrossFinding,
   ReviewJournalDuplicate,
@@ -425,12 +426,6 @@ function ChecklistTab({
   );
 }
 
-const SEVERITY_CONFIG = {
-  HIGH: { label: "HIGH", color: "bg-red-100 text-red-800 border-red-300" },
-  MEDIUM: { label: "MEDIUM", color: "bg-yellow-100 text-yellow-800 border-yellow-300" },
-  LOW: { label: "LOW", color: "bg-blue-100 text-blue-800 border-blue-300" },
-};
-
 function ReviewTab({
   orgId,
   fiscalYear,
@@ -501,6 +496,19 @@ function ReviewTab({
 
   const d = reviewQuery.data;
   if (!d) return null;
+
+  // tb-review エンジン (REVIEW_ENGINE=tbreview) のレスポンスは専用レイアウトで描く。
+  // legacy (tbreview フィールド無し) は以下の従来レイアウトのまま＝表示・挙動とも不変。
+  if (d.tbreview) {
+    return (
+      <TbReviewResult
+        data={d}
+        onRerun={() => reviewQuery.refetch()}
+        isRerunning={reviewQuery.isFetching}
+      />
+    );
+  }
+
   const { pl, bs, tax, journal, crossCheck, alerts, summary } = d;
   const fmt = (n: number | undefined) => (n ?? 0).toLocaleString();
   const sections = [
@@ -804,41 +812,7 @@ function ReviewTab({
       )}
 
       {/* 指摘一覧 */}
-      {section === "alerts" && (
-        <Card><CardContent className="divide-y p-0">
-          {(alerts || []).length === 0 ? (
-            <div className="py-8 text-center text-sm text-muted-foreground">指摘事項はありません</div>
-          ) : alerts.map((alert: ReviewAlert, i: number) => {
-            const config = SEVERITY_CONFIG[alert.severity as keyof typeof SEVERITY_CONFIG] || SEVERITY_CONFIG.LOW;
-            const sevMap: Record<string, "CRITICAL" | "HIGH" | "MEDIUM" | "LOW"> = {
-              HIGH: "HIGH",
-              MEDIUM: "MEDIUM",
-              LOW: "LOW",
-            };
-            return (
-              <div key={i} className="flex items-start gap-3 px-4 py-3">
-                <Badge className={cn("mt-0.5 shrink-0 border text-[10px]", config.color)}>{config.label}</Badge>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-medium text-muted-foreground">{alert.category}</span>
-                    <span className="text-sm font-medium">{alert.title}</span>
-                  </div>
-                  <p className="mt-0.5 text-xs text-muted-foreground">{alert.detail}</p>
-                </div>
-                <ActionizeButton
-                  sourceScreen="MONTHLY_REVIEW"
-                  sourceRef={{ alertIndex: i, category: alert.category, kind: "review-alert" }}
-                  defaultTitle={alert.title}
-                  defaultDescription={alert.detail}
-                  defaultSeverity={sevMap[alert.severity] ?? "MEDIUM"}
-                  defaultOwnerRole="ADVISOR"
-                  size="sm"
-                />
-              </div>
-            );
-          })}
-        </CardContent></Card>
-      )}
+      {section === "alerts" && <ReviewAlertsList alerts={alerts} />}
 
       {/* 再実行 */}
       <div className="flex justify-end">

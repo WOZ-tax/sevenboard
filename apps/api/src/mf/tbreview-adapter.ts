@@ -248,6 +248,9 @@ export function adaptTbReviewResponse(
     companyName,
     analyzedAt,
     alerts,
+    // 生レスポンスをそのまま添付する（フロントの tb-review ネイティブ表示用）。
+    // ここでも加工・再計算はしない。alerts は後方互換のため従来どおり残す。
+    tbreview: res,
     pl: {},
     bs: {},
     tax: {},

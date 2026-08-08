@@ -306,10 +306,121 @@ export interface ReviewSummary {
   totalAlerts: number;
 }
 
+// ===========================================================================
+// tb-review エンジン (REVIEW_ENGINE=tbreview) の生レスポンス。
+// 正本は apps/api/src/mf/tbreview-adapter.ts の TbReviewResponse と
+// tb-review-web/app/triage.py の TriageResult.to_json()。
+// 画面はこの構造を**転記のみ**で描く（金額の再計算・文言の言い換えはしない）。
+// ===========================================================================
+
+export interface TbReviewFindingTarget {
+  account?: string;
+  sub_account?: string;
+  amount?: number;
+  count?: number;
+  date_range?: string;
+  partner_or_description?: string;
+  journal_numbers?: (string | number)[];
+}
+
+export interface TbReviewFinding {
+  finding_id?: string;
+  rule_id?: string;
+  /** "A" (修正提案) / "B" (要確認) / "INFO" (参考) */
+  severity?: string;
+  target?: TbReviewFindingTarget;
+  current?: string;
+  expected?: string;
+  reason?: string;
+  action?: string;
+  impact?: { amount?: number; basis?: string };
+}
+
+export interface TbReviewEngineStatus {
+  key?: string;
+  label?: string;
+  returncode?: number | null;
+  seconds?: number;
+  stderr_tail?: string;
+  findings_count?: number;
+}
+
+/** triage.top: reason/action は持たない（findings_by_source から引く）。 */
+export interface TbReviewTopItem {
+  rank?: number;
+  source?: string;
+  source_label?: string;
+  finding_id?: string;
+  rule_id?: string;
+  severity?: string;
+  account?: string;
+  target_amount?: number | null;
+  impact_amount?: number | null;
+}
+
+export interface TbReviewDisplayedItem {
+  source?: string;
+  finding_id?: string;
+  rule_id?: string;
+  severity?: string;
+}
+
+export interface TbReviewDedupEntry {
+  action?: string;
+  dropped?: {
+    source?: string;
+    finding_id?: string;
+    rule_id?: string;
+    account?: string;
+    target_amount?: number | null;
+  };
+  merged_into?: { source?: string; finding_id?: string; rule_id?: string };
+}
+
+export interface TbReviewDisclosure {
+  source?: string;
+  source_label?: string;
+  dropped_count?: number;
+  dropped_amount?: number;
+  raw_findings?: number;
+  suppressed_by_rule?: Record<string, number>;
+  skipped_rows?: number;
+  errors?: string[] | string;
+}
+
+export interface TbReviewTriage {
+  /** {"A": n, "B": n, "INFO": n} */
+  counts?: Record<string, number>;
+  scores?: { monthly_score?: number | string | null } & Record<string, unknown>;
+  top?: TbReviewTopItem[];
+  displayed?: TbReviewDisplayedItem[];
+  dedup?: TbReviewDedupEntry[];
+  disclosures?: TbReviewDisclosure[];
+}
+
+export interface TbReviewSourcePayload {
+  findings?: TbReviewFinding[];
+  summary?: Record<string, unknown>;
+}
+
+export interface TbReviewResponse {
+  engines?: TbReviewEngineStatus[];
+  /** キーは "monthly" | "jct" | "anomaly" */
+  findings_by_source?: Record<string, TbReviewSourcePayload>;
+  triage?: TbReviewTriage;
+  vendor?: { rev?: string; synced_at?: string };
+  warnings?: string[];
+}
+
 export interface ReviewResult {
   companyName: string;
   analyzedAt: string;
   alerts: ReviewAlert[];
+  /**
+   * tbreview モードのみ。存在すれば画面は tb-review ネイティブ表示に切り替わる。
+   * legacy モード (REVIEW_ENGINE 未設定) では常に undefined。
+   */
+  tbreview?: TbReviewResponse;
   pl: ReviewPlSection;
   bs: ReviewBsSection;
   tax: ReviewTaxSection;

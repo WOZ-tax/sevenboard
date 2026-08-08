@@ -9,6 +9,8 @@ import * as os from 'os';
 import { buildTbReviewBsCsv, buildTbReviewPlCsv } from './tbreview-csv';
 import { TbReviewClient } from './tbreview-client';
 import { adaptTbReviewResponse } from './tbreview-adapter';
+// 型のみの参照（実行時 import は発生しない = tbreview-adapter との循環にはならない）
+import type { TbReviewResponse } from './tbreview-adapter';
 
 const execFileAsync = promisify(execFile);
 
@@ -39,6 +41,13 @@ export interface ReviewResult {
   companyName: string;
   analyzedAt: string;
   alerts: ReviewAlert[];
+  /**
+   * tbreview モードのみ添付される tb-review-api の生レスポンス
+   * （engines / findings_by_source / triage / vendor / warnings）。
+   * フロントはこのフィールドの有無で tb-review ネイティブ表示に切り替える。
+   * legacy モードでは常に undefined（既存レスポンスと1バイトも変わらない）。
+   */
+  tbreview?: TbReviewResponse;
   pl: any;
   bs: any;
   tax: any;

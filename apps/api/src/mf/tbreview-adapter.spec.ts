@@ -213,6 +213,62 @@ describe('adaptTbReviewResponse', () => {
     expect(() => new Date(r.analyzedAt).toISOString()).not.toThrow();
   });
 
+  it('生レスポンスを tbreview フィールドへ無加工で添付する（フロントのネイティブ表示用）', () => {
+    const res = response({
+      warnings: ['bs_csv: CP932 で表現できない文字 2 個を置換しました'],
+      triage: {
+        counts: { A: 1, B: 1, INFO: 0 },
+        scores: { monthly_score: 82 },
+        top: [
+          {
+            rank: 1,
+            source: 'jct',
+            source_label: '消費税',
+            finding_id: '0001-202606-JCT-X-01',
+            rule_id: 'JCT-X',
+            severity: 'A',
+            account: '地代家賃',
+            target_amount: 1_100_000,
+            impact_amount: 100_000,
+          },
+        ],
+        displayed: [{ source: 'jct', finding_id: '0001-202606-JCT-X-01' }],
+        dedup: [
+          {
+            action: '原因診断に統合',
+            dropped: { source: 'monthly', finding_id: 'M-01', rule_id: 'MON-NEG' },
+            merged_into: { source: 'anomaly', finding_id: 'A-01', rule_id: 'ANM-BSNEG-売掛金' },
+          },
+        ],
+        disclosures: [{ source: 'jct', source_label: '消費税', dropped_count: 3 }],
+      },
+    });
+    const r = adaptTbReviewResponse(res, '架空株式会社');
+
+    // 転記のみ: 生レスポンスと構造的に完全一致（間引き・言い換え・再計算をしない）
+    expect(r.tbreview).toEqual(res);
+    expect(r.tbreview?.engines).toEqual(res.engines);
+    expect(r.tbreview?.findings_by_source).toEqual(res.findings_by_source);
+    expect(r.tbreview?.triage).toEqual(res.triage);
+    expect(r.tbreview?.vendor).toEqual(res.vendor);
+    expect(r.tbreview?.warnings).toEqual(res.warnings);
+    // triage.top は reason/action を持たない（フロントは findings_by_source から引く）
+    expect(r.tbreview?.triage?.top?.[0]).not.toHaveProperty('reason');
+  });
+
+  it('tbreview 添付後も alerts / summary は従来どおり（後方互換）', () => {
+    const res = response();
+    const r = adaptTbReviewResponse(res, '架空株式会社');
+
+    expect(r.alerts.map((a) => a.category)).toEqual(['消費税', '月次チェック']);
+    expect(r.alerts[0].severity).toBe('HIGH');
+    expect(r.alerts[0].detail).toContain('居住用賃貸は非課税仕入');
+    expect(r.summary.totalAlerts).toBe(r.alerts.length);
+    // 添付は追加フィールドのみ。既存セクションは空オブジェクトのまま
+    expect(r.pl).toEqual({});
+    expect(r.crossCheck).toEqual({});
+  });
+
   it('CP932 変換警告 (warnings) を LOW で出す', () => {
     const r = adaptTbReviewResponse(
       response({ warnings: ['bs_csv: CP932 で表現できない文字 2 個を置換しました'] }),
