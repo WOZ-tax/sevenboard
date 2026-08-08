@@ -15,13 +15,13 @@ import type { TbReviewResponse } from './tbreview-adapter';
 export const MAX_CSV_BYTES = 10 * 1024 * 1024;
 
 /**
- * タイムアウトチェーン（2026-08-08 レビュー指摘(c)で整合させた値。変更時は3点セットで見直す）:
- *   sevenboard-api の Cloud Run inbound 300s
- *     > このクライアント 240s
- *       > tb-review-api 側の各エンジン subprocess（TBW_ENGINE_TIMEOUT_SEC=240 でデプロイ）
- * 実測はエンジン3本で約3秒。240s は巨大仕訳帳向けの安全余裕。
+ * タイムアウトチェーン（2026-08-08 再レビューの推奨構成。変更時は3点セットで見直す）:
+ *   sevenboard-api の Cloud Run inbound 900s（tbreview 本番昇格時に --timeout 900 で設定）
+ *     > このクライアント 840s
+ *       > tb-review-api 側のエンジン3本合計 最大720s（TBW_ENGINE_TIMEOUT_SEC=240 × 3）
+ * 実測はエンジン3本で約3秒。840s は巨大仕訳帳向けの安全余裕。
  */
-const REQUEST_TIMEOUT_MS = 240_000;
+const REQUEST_TIMEOUT_MS = 840_000;
 
 export interface TbReviewRequest {
   journal_csv: string;

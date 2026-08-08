@@ -137,3 +137,57 @@ describe('仕訳帳CSV (legacy / tbreview 共通)', () => {
     expect(csv.split('\n')[1]).toContain('"株式会社""架空"""');
   });
 });
+
+describe('tbreview: 仕訳取得失敗はHIGHアラート化（2026-08-08 昇格前提の回帰）', () => {
+  const prevEngine = process.env.REVIEW_ENGINE;
+
+  afterEach(() => {
+    if (prevEngine === undefined) delete process.env.REVIEW_ENGINE;
+    else process.env.REVIEW_ENGINE = prevEngine;
+  });
+
+  it('getJournals 失敗時は空仕訳で続行せず、HIGH「レビュー実行エラー」で失敗を可視化する', async () => {
+    process.env.REVIEW_ENGINE = 'tbreview';
+    const mfApi = {
+      getOffice: jest.fn().mockResolvedValue({
+        code: '0003',
+        name: 'テスト株式会社',
+        accounting_periods: [{ fiscal_year: 2026, start_date: '2025-10-01' }],
+      }),
+      getTransitionPL: jest.fn().mockResolvedValue({ columns: [], rows: [] }),
+      getTransitionBS: jest.fn().mockResolvedValue({ columns: [], rows: [] }),
+      getJournals: jest.fn().mockRejectedValue(new Error('MF API error: 500')),
+    };
+    const svc = new ReviewService(mfApi as any, {} as any);
+
+    const result = await svc.runReview('org-test', 2026, 6);
+
+    const high = result.alerts.filter((a) => a.severity === 'HIGH');
+    expect(high.length).toBeGreaterThanOrEqual(1);
+    expect(high.some((a) => a.detail.includes('仕訳帳の取得に失敗'))).toBe(true);
+    // 「指摘ゼロ」偽装になっていないこと（アラートゼロの正常風レスポンスは不可）
+    expect(result.summary.totalAlerts).toBeGreaterThan(0);
+  });
+
+  it('legacy モードは従来どおり仕訳なしで続行する（挙動不変）', async () => {
+    process.env.REVIEW_ENGINE = 'legacy';
+    const mfApi = {
+      getOffice: jest.fn().mockResolvedValue({
+        code: '0003',
+        name: 'テスト株式会社',
+        accounting_periods: [{ fiscal_year: 2026, start_date: '2025-10-01' }],
+      }),
+      getTransitionPL: jest.fn().mockResolvedValue({ columns: [], rows: [] }),
+      getTransitionBS: jest.fn().mockResolvedValue({ columns: [], rows: [] }),
+      getJournals: jest.fn().mockRejectedValue(new Error('MF API error: 500')),
+    };
+    const svc = new ReviewService(mfApi as any, {} as any);
+
+    // legacy は analyze.py 実行まで進む（スクリプト実行自体の成否はこのテストの対象外。
+    // 少なくとも「仕訳取得失敗で中止」はしないことだけを固定する）
+    const result = await svc.runReview('org-test', 2026, 6);
+    expect(
+      result.alerts.some((a) => a.detail.includes('仕訳帳の取得に失敗')),
+    ).toBe(false);
+  });
+});
