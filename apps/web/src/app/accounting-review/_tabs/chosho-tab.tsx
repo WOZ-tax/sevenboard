@@ -598,36 +598,8 @@ function ChoshoTable({
   previewCellHint,
   cellOnlyMode = false,
 }: ChoshoTableProps) {
-  const router = useRouter();
-  // 残高調書 → 仕訳タブへのドリルダウン。
-  // 親勘定 (mfType==='account' で account 祖先なし) なら focusAccount のみ、
-  // 補助/取引先なら親勘定 + 自身 (取引先名) を partner として渡す。
-  const drilldownToJournal = (row: ChoshoPreviewRow) => {
-    const byKey = new Map(data.rows.map((r) => [r.rowKey, r]));
-    // 自身の祖先 chain で最初に当たる account を「親勘定」とする
-    let parentAccount: ChoshoPreviewRow | null = null;
-    let cur: ChoshoPreviewRow | undefined = row.parentRowKey
-      ? byKey.get(row.parentRowKey)
-      : undefined;
-    while (cur) {
-      if (cur.mfType === "account") {
-        parentAccount = cur;
-        break;
-      }
-      cur = cur.parentRowKey ? byKey.get(cur.parentRowKey) : undefined;
-    }
-    const params = new URLSearchParams();
-    params.set("tab", "journal");
-    if (parentAccount) {
-      // 自身は補助 or 取引先 → 親勘定で focus、自分の name を partner として渡す
-      params.set("focusAccount", parentAccount.name);
-      params.set("partner", row.name);
-    } else {
-      // 自身が親勘定 → focusAccount のみ
-      params.set("focusAccount", row.name);
-    }
-    router.push(`/accounting-review?${params.toString()}`);
-  };
+  // 残高調書 → 仕訳タブへのドリルダウンは、仕訳レビュータブを UI から外したため撤去した
+  // (勘定行はリンクではなくテキスト表示になる)。
   // 親 rowKey の Set。closed なら子は描画しない。
   // 初期展開ルール:
   //   - 大区分・中区分・中間集計 (mfType !== 'account'): デフォルト開く
@@ -833,7 +805,6 @@ function ChoshoTable({
                     })
                   }
                   onOpenRowRule={() => setOpenRowRule(r)}
-                  onDrilldownToJournal={drilldownToJournal}
                   previewCellHint={previewCellHint}
                   cellOnlyMode={cellOnlyMode}
                 />
@@ -938,7 +909,6 @@ function ChoshoRow({
   cellCommentLookup,
   onOpenCellComment,
   onOpenRowRule,
-  onDrilldownToJournal,
   previewCellHint,
   cellOnlyMode = false,
 }: {
@@ -957,7 +927,6 @@ function ChoshoRow({
   /** anomaly=null は「任意セルへのメモ」 (異常検知なし) */
   onOpenCellComment: (month: number, anomaly: ChoshoAnomaly | null) => void;
   onOpenRowRule: () => void;
-  onDrilldownToJournal: (row: ChoshoPreviewRow) => void;
   /** preview モードでセルクリック時の hint コールバック (toast.warning 等) */
   previewCellHint?: () => void;
   /** true なら 行末 (ルール / 💬) 列を出さない (preview モード用) */
@@ -1001,33 +970,17 @@ function ChoshoRow({
           ) : (
             <span className="inline-block h-4 w-4 shrink-0" />
           )}
-          {row.mfType === "account" ? (
-            <button
-              type="button"
-              onClick={() => onDrilldownToJournal(row)}
-              className={cn(
-                "rounded text-left underline decoration-dotted decoration-muted-foreground/40 underline-offset-2 hover:decoration-[var(--color-primary)] hover:text-[var(--color-primary)]",
-                isHeader || isAccountRow
+          <span
+            className={cn(
+              isHeader
+                ? "text-[var(--color-text-primary)]"
+                : isAccountRow
                   ? "text-[var(--color-text-primary)]"
                   : "text-muted-foreground",
-              )}
-              title="この科目の仕訳を見る"
-            >
-              {row.name}
-            </button>
-          ) : (
-            <span
-              className={cn(
-                isHeader
-                  ? "text-[var(--color-text-primary)]"
-                  : isAccountRow
-                    ? "text-[var(--color-text-primary)]"
-                    : "text-muted-foreground",
-              )}
-            >
-              {row.name}
-            </span>
-          )}
+            )}
+          >
+            {row.name}
+          </span>
           {/* 滞留判定が activity 抑制で発火しなかった場合の説明バッジ */}
           {row.agingSuppressedBy && (
             <Tooltip>

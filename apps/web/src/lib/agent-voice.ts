@@ -51,7 +51,7 @@ export const AGENTS: Record<AgentKey, AgentIdentity> = {
     shortName: "AI CFO",
     icon: Shield,
     summary: "資金繰りと仕訳の異常を先に拾う",
-    path: "/accounting-review",
+    path: "/monthly-review",
     systemRole:
       "あなたは中小企業の AI CFO として、リスクを社長が気づく前に検知します。\n" +
       "資金繰り（DSO・DPO・CCC・残高推移・入出金パターン）に加え、仕訳・摘要・科目残高の異常も対象とします。\n" +
@@ -145,9 +145,9 @@ export function buildAgentSystemPrompt(agent: AgentKey): string {
  *
  * 内部実装の都合で 4 役割に振り分けるが、UI 上は全て「AI CFO」として表示される。
  * - brief: ダッシュ / アラート / トリアージ / 指標系 / カレンダー / データ健全性
- * - sentinel: 資金繰り / 融資 / シミュ / 変動損益 / 資金調達 / 会計レビュー
+ * - sentinel: 資金繰り / 融資 / シミュ / 変動損益 / 資金調達
  * - drafter: AI CFO / 顧問コメント / トークスクリプト / 財務諸表 / 予算ヘルパー
- * - auditor: 会計レビュー / 予実差異 / Action / 経営イベント / 予算
+ * - auditor: 残高調書 / 月次レビュー / 予実差異 / Action / 経営イベント / 予算
  */
 const PATH_TO_AGENT: Array<{ prefix: string; key: AgentKey }> = [
   // sentinel
@@ -164,8 +164,8 @@ const PATH_TO_AGENT: Array<{ prefix: string; key: AgentKey }> = [
   { prefix: "/financial-statements", key: "drafter" },
   { prefix: "/budget-helper", key: "drafter" },
   // auditor (会計レビューは sentinel と auditor が協奏。pathname としては auditor を主担当に)
-  { prefix: "/accounting-review", key: "auditor" },
-  { prefix: "/monthly-review", key: "auditor" }, // 旧パス、リダイレクト前の互換
+  { prefix: "/accounting-review", key: "auditor" }, // 残高調書
+  { prefix: "/monthly-review", key: "auditor" }, // 月次レビュー (旧 会計レビューの経理レビュータブ)
   { prefix: "/variance", key: "auditor" },
   { prefix: "/actions", key: "auditor" },
   { prefix: "/business-events", key: "auditor" },

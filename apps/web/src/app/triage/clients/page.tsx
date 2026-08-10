@@ -94,8 +94,8 @@ export default function TriagePage() {
     const targetOrg = orgs.find((o) => o.code === mfCode) || orgs[0];
 
     if (!targetOrg) {
-      // ADVISORでない場合 or orgが見つからない → 会計レビューにそのまま遷移
-      router.push("/accounting-review");
+      // ADVISORでない場合 or orgが見つからない → 月次レビューにそのまま遷移
+      router.push("/monthly-review");
       return;
     }
 
@@ -106,11 +106,11 @@ export default function TriagePage() {
       // useCurrentOrg context にも切替を反映（localStorage 同期 + react-query キャッシュ全消し）。
       // 呼ばないと遷移先で context が旧 orgId を read して古い顧問先のデータが出る。
       setCurrentOrgId(targetOrg.id);
-      router.push("/accounting-review");
+      router.push("/monthly-review");
     } catch (err) {
       console.error("Org switch failed", err);
       // 失敗してもレビューには遷移
-      router.push("/accounting-review");
+      router.push("/monthly-review");
     } finally {
       setSwitchingClient(null);
     }
