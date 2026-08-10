@@ -417,7 +417,8 @@ export interface ReviewResult {
   analyzedAt: string;
   alerts: ReviewAlert[];
   /**
-   * tbreview モードのみ。存在すれば画面は tb-review ネイティブ表示に切り替わる。
+   * tbreview モードのみ。月次レビュー画面はこのフィールドを必須として扱い、
+   * 欠けている場合は旧レイアウトへ落とさず設定不備として明示する。
    * legacy モード (REVIEW_ENGINE 未設定) では常に undefined。
    */
   tbreview?: TbReviewResponse;

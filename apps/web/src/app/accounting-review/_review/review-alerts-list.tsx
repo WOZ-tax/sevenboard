@@ -1,10 +1,10 @@
 "use client";
 
 /**
- * 指摘一覧 (alerts ベース) — legacy / tbreview 両モード共通の表示。
+ * 指摘一覧 (alerts ベース) — tbreview ネイティブ表示の「指摘一覧」ピル用。
  *
  * page.tsx の ReviewTab から切り出したもので、マークアップは切り出し前と同一。
- * tbreview ネイティブ表示でも「指摘一覧」ピルはこの見た目のまま使う。
+ * 旧レイアウト (legacy) は廃棄済みで、現在の利用元は tbreview-result.tsx のみ。
  */
 
 import { Card, CardContent } from "@/components/ui/card";
