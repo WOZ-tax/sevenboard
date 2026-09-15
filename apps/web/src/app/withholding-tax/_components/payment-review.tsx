@@ -80,10 +80,10 @@ export function WithholdingPaymentReview({
             <ListChecks className="h-4 w-4 text-[var(--color-primary)]" />
             納付後残高レビュー
           </CardTitle>
-          <Badge variant="outline">納期の特例</Badge>
+          <Badge variant="outline">半期の残高照合</Badge>
         </div>
         <p className="text-xs leading-relaxed text-muted-foreground">
-          源泉集計と納付仕訳を照合し、対象の半年分の預り金が0円になるか確認します。納期の特例を適用している顧問先向けです。
+          源泉集計と納付仕訳を照合し、対象の半年分の預り金が0円になるか確認します。期中に納付している場合も、繰越残高とあわせて照合します。
         </p>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -111,8 +111,8 @@ export function WithholdingPaymentReview({
           enabled={enabled}
         />
         <p className="text-[11px] leading-relaxed text-muted-foreground">
-          住民税・社会保険は除外し、確認期間に新たに徴収した翌期分の源泉税は分けて表示します。
-          給与・退職金・一定の士業報酬が特例の対象です。
+          住民税・社会保険は除外し、翌期に新たに徴収した源泉税と、未払計上された翌期支払予定分を分けて表示します。
+          7/10・翌1/20は納期の特例の標準日です。毎月納付している場合は実際の納付日で確認してください。
           <a
             href="https://www.nta.go.jp/taxes/shiraberu/taxanswer/gensen/2505.htm"
             target="_blank"
@@ -201,7 +201,7 @@ function PeriodReview({
           {query.isFetching ? "照合中…" : "納付後残高を確認"}
         </Button>
         <p className="basis-full text-[11px] text-muted-foreground">
-          半期終了後から確認日までの納付を照合します。土日祝・期限延長や納付日のずれがある場合は、確認日を変更してください。
+          半期中と半期終了後の納付を分けて照合します。土日祝・期限延長や納付日のずれがある場合は、確認日を変更してください。
         </p>
         {!valid && (
           <p role="alert" className="text-xs text-destructive">
@@ -279,10 +279,46 @@ function ReviewResult({ data }: { data: WithholdingTaxReviewResult }) {
               note={`${data.checkedThroughDate}まで / 半期終了後`}
             />
           </div>
+          <details className="rounded-md border px-3 py-2">
+            <summary className="cursor-pointer text-xs font-medium">
+              集計と半期末残高の内訳
+            </summary>
+            <dl className="mt-3 grid gap-x-6 gap-y-2 text-xs sm:grid-cols-2">
+              <ValueRow
+                label="半期開始時の繰越残高"
+                value={t.openingBalance ?? null}
+              />
+              <ValueRow label="半期中の納付額" value={t.periodPayments ?? 0} />
+              <ValueRow
+                label="集計に含む前期未払分（推定）"
+                value={t.priorAccrualTax ?? 0}
+              />
+              <ValueRow
+                label="半期末の翌期支払予定分（推定）"
+                value={t.deferredTax ?? 0}
+              />
+              <ValueRow
+                label="半期中のその他増減"
+                value={t.periodOtherMovements ?? 0}
+              />
+              <ValueRow
+                label="調整後の集計と半期末残高との差"
+                value={t.balanceDifference}
+              />
+            </dl>
+            <p className="mt-3 text-[11px] leading-relaxed text-muted-foreground">
+              繰越残高 ＋ 源泉集計額 − 前期未払分 ＋ 翌期支払予定分 ＋
+              年末調整等 − 期中納付 ＋
+              その他増減を、MF試算表の半期末残高と照合しています。
+            </p>
+          </details>
           <div className="grid gap-3 rounded-md border bg-muted/20 p-4 sm:grid-cols-[1fr_auto]">
             <div className="min-w-0">
               <div className="text-xs font-medium text-muted-foreground">
                 納付後の対象期分残高
+                {t.deferredTax || t.priorAccrualTax
+                  ? "（支払月の推定を含む）"
+                  : ""}
               </div>
               <div
                 className={cn(
@@ -297,7 +333,8 @@ function ReviewResult({ data }: { data: WithholdingTaxReviewResult }) {
                 {yen(t.remainingBalance)}
               </div>
               <p className="mt-1 text-[11px] text-muted-foreground">
-                半期末残高 − 納付額 ＋ その他増減。翌期徴収分は含みません。
+                半期末残高 − 半期終了後の納付額 − 翌期支払予定分 ＋
+                その他増減。翌期の新規徴収分は含みません。
               </p>
             </div>
             <dl className="space-y-1 text-xs">
@@ -306,12 +343,16 @@ function ReviewResult({ data }: { data: WithholdingTaxReviewResult }) {
                 value={t.nextPeriodTax}
               />
               <ValueRow
+                label="半期末の翌期支払予定分（推定）"
+                value={t.deferredTax ?? 0}
+              />
+              <ValueRow
                 label="その他増減（確認期間）"
                 value={t.otherMovements}
               />
               <ValueRow label="確認日の源泉預り金残高" value={t.bookBalance} />
               <ValueRow
-                label="半期末残高と集計＋調整との差"
+                label="調整後の集計と半期末残高との差"
                 value={t.balanceDifference}
               />
             </dl>
@@ -342,7 +383,8 @@ function ReviewResult({ data }: { data: WithholdingTaxReviewResult }) {
                     </th>
                     {[
                       "半期末残高",
-                      "納付額",
+                      "半期終了後の納付",
+                      "翌期支払予定分",
                       "翌期徴収分",
                       "確認日残高",
                       "対象期分残高",
@@ -374,6 +416,7 @@ function ReviewResult({ data }: { data: WithholdingTaxReviewResult }) {
                       {[
                         account.periodEndBalance,
                         account.payments,
+                        account.deferredTax ?? 0,
                         account.nextPeriodTax,
                         account.bookBalance,
                         account.remainingBalance,
@@ -382,8 +425,8 @@ function ReviewResult({ data }: { data: WithholdingTaxReviewResult }) {
                           key={index}
                           className={cn(
                             "py-2 pl-3 text-right tabular-nums",
-                            index === 4 && "font-semibold",
-                            index === 4 &&
+                            index === 5 && "font-semibold",
+                            index === 5 &&
                               amount !== 0 &&
                               amount !== null &&
                               "text-amber-700",
@@ -455,6 +498,8 @@ function JournalDetails({
     ADJUSTMENT: "年末調整・還付等",
     PAYMENT: "納付",
     NEXT_PERIOD: "翌期分の徴収",
+    DEFERRED: "翌期支払予定（推定）",
+    OPENING: "開始残高（増減から除外）",
     UNCLASSIFIED: "用途を確認",
   };
   return (

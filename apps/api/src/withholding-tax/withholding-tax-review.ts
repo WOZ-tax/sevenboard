@@ -19,7 +19,7 @@ const TRANSFER = /開始残高|期首|繰越|振替|振替伝票/;
 const CASH = /現金|預金/;
 const REMITTANCE = /納付|納税|税務署|国税|ダイレクト納付|e-?tax/i;
 const ELIGIBLE_FEE =
-  /税理士|弁護士|司法書士|公認会計士|土地家屋調査士|社会保険労務士|社労士|弁理士|海事代理士|測量士|建築士|不動産鑑定士|技術士/;
+  /税理士|弁護士|司法書士|公認会計士|土地家屋調査士|社会保険労務士|社労士|弁理士|海事代理士|測量士|建築士|不動産鑑定士|技術士|ゼイリシ|シ[ャヤ]カイホケンロウムシ/;
 
 export function withholdingReviewPeriod(year: number, half: 1 | 2) {
   return {
@@ -44,6 +44,11 @@ export function emptyReviewAmounts(): WithholdingTaxReviewAmounts {
   return {
     aggregatedTax: 0,
     adjustments: 0,
+    openingBalance: null,
+    periodPayments: 0,
+    periodOtherMovements: 0,
+    priorAccrualTax: 0,
+    deferredTax: 0,
     periodEndBalance: null,
     balanceDifference: null,
     payments: 0,
@@ -66,6 +71,7 @@ export function buildWithholdingTaxReview(input: {
   today: string;
   journals: WithholdingTaxJournalInput[];
   trialBalance: MfTrialBalance | null;
+  openingTrialBalance?: MfTrialBalance | null;
   coverage: WithholdingTaxReviewResult['coverage'];
   issues?: string[];
 }): WithholdingTaxReviewResult {
@@ -104,6 +110,30 @@ export function buildWithholdingTaxReview(input: {
       );
     } else {
       readTaxBalances(trialBalance, accountFor, issues);
+      if (trialBalance.start_date === period.startDate) {
+        readTaxBalances(
+          trialBalance,
+          accountFor,
+          issues,
+          'opening_balance',
+          'openingBalance',
+        );
+      } else {
+        const openingDate = new Date(`${period.startDate}T00:00:00Z`);
+        openingDate.setUTCDate(openingDate.getUTCDate() - 1);
+        if (
+          input.openingTrialBalance?.end_date ===
+          openingDate.toISOString().slice(0, 10)
+        ) {
+          readTaxBalances(
+            input.openingTrialBalance,
+            accountFor,
+            issues,
+            'closing_balance',
+            'openingBalance',
+          );
+        }
+      }
     }
   }
 
@@ -122,9 +152,12 @@ export function buildWithholdingTaxReview(input: {
     const marked = journal.credits.filter(isTaxSide);
     const markedTotal = marked.reduce((sum, side) => sum + side.amount, 0);
     if (marked.length && markedTotal === entry.withholdingTax) {
-      for (const side of marked)
-        accountFor(side.accountName, side.subAccountName).aggregatedTax +=
-          side.amount;
+      for (const side of marked) {
+        const account = accountFor(side.accountName, side.subAccountName);
+        account.aggregatedTax += side.amount;
+        if (entry.sourceDate && entry.sourceDate < period.startDate)
+          account.priorAccrualTax += side.amount;
+      }
     } else {
       accountFor(
         entry.withholdingAccountName ?? '預り金',
@@ -171,7 +204,9 @@ export function buildWithholdingTaxReview(input: {
         const account = accountFor(side.accountName, side.subAccountName);
         const amount = sign * side.amount;
         let kind: WithholdingTaxReviewDetail['kind'] = 'UNCLASSIFIED';
-        if (side.amount < 0 || !Number.isSafeInteger(side.amount)) {
+        if (journal.isOpening) {
+          kind = 'OPENING';
+        } else if (side.amount < 0 || !Number.isSafeInteger(side.amount)) {
           issues.add(
             'マイナス仕訳または円未満の金額があるため、貸借の向きを確認してください。',
           );
@@ -217,9 +252,26 @@ export function buildWithholdingTaxReview(input: {
                 '納付摘要に別の半期を示す月・期間があります。納付額の帰属を確認してください。',
               );
             }
+          } else if (date >= period.startDate) {
+            account.periodPayments += side.amount;
           }
         } else if (sign === 1 && entry && !TRANSFER.test(memo)) {
-          kind = afterPeriod ? 'NEXT_PERIOD' : 'WITHHOLDING';
+          const deferred =
+            !afterPeriod &&
+            date >= period.startDate &&
+            entry.paymentDate != null &&
+            entry.paymentDate > period.endDate;
+          kind = afterPeriod
+            ? 'NEXT_PERIOD'
+            : deferred
+              ? 'DEFERRED'
+              : 'WITHHOLDING';
+          if (deferred) {
+            account.deferredTax += amount;
+            issues.add(
+              '半期末の未払給与・報酬に対応する源泉税を、翌期支払予定分として分けています。推定のため実際の支払月を確認してください。',
+            );
+          }
           if (afterPeriod) {
             account.nextPeriodTax += amount;
             if (entry.sourceDate !== entry.paymentDate)
@@ -234,8 +286,14 @@ export function buildWithholdingTaxReview(input: {
           );
         if (afterPeriod) {
           // bookBalance は後で半期末残高を加える。翌期徴収・納付以外は別枠で残す。
-          if (kind !== 'NEXT_PERIOD' && kind !== 'PAYMENT')
+          if (
+            kind !== 'NEXT_PERIOD' &&
+            kind !== 'PAYMENT' &&
+            kind !== 'OPENING'
+          )
             account.otherMovements += amount;
+        } else if (date >= period.startDate && kind === 'UNCLASSIFIED') {
+          account.periodOtherMovements += amount;
         }
         details.push({
           journalId: journal.id,
@@ -292,17 +350,31 @@ export function buildWithholdingTaxReview(input: {
         );
       continue;
     }
-    account.balanceDifference =
-      account.periodEndBalance - account.aggregatedTax - account.adjustments;
+    if (account.openingBalance == null) {
+      issues.add(
+        '半期開始時の源泉科目残高を確認できません。繰越残高を0円とは扱っていません。',
+      );
+    } else {
+      account.balanceDifference =
+        account.periodEndBalance -
+        (account.openingBalance +
+          account.aggregatedTax -
+          account.priorAccrualTax +
+          account.deferredTax +
+          account.adjustments -
+          account.periodPayments +
+          account.periodOtherMovements);
+    }
     account.bookBalance =
       account.periodEndBalance -
       account.payments +
       account.nextPeriodTax +
       account.otherMovements;
-    account.remainingBalance = account.bookBalance - account.nextPeriodTax;
-    if (account.balanceDifference !== 0)
+    account.remainingBalance =
+      account.bookBalance - account.nextPeriodTax - account.deferredTax;
+    if (account.balanceDifference != null && account.balanceDifference !== 0)
       issues.add(
-        '源泉集計＋年末調整と半期末残高に差があります。繰越残高・期中納付・計上漏れを確認してください。',
+        '繰越残高・期中納付・未払計上を調整しても、源泉集計と半期末残高に差があります。計上漏れ・重複を確認してください。',
       );
   }
   const totals = totalAmounts(accounts);
@@ -378,7 +450,9 @@ function isSpecialPaymentEntry(entry: WithholdingTaxEntry): boolean {
       entry.sourceAccountName,
       entry.sourceSubAccountName,
       entry.withholdingSubAccountName,
-    ].join(' '),
+    ]
+      .join(' ')
+      .normalize('NFKC'),
   );
 }
 
@@ -396,8 +470,10 @@ function readTaxBalances(
     sub?: string | null,
   ) => WithholdingTaxReviewAccount,
   issues: Set<string>,
+  columnName = 'closing_balance',
+  field: 'periodEndBalance' | 'openingBalance' = 'periodEndBalance',
 ) {
-  const column = trial.columns.indexOf('closing_balance');
+  const column = trial.columns.indexOf(columnName);
   if (column < 0) {
     issues.add('試算表の月末残高列を特定できません。');
     return;
@@ -428,10 +504,10 @@ function readTaxBalances(
         typeof value !== 'number' ||
         !Number.isSafeInteger(value)
       ) {
-        account.periodEndBalance = null;
+        account[field] = null;
         issues.add('試算表の補助科目残高に欠落・重複があります。');
       } else {
-        account.periodEndBalance = value;
+        account[field] = value;
       }
       seen.add(key);
     }

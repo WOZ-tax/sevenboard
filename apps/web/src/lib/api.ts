@@ -576,14 +576,19 @@ export type WithholdingTaxReviewStatus =
 export interface WithholdingTaxReviewAmounts {
   aggregatedTax: number;
   adjustments: number;
+  openingBalance: number | null;
+  periodPayments: number;
+  periodOtherMovements: number;
+  priorAccrualTax: number;
+  deferredTax: number;
   periodEndBalance: number | null;
-  /** 半期末残高 − 源泉集計額 − 期中の年末調整等。繰越・期中納付等を含む。 */
+  /** 繰越・期中納付・未払計上等を調整した集計と半期末残高との差。 */
   balanceDifference: number | null;
   payments: number;
   nextPeriodTax: number;
   otherMovements: number;
   bookBalance: number | null;
-  /** 確認日の源泉預り金残高から、翌期の新規徴収額を除いた残高。 */
+  /** 確認日残高から翌期の新規徴収額と翌期支払予定分を除いた残高。 */
   remainingBalance: number | null;
 }
 
@@ -599,7 +604,7 @@ export interface WithholdingTaxReviewDetail {
   memo: string | null;
   accountName: string;
   subAccountName: string | null;
-  kind: 'WITHHOLDING' | 'ADJUSTMENT' | 'PAYMENT' | 'NEXT_PERIOD' | 'UNCLASSIFIED';
+  kind: 'WITHHOLDING' | 'ADJUSTMENT' | 'PAYMENT' | 'NEXT_PERIOD' | 'DEFERRED' | 'OPENING' | 'UNCLASSIFIED';
   /** 貸方（預り金の増加）が正、借方（減少）が負。 */
   amount: number;
 }

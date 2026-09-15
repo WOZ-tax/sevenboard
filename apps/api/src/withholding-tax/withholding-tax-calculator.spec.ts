@@ -2,10 +2,13 @@ import {
   buildWithholdingTaxEntries,
   buildWithholdingTaxSummary,
   extractWithholdingEntry,
+  normalizeMfJournalForWithholding,
 } from './withholding-tax-calculator';
 import type { WithholdingTaxJournalInput } from './withholding-tax.types';
 
-function journal(input: Partial<WithholdingTaxJournalInput>): WithholdingTaxJournalInput {
+function journal(
+  input: Partial<WithholdingTaxJournalInput>,
+): WithholdingTaxJournalInput {
   return {
     id: 'j1',
     number: '1001',
@@ -19,13 +22,82 @@ function journal(input: Partial<WithholdingTaxJournalInput>): WithholdingTaxJour
 }
 
 describe('extractWithholdingEntry', () => {
+  it('keeps a fee when a later branch says income tax and the debit account says payment fee', () => {
+    const entry = extractWithholdingEntry(
+      journal({
+        memo: '税理士報酬 / 源泉所得税(報酬) 預り',
+        debits: [{ accountName: '支払報酬', amount: 100_000 }],
+        credits: [
+          { accountName: '普通預金', amount: 89_790 },
+          {
+            accountName: '預り金',
+            subAccountName: '所得税(報酬)',
+            amount: 10_210,
+          },
+        ],
+      }),
+    );
+    expect(entry?.withholdingTax).toBe(10_210);
+  });
+
+  it('does not shift a paid wage because of an unrelated social-insurance payable or debit settlement', () => {
+    const entry = extractWithholdingEntry(
+      journal({
+        date: '2026-06-25',
+        memo: '給与支給',
+        debits: [
+          { accountName: '給料賃金', amount: 100_000 },
+          { accountName: '未払金', subAccountName: '立替経費', amount: 1_000 },
+        ],
+        credits: [
+          { accountName: '普通預金', amount: 71_000 },
+          {
+            accountName: '未払費用',
+            subAccountName: '社会保険料',
+            amount: 20_000,
+          },
+          {
+            accountName: '預り金',
+            subAccountName: '所得税(給与)',
+            amount: 10_000,
+          },
+        ],
+      }),
+    );
+    expect(entry?.paymentDate).toBe('2026-06-25');
+  });
+
+  it('recognizes MF opening metadata even with an empty memo', () => {
+    const normalized = normalizeMfJournalForWithholding({
+      id: 'opening',
+      transaction_date: '2026-01-01',
+      entered_by: 'JOURNAL_TYPE_OPENING',
+      branches: [
+        {
+          debitor: { account_name: '普通預金', value: 100 },
+          creditor: {
+            account_name: '預り金',
+            sub_account_name: '源泉所得税',
+            value: 100,
+          },
+        },
+      ],
+    })!;
+    expect(normalized.isOpening).toBe(true);
+    expect(extractWithholdingEntry(normalized)).toBeNull();
+  });
+
   it('extracts professional fee withholding from an MF journal', () => {
     const entry = extractWithholdingEntry(
       journal({
         debits: [{ accountName: '支払報酬', amount: 100_000 }],
         credits: [
           { accountName: '普通預金', amount: 89_790 },
-          { accountName: '預り金', subAccountName: '所得税(士業)', amount: 10_210 },
+          {
+            accountName: '預り金',
+            subAccountName: '所得税(士業)',
+            amount: 10_210,
+          },
         ],
       }),
     );
@@ -39,13 +111,39 @@ describe('extractWithholdingEntry', () => {
     });
   });
 
+  it('does not include the bank payment when the trade partner name contains tax words', () => {
+    const entry = extractWithholdingEntry(
+      journal({
+        memo: '税理士報酬 / 源泉所得税 預り',
+        debits: [{ accountName: '支払報酬', amount: 100_000 }],
+        credits: [
+          {
+            accountName: '普通預金',
+            partnerName: '源泉税相談 税理士事務所',
+            amount: 89_790,
+          },
+          {
+            accountName: '預り金',
+            subAccountName: '源泉所得税',
+            amount: 10_210,
+          },
+        ],
+      }),
+    );
+    expect(entry?.withholdingTax).toBe(10_210);
+  });
+
   it('classifies salary withholding separately', () => {
     const entry = extractWithholdingEntry(
       journal({
         debits: [{ accountName: '給料賃金', amount: 300_000 }],
         credits: [
           { accountName: '普通預金', amount: 292_350 },
-          { accountName: '預り金', subAccountName: '所得税(給与)', amount: 7_650 },
+          {
+            accountName: '預り金',
+            subAccountName: '所得税(給与)',
+            amount: 7_650,
+          },
         ],
       }),
     );
@@ -58,7 +156,13 @@ describe('extractWithholdingEntry', () => {
     const entry = extractWithholdingEntry(
       journal({
         memo: '税務署 源泉所得税納付',
-        debits: [{ accountName: '預り金', subAccountName: '所得税(士業)', amount: 10_210 }],
+        debits: [
+          {
+            accountName: '預り金',
+            subAccountName: '所得税(士業)',
+            amount: 10_210,
+          },
+        ],
         credits: [{ accountName: '普通預金', amount: 10_210 }],
       }),
     );
@@ -73,7 +177,11 @@ describe('extractWithholdingEntry', () => {
         debits: [{ accountName: '支払報酬', amount: 100_000 }],
         credits: [
           { accountName: '未払金', amount: 89_790 },
-          { accountName: '預り金', subAccountName: '所得税(士業)', amount: 10_210 },
+          {
+            accountName: '預り金',
+            subAccountName: '所得税(士業)',
+            amount: 10_210,
+          },
         ],
       }),
     );
@@ -89,7 +197,13 @@ describe('extractWithholdingEntry', () => {
     const entry = extractWithholdingEntry(
       journal({
         debits: [{ accountName: '仮払金', amount: 10_210 }],
-        credits: [{ accountName: '預り金', subAccountName: '所得税(報酬)', amount: 10_210 }],
+        credits: [
+          {
+            accountName: '預り金',
+            subAccountName: '所得税(報酬)',
+            amount: 10_210,
+          },
+        ],
       }),
     );
 
@@ -105,9 +219,17 @@ describe('extractWithholdingEntry', () => {
         debits: [{ accountName: '給料手当', amount: 350_000 }],
         credits: [
           { accountName: '普通預金', amount: 300_000 },
-          { accountName: '預り金', subAccountName: '源泉所得税', amount: 8_000 },
+          {
+            accountName: '預り金',
+            subAccountName: '源泉所得税',
+            amount: 8_000,
+          },
           { accountName: '預り金', subAccountName: '住民税', amount: 15_000 },
-          { accountName: '預り金', subAccountName: '社会保険料', amount: 27_000 },
+          {
+            accountName: '預り金',
+            subAccountName: '社会保険料',
+            amount: 27_000,
+          },
         ],
       }),
     );
@@ -142,7 +264,11 @@ describe('extractWithholdingEntry', () => {
         debits: [{ accountName: '給料手当', amount: 350_000 }],
         credits: [
           { accountName: '普通預金', amount: 320_000 },
-          { accountName: '預り金', subAccountName: '源泉所得税', amount: 8_000 },
+          {
+            accountName: '預り金',
+            subAccountName: '源泉所得税',
+            amount: 8_000,
+          },
           { accountName: '預り金', amount: 22_000 },
         ],
       }),
@@ -157,7 +283,9 @@ describe('extractWithholdingEntry', () => {
         memo: '敷金預かり',
         partnerName: '入居者A',
         debits: [{ accountName: '現金', amount: 200_000 }],
-        credits: [{ accountName: '預り金', subAccountName: '保証金', amount: 200_000 }],
+        credits: [
+          { accountName: '預り金', subAccountName: '保証金', amount: 200_000 },
+        ],
       }),
     );
 
@@ -167,10 +295,20 @@ describe('extractWithholdingEntry', () => {
   it('still adopts a professional-fee withholding side', () => {
     const entry = extractWithholdingEntry(
       journal({
-        debits: [{ accountName: '支払手数料', subAccountName: '税理士報酬', amount: 100_000 }],
+        debits: [
+          {
+            accountName: '支払手数料',
+            subAccountName: '税理士報酬',
+            amount: 100_000,
+          },
+        ],
         credits: [
           { accountName: '普通預金', amount: 89_790 },
-          { accountName: '預り金', subAccountName: '源泉所得税', amount: 10_210 },
+          {
+            accountName: '預り金',
+            subAccountName: '源泉所得税',
+            amount: 10_210,
+          },
         ],
       }),
     );
@@ -188,21 +326,39 @@ describe('buildWithholdingTaxSummary', () => {
         date: '2026-01-15',
         partnerName: '山田太郎',
         debits: [{ accountName: '支払報酬', amount: 100_000 }],
-        credits: [{ accountName: '預り金', subAccountName: '所得税(士業)', amount: 10_210 }],
+        credits: [
+          {
+            accountName: '預り金',
+            subAccountName: '所得税(士業)',
+            amount: 10_210,
+          },
+        ],
       }),
       journal({
         id: 'j2',
         date: '2026-07-15',
         partnerName: '山田太郎',
         debits: [{ accountName: '支払報酬', amount: 200_000 }],
-        credits: [{ accountName: '預り金', subAccountName: '所得税(士業)', amount: 20_420 }],
+        credits: [
+          {
+            accountName: '預り金',
+            subAccountName: '所得税(士業)',
+            amount: 20_420,
+          },
+        ],
       }),
       journal({
         id: 'j3',
         date: '2026-01-25',
         partnerName: '佐藤花子',
         debits: [{ accountName: '給料賃金', amount: 300_000 }],
-        credits: [{ accountName: '預り金', subAccountName: '所得税(給与)', amount: 7_650 }],
+        credits: [
+          {
+            accountName: '預り金',
+            subAccountName: '所得税(給与)',
+            amount: 7_650,
+          },
+        ],
       }),
     ]);
 

@@ -151,6 +151,7 @@ export class WithholdingTaxService {
                   return (
                     side &&
                     (!Number.isSafeInteger(Number(side.value ?? side.amount)) ||
+                      !Number.isSafeInteger(Number(side.tax_value ?? 0)) ||
                       typeof side.account_name !== 'string' ||
                       !side.account_name.trim())
                   );
@@ -160,23 +161,13 @@ export class WithholdingTaxService {
             malformed = true;
           if (
             (!journal.debits.length && !journal.credits.length) ||
-            journal.debits.reduce((sum, side) => sum + side.amount, 0) !==
-              journal.credits.reduce((sum, side) => sum + side.amount, 0)
+            // 税抜経理ではvalueと消費税tax_valueが分離される。
+            // 本体だけを比較すると正常な課税仕訳も貸借不一致になる。
+            (Array.isArray(branches) &&
+              grossJournalTotal(branches, 'debitor') !==
+                grossJournalTotal(branches, 'creditor'))
           )
             malformed = true;
-          // 複合仕訳の2行目以降にある「年末調整」「納付」を落とさない。
-          if (Array.isArray(branches)) {
-            const remarks = branches
-              .map((branch: { remark?: unknown }) => branch?.remark)
-              .filter(
-                (remark): remark is string =>
-                  typeof remark === 'string' && remark.length > 0,
-              );
-            journal.memo =
-              [...new Set([journal.memo, ...remarks].filter(Boolean))].join(
-                ' / ',
-              ) || null;
-          }
           const previous = journalsById.get(journal.id);
           if (previous && JSON.stringify(previous) !== JSON.stringify(journal))
             malformed = true;
@@ -208,6 +199,24 @@ export class WithholdingTaxService {
             )
             .catch(() => null)
         : null;
+    const openingDate = formatDate(
+      addUtcDays(parseDate(period.startDate)!, -1),
+    );
+    const openingPeriods = accountingPeriods.filter(
+      (row) => row.start_date <= openingDate && row.end_date >= openingDate,
+    );
+    const openingTrialBalance =
+      trialBalance?.start_date !== period.startDate &&
+      openingPeriods.length === 1
+        ? await this.mfApi
+            .getTrialBalanceBS(
+              orgId,
+              openingPeriods[0].fiscal_year,
+              half === 1 ? 12 : 6,
+              { withSubAccounts: true },
+            )
+            .catch(() => null)
+        : null;
     return buildWithholdingTaxReview({
       year,
       half,
@@ -215,6 +224,7 @@ export class WithholdingTaxService {
       today,
       journals: [...journalsById.values()],
       trialBalance,
+      openingTrialBalance,
       issues,
       coverage: {
         ranges,
@@ -260,10 +270,20 @@ export class WithholdingTaxService {
       parseDate(range.endDate)?.getUTCFullYear() ??
       new Date().getUTCFullYear();
 
-    const journalRanges =
-      startDate || endDate
-        ? await this.buildJournalFetchRanges(orgId, range, org.fiscalMonthEnd)
-        : [range];
+    // レビューと同じ支払月で集計する。前月未払を読み込み、
+    // 選択期間外の翌月支払分を主集計にも混ぜない。
+    const start = parseDate(range.startDate)!;
+    const fetchRange = {
+      ...range,
+      startDate: formatDate(
+        new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() - 1, 1)),
+      ),
+    };
+    const journalRanges = await this.buildJournalFetchRanges(
+      orgId,
+      fetchRange,
+      org.fiscalMonthEnd,
+    );
     const rawJournals: unknown[] = [];
     let truncated = false;
     for (const journalRange of journalRanges) {
@@ -274,10 +294,18 @@ export class WithholdingTaxService {
       if (Array.isArray(data?.journals)) rawJournals.push(...data.journals);
       truncated = truncated || !!data?.truncated;
     }
-    const journals = rawJournals
+    const normalized = rawJournals
       .map(normalizeMfJournalForWithholding)
       .filter((j): j is WithholdingTaxJournalInput => !!j);
-    const entries = buildWithholdingTaxEntries(journals);
+    const journals = [
+      ...new Map(normalized.map((journal) => [journal.id, journal])).values(),
+    ];
+    const entries = buildWithholdingTaxEntries(journals).filter(
+      (entry) =>
+        entry.paymentDate != null &&
+        entry.paymentDate >= range.startDate &&
+        entry.paymentDate <= range.endDate,
+    );
     const summary = buildWithholdingTaxSummary(entries);
 
     return {
@@ -484,4 +512,21 @@ function coversRange(
       cursor = formatDate(addUtcDays(parseDate(range.endDate)!, 1));
   }
   return cursor > requested.endDate;
+}
+
+function grossJournalTotal(
+  branches: unknown[],
+  key: 'debitor' | 'creditor',
+): number {
+  return branches.reduce<number>((sum, branch) => {
+    const side = (
+      branch as Record<string, Record<string, unknown> | null> | null
+    )?.[key];
+    return (
+      sum +
+      (side
+        ? Number(side.value ?? side.amount ?? 0) + Number(side.tax_value ?? 0)
+        : 0)
+    );
+  }, 0);
 }

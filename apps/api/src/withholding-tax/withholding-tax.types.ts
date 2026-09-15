@@ -35,6 +35,8 @@ export interface WithholdingTaxJournalInput {
   partnerName: string | null;
   debits: WithholdingTaxJournalSide[];
   credits: WithholdingTaxJournalSide[];
+  /** MFの開始仕訳。通常の増減と重複計上しない。 */
+  isOpening?: boolean;
 }
 
 export interface WithholdingTaxEntry {
@@ -121,14 +123,21 @@ export type WithholdingTaxReviewStatus =
 export interface WithholdingTaxReviewAmounts {
   aggregatedTax: number;
   adjustments: number;
+  openingBalance: number | null;
+  periodPayments: number;
+  periodOtherMovements: number;
+  /** 前期計上・当期支払の推定額。期首残高との二重加算を避ける。 */
+  priorAccrualTax: number;
+  /** 半期末までに未払計上された翌期支払予定分（推定）。 */
+  deferredTax: number;
   periodEndBalance: number | null;
-  /** 半期末残高 − 源泉集計額 − 期中の年末調整等。繰越・期中納付等を含む。 */
+  /** 繰越・期中納付・未払計上等を調整した集計と半期末残高との差。 */
   balanceDifference: number | null;
   payments: number;
   nextPeriodTax: number;
   otherMovements: number;
   bookBalance: number | null;
-  /** 確認日の源泉預り金残高から、翌期の新規徴収額を除いた残高。 */
+  /** 確認日残高から翌期の新規徴収額と翌期支払予定分を除いた残高。 */
   remainingBalance: number | null;
 }
 
@@ -149,6 +158,8 @@ export interface WithholdingTaxReviewDetail {
     | 'ADJUSTMENT'
     | 'PAYMENT'
     | 'NEXT_PERIOD'
+    | 'DEFERRED'
+    | 'OPENING'
     | 'UNCLASSIFIED';
   /** 貸方（預り金の増加）が正、借方（減少）が負。 */
   amount: number;

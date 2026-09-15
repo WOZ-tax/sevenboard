@@ -55,7 +55,9 @@ function trial(
 ): MfTrialBalance {
   return {
     report_type: 'trial_balance_bs',
-    start_date: '2026-04-01',
+    start_date: endDate.endsWith('12-31')
+      ? `${endDate.slice(0, 4)}-07-01`
+      : `${endDate.slice(0, 4)}-01-01`,
     end_date: endDate,
     columns: [
       'opening_balance',
@@ -108,6 +110,105 @@ function review(
 }
 
 describe('withholding payment review', () => {
+  it('bridges carried refunds, in-period payments and deferred wages without manufacturing a zero', () => {
+    const closing = trial([
+      ['所得税(給与)', 587_090],
+      ['所得税(報酬)', 13_170],
+    ]);
+    closing.rows[0].rows![0].rows![0].values[0] = -76_264;
+    const wage = (amount: number, date: string) =>
+      journal(
+        `wage-${date}`,
+        date,
+        [{ accountName: '給料賃金', amount: amount + 1_000_000 }],
+        [tax(amount, '所得税(給与)'), cash(1_000_000)],
+        '給与計上',
+      );
+    const prior = wage(149_270, '2025-12-31');
+    prior.credits[1] = { accountName: '未払給与', amount: 1_000_000 };
+    const deferred = wage(188_320, '2026-06-30');
+    deferred.credits[1] = { accountName: '未払給与', amount: 1_000_000 };
+    const wages = wage(996_494, '2026-05-31');
+    const fee = journal(
+      'fee',
+      '2026-06-05',
+      [{ accountName: '支払報酬', amount: 700_000 }],
+      [tax(64_013, '所得税(報酬)'), cash(635_987)],
+      '税理士報酬 / 源泉所得税 預り',
+    );
+    const result = review({
+      trialBalance: closing,
+      journals: [
+        prior,
+        wages,
+        deferred,
+        fee,
+        {
+          ...journal(
+            'opening',
+            '2026-01-01',
+            [tax(76_264, '所得税(給与)')],
+            [],
+            '',
+          ),
+          isOpening: true,
+        },
+        journal(
+          'offset',
+          '2026-01-30',
+          [tax(5_819, '所得税(報酬)')],
+          [tax(5_819, '所得税(給与)')],
+          '年調還付分 振替',
+        ),
+        payment(527_279, '2026-05-07', '所得税(給与)'),
+        payment(45_024, '2026-05-07', '所得税(報酬)'),
+        payment(179_070, '2026-07-03', '所得税(給与)'),
+        payment(5_819, '2026-07-03', '所得税(報酬)'),
+      ],
+    });
+    expect(result.totals).toMatchObject({
+      openingBalance: -76_264,
+      aggregatedTax: 1_209_777,
+      priorAccrualTax: 149_270,
+      periodPayments: 572_303,
+      deferredTax: 188_320,
+      periodEndBalance: 600_260,
+      balanceDifference: 0,
+      payments: 184_889,
+      remainingBalance: 227_051,
+    });
+    expect(result.accounts.map((a) => a.remainingBalance)).toEqual([
+      219_700, 7_351,
+    ]);
+    expect(result.status).toBe('REVIEW_REQUIRED');
+    expect(result.details.some((d) => d.kind === 'OPENING')).toBe(true);
+    expect(result.issues.join(' ')).not.toContain('用途を特定できない');
+    expect(result.issues.join(' ')).not.toContain('集計と半期末残高に差');
+  });
+
+  it('accounts for monthly payments before the half-year end', () => {
+    const result = review({
+      journals: [salary(300), payment(200, '2026-06-28'), payment(100)],
+    });
+    expect(result.totals.periodPayments).toBe(200);
+    expect(result.totals.balanceDifference).toBe(0);
+    expect(result.status).toBe('CLEARED');
+  });
+
+  it('uses the prior closing balance when the accounting year does not start with the half-year', () => {
+    const closing = trial([['源泉所得税', 120]]);
+    closing.start_date = '2026-04-01';
+    const result = review({
+      trialBalance: closing,
+      openingTrialBalance: trial([['源泉所得税', 20]], '2025-12-31'),
+      journals: [salary(), payment(120)],
+    });
+    expect(result.totals.openingBalance).toBe(20);
+    expect(result.totals.balanceDifference).toBe(0);
+    expect(result.status).toBe('CLEARED');
+    expect(review({ trialBalance: closing }).status).toBe('REVIEW_REQUIRED');
+  });
+
   it('starts weekend confirmation dates on the following weekday', () => {
     expect(withholdingReviewDefaultCheckDate(2027, 1)).toBe('2027-07-12');
     expect(withholdingReviewDefaultCheckDate(2023, 2)).toBe('2024-01-22');
@@ -335,11 +436,13 @@ describe('withholding payment review', () => {
     expect(result.details.some((row) => row.date === '2025-12-31')).toBe(true);
   });
 
-  it('excludes an unpaid June accrual from the H1 payment-period aggregate and flags the balance difference', () => {
+  it('separates unpaid June tax from the H1 balance and keeps the inferred date under review', () => {
     const unpaid = salary();
     unpaid.credits[1] = { accountName: '未払給与', amount: 9_900 };
     const result = review({ journals: [unpaid, payment()] });
     expect(result.totals.aggregatedTax).toBe(0);
+    expect(result.totals.deferredTax).toBe(100);
+    expect(result.totals.balanceDifference).toBe(0);
     expect(result.status).toBe('REVIEW_REQUIRED');
   });
 

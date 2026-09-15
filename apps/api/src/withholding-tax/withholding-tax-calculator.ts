@@ -12,7 +12,7 @@ import {
 const LOW_WITHHOLDING_RATE = 0.1021;
 
 const TAX_PAYMENT_RE =
-  /(源泉|所得税|預り金).*(納付|支払|振替)|納付書|税務署|ダイレクト納付|e-?tax/i;
+  /(源泉|所得税|預り金).*納付|納付書|税務署|ダイレクト納付|e-?tax/i;
 const OPENING_OR_TRANSFER_RE = /(開始残高|期首|繰越|振替|年末調整|還付|充当)/;
 const WITHHOLDING_RE = /(源泉|所得税|預り金)/;
 // 源泉所得税であることを積極的に示すマーカー（住民税・社保等は含まない）
@@ -39,14 +39,14 @@ export function buildWithholdingTaxEntries(
 export function extractWithholdingEntry(
   journal: WithholdingTaxJournalInput,
 ): WithholdingTaxEntry | null {
-  const allText = joinText([
-    journal.memo,
-    journal.partnerName,
-    ...journal.debits.flatMap(sideTextParts),
-    ...journal.credits.flatMap(sideTextParts),
-  ]);
-
-  if (TAX_PAYMENT_RE.test(allText) || OPENING_OR_TRANSFER_RE.test(allText)) {
+  // 「源泉所得税 預り」の摘要と借方「支払報酬」を連結して
+  // 納付と誤認しない。開始仕訳はMFの区分でも除外する。
+  const memo = journal.memo ?? '';
+  if (
+    journal.isOpening ||
+    TAX_PAYMENT_RE.test(memo) ||
+    OPENING_OR_TRANSFER_RE.test(memo)
+  ) {
     return null;
   }
 
@@ -57,7 +57,9 @@ export function extractWithholdingEntry(
   const withholdingTax = sumAmounts(taxSides);
   if (withholdingTax <= 0) return null;
 
-  const sourceSides = journal.debits.filter((side) => isSourcePaymentSide(side));
+  const sourceSides = journal.debits.filter((side) =>
+    isSourcePaymentSide(side),
+  );
   const sourceAmount = sumAmounts(sourceSides);
   const sourceSide = pickLargestSide(sourceSides);
   const taxSide = pickLargestSide(taxSides);
@@ -73,18 +75,21 @@ export function extractWithholdingEntry(
     ? Math.round(withholdingTax / LOW_WITHHOLDING_RATE)
     : sourceAmount;
 
-  const dateInfo = computePaymentDate(journal.date, [
-    ...journal.debits,
-    ...journal.credits,
-  ]);
+  const dateInfo = computePaymentDate(journal.date, journal.credits);
   const warnings: string[] = [];
   if (paymentAmountEstimated) {
     warnings.push('支払金額が仕訳から取れないため源泉税額から逆算しています。');
   }
   if (dateInfo.adjusted) {
-    warnings.push('未払計上の可能性があるため、支払月を翌月として扱っています。');
+    warnings.push(
+      '未払計上の可能性があるため、支払月を翌月として扱っています。',
+    );
   }
-  if (!journal.partnerName && !sourceSide?.partnerName && !taxSide?.partnerName) {
+  if (
+    !journal.partnerName &&
+    !sourceSide?.partnerName &&
+    !taxSide?.partnerName
+  ) {
     warnings.push('支払先名を仕訳から特定できません。');
   }
   if (sourceSides.length === 0) {
@@ -156,7 +161,9 @@ export function buildWithholdingTaxSummary(entries: WithholdingTaxEntry[]): {
       categoryLabel: WITHHOLDING_TAX_CATEGORY_LABELS[category],
       ...summarizeRows(rows),
     }))
-    .sort((a, b) => categorySortIndex(a.category) - categorySortIndex(b.category));
+    .sort(
+      (a, b) => categorySortIndex(a.category) - categorySortIndex(b.category),
+    );
 
   const monthlySummary = Array.from(monthlyRows.entries())
     .map(([month, rows]) => ({ month, ...summarizeRows(rows) }))
@@ -187,14 +194,12 @@ export function normalizeMfJournalForWithholding(
     : [];
   const debits: WithholdingTaxJournalSide[] = [];
   const credits: WithholdingTaxJournalSide[] = [];
-  let firstRemark: string | null = null;
+  const remarks: string[] = [];
   let firstPartner: string | null = null;
 
   for (const branch of branches) {
-    if (firstRemark == null) {
-      const remark = pickString(branch.remark);
-      if (remark) firstRemark = remark;
-    }
+    const remark = pickString(branch.remark);
+    if (remark) remarks.push(remark);
     const debit = normalizeJournalSide(
       branch.debitor as Record<string, unknown> | undefined,
     );
@@ -207,7 +212,8 @@ export function normalizeMfJournalForWithholding(
     );
     if (credit) {
       credits.push(credit);
-      if (!firstPartner && credit.partnerName) firstPartner = credit.partnerName;
+      if (!firstPartner && credit.partnerName)
+        firstPartner = credit.partnerName;
     }
   }
 
@@ -220,7 +226,7 @@ export function normalizeMfJournalForWithholding(
       pickString(obj.issue_date) ??
       null,
     memo:
-      firstRemark ??
+      ([...new Set(remarks)].join(' / ') || null) ??
       pickString(obj.memo) ??
       pickString(obj.description) ??
       null,
@@ -231,6 +237,7 @@ export function normalizeMfJournalForWithholding(
       null,
     debits,
     credits,
+    isOpening: obj.entered_by === 'JOURNAL_TYPE_OPENING',
   };
 }
 
@@ -250,8 +257,12 @@ function buildPaymentStatements(
     .map(([key, rows]) => {
       const [payeeName, categoryRaw] = key.split('\t');
       const category = categoryRaw as WithholdingTaxCategory;
-      const h1 = rows.filter((r) => r.month != null && r.month >= 1 && r.month <= 6);
-      const h2 = rows.filter((r) => r.month != null && r.month >= 7 && r.month <= 12);
+      const h1 = rows.filter(
+        (r) => r.month != null && r.month >= 1 && r.month <= 6,
+      );
+      const h2 = rows.filter(
+        (r) => r.month != null && r.month >= 7 && r.month <= 12,
+      );
       const h1Summary = summarizeRows(h1);
       const h2Summary = summarizeRows(h2);
       const total = summarizeRows(rows);
@@ -304,8 +315,14 @@ function selectWithholdingTaxSides(journal: WithholdingTaxJournalInput): {
   markerless: boolean;
 } {
   const markedSides = journal.credits.filter((side) => {
-    const text = joinText(sideTextParts(side));
-    return WITHHOLDING_MARKER_RE.test(text) && !NON_WITHHOLDING_WITHHELD_RE.test(text);
+    // 取引先名が「税理士」でも、普通預金の支払額を源泉税に加えない。
+    const text = joinText([side.accountName, side.subAccountName]);
+    return (
+      (DEPOSIT_ACCOUNT_RE.test(side.accountName) ||
+        WITHHOLDING_MARKER_RE.test(side.accountName)) &&
+      WITHHOLDING_MARKER_RE.test(text) &&
+      !NON_WITHHOLDING_WITHHELD_RE.test(text)
+    );
   });
   if (markedSides.length > 0) {
     return { sides: markedSides, markerless: false };
@@ -344,7 +361,11 @@ function detectCategory(text: string): WithholdingTaxCategory {
   if (/(給与|給料|賞与|役員報酬|所得税\(給与\))/.test(text)) return 'SALARY';
   if (/司法書士/.test(text)) return 'JUDICIAL_SCRIVENER';
   if (/(原稿|講演|講師|デザイン|執筆)/.test(text)) return 'MANUSCRIPT_LECTURE';
-  if (/(士業|税理士|弁護士|行政書士|社労士|報酬|顧問料|業務委託|外注費)/.test(text)) {
+  if (
+    /(士業|税理士|弁護士|行政書士|社労士|報酬|顧問料|業務委託|外注費)/.test(
+      text,
+    )
+  ) {
     return 'PROFESSIONAL_FEE';
   }
   if (/所得税|源泉/.test(text)) return 'OTHER_REWARD';
@@ -357,8 +378,11 @@ function computePaymentDate(
 ): { paymentDate: string | null; month: number | null; adjusted: boolean } {
   const parsed = parseDate(sourceDate);
   if (!parsed) return { paymentDate: sourceDate, month: null, adjusted: false };
-  const hasUnpaidSide = sides.some((side) =>
-    UNPAID_ACCOUNT_RE.test(joinText(sideTextParts(side))),
+  const hasUnpaidSide = sides.some(
+    (side) =>
+      side.amount > 0 &&
+      UNPAID_ACCOUNT_RE.test(side.accountName) &&
+      !NON_WITHHOLDING_WITHHELD_RE.test(side.subAccountName ?? ''),
   );
   if (!hasUnpaidSide) {
     return {
@@ -367,7 +391,9 @@ function computePaymentDate(
       adjusted: false,
     };
   }
-  const shifted = new Date(Date.UTC(parsed.getUTCFullYear(), parsed.getUTCMonth() + 1, 1));
+  const shifted = new Date(
+    Date.UTC(parsed.getUTCFullYear(), parsed.getUTCMonth() + 1, 1),
+  );
   return {
     paymentDate: formatDate(shifted),
     month: shifted.getUTCMonth() + 1,
@@ -404,7 +430,10 @@ function pickLargestSide(
 }
 
 function sumAmounts(sides: WithholdingTaxJournalSide[]): number {
-  return sides.reduce((sum, side) => sum + Math.abs(Number(side.amount || 0)), 0);
+  return sides.reduce(
+    (sum, side) => sum + Math.abs(Number(side.amount || 0)),
+    0,
+  );
 }
 
 function joinText(parts: Array<string | null | undefined>): string {
@@ -424,7 +453,11 @@ function parseDate(value: string | null): Date | null {
   const year = Number(match[1]);
   const month = Number(match[2]);
   const day = Number(match[3]);
-  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) {
+  if (
+    !Number.isInteger(year) ||
+    !Number.isInteger(month) ||
+    !Number.isInteger(day)
+  ) {
     return null;
   }
   return new Date(Date.UTC(year, month - 1, day));
