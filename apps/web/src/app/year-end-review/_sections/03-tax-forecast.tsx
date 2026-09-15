@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useId, useMemo } from "react";
 import { RotateCcw } from "lucide-react";
 import { useMfPL, useMfBS } from "@/hooks/use-mf-data";
 import { useFyElapsed } from "@/hooks/use-fy-elapsed";
@@ -13,6 +13,15 @@ import {
 import type { TaxLineRow } from "@/lib/payroll-tax-calc";
 import { cn } from "@/lib/utils";
 import { useFeatureStateLocal } from "@/hooks/use-year-end-state";
+import { useCurrentOrg } from "@/contexts/current-org";
+import {
+  applyTaxForecastPreset,
+  sanitizeTaxAmount,
+  setTaxForecastManualValue,
+  type TaxForecastPreset,
+  type TaxPrefillField,
+  type TaxPrefillModes,
+} from "./tax-forecast-prefill";
 
 interface AddSubItem {
   id: string;
@@ -42,6 +51,8 @@ type MidKey =
   | "specialBiz";
 
 interface FormState {
+  /** 未指定（旧保存データ）は手入力と同様に保持する。 */
+  prefill?: TaxPrefillModes;
   pretaxProfit: string;
   capital: string;
   items: AddSubItem[];
@@ -77,6 +88,7 @@ const defaultMidPaymentsYen = (): Record<MidKey, string> => ({
 const fmtPct = (rate: number): string => (rate * 100).toFixed(2);
 
 const DEFAULT_FORM: FormState = {
+  prefill: { pretaxProfit: "auto", capital: "auto", vatReceived: "auto", vatPaid: "auto" },
   pretaxProfit: "0",
   capital: "1000000",
   items: DEFAULT_ITEMS,
@@ -107,18 +119,30 @@ function normalizeForm(raw: FormState | undefined | null): FormState {
   return {
     ...DEFAULT_FORM,
     ...raw,
+    prefill: raw ? raw.prefill ?? {} : DEFAULT_FORM.prefill,
     items: Array.isArray(raw?.items) ? raw.items : DEFAULT_ITEMS,
     midPaymentsYen: { ...defaultMidPaymentsYen(), ...raw?.midPaymentsYen },
   };
 }
 
 export function TaxForecastSection() {
+  const { currentOrgId } = useCurrentOrg();
+  const fiscalYear = usePeriodStore((s) => s.fiscalYear);
+
+  // 顧問先・年度を跨いで前のローカル入力や自動反映状態を再利用しない。
+  if (!currentOrgId || fiscalYear == null) {
+    return <p className="text-xs text-muted-foreground">顧問先と会計年度を読み込み中...</p>;
+  }
+  return <TaxForecastForm key={`${currentOrgId}:${fiscalYear}`} />;
+}
+
+function TaxForecastForm() {
   const pl = useMfPL();
   const bs = useMfBS();
   const lockedMonth = usePeriodStore((s) => s.month);
   const fiscalYear = usePeriodStore((s) => s.fiscalYear);
-  const { fyStartMonth } = useFyElapsed();
-  const { value: rawForm, setValue: setForm, isHydrated } = useFeatureStateLocal<FormState>(
+  const { fyStartMonth, isReady: isFiscalPeriodReady } = useFyElapsed();
+  const { value: rawForm, setValue: setForm, isHydrated, isLoading, isError } = useFeatureStateLocal<FormState>(
     "year-end-review.tax-forecast",
     String(fiscalYear ?? ""),
     DEFAULT_FORM,
@@ -143,8 +167,8 @@ export function TaxForecastSection() {
     }
   }, []);
 
-  useEffect(() => {
-    if (!isHydrated) return;
+  const preset = useMemo<TaxForecastPreset>(() => {
+    if (!isFiscalPeriodReady) return {};
     const findPl = (key: string): number | null => {
       if (!Array.isArray(pl.data)) return null;
       const row = pl.data.find((r) => r.category.includes(key));
@@ -161,29 +185,32 @@ export function TaxForecastSection() {
     const annualize = (v: number) => Math.round((v / elapsed) * 12);
     const annualizeManYen = (v: number) => Math.round(((v / elapsed) * 12) / 10000);
 
-    const ord = findPl("経常利益") ?? 0;
-    const cap = findBs("資本金") ?? 0;
-    const vatRecv = findBs("仮受消費税") ?? 0;
-    const vatPaid = findBs("仮払消費税") ?? 0;
+    const ord = findPl("経常利益");
+    const cap = findBs("資本金");
+    const vatRecv = findBs("仮受消費税");
+    const vatPaid = findBs("仮払消費税");
+    return {
+      pretaxProfit: ord == null ? null : String(annualizeManYen(ord)),
+      capital: cap == null ? null : String(cap),
+      vatReceived: vatRecv == null ? null : String(annualize(vatRecv)),
+      vatPaid: vatPaid == null ? null : String(annualize(vatPaid)),
+    };
+  }, [isFiscalPeriodReady, pl.data, bs.data, lockedMonth, fyStartMonth]);
 
-    // 既に値が入っている (ユーザー編集 or プリセット済) 項目は上書きしない
-    setForm((prevRaw) => {
-      const prev = normalizeForm(prevRaw);
-      return {
-      ...prev,
-      pretaxProfit: ord ? String(annualizeManYen(ord)) : prev.pretaxProfit,
-      capital: cap ? String(cap) : prev.capital,
-      vatReceived:
-        vatRecv && (prev.vatReceived === "" || prev.vatReceived === "0")
-          ? String(annualize(vatRecv))
-          : prev.vatReceived,
-      vatPaid:
-        vatPaid && (prev.vatPaid === "" || prev.vatPaid === "0")
-          ? String(annualize(vatPaid))
-          : prev.vatPaid,
-      };
-    });
-  }, [isHydrated, pl.data, bs.data, lockedMonth, fyStartMonth]);
+  const canEdit = isHydrated && !isLoading && !isError;
+  useEffect(() => {
+    if (!canEdit || applyTaxForecastPreset(form, preset) === form) return;
+    setForm((prev) => applyTaxForecastPreset(normalizeForm(prev), preset));
+  }, [canEdit, form, preset, setForm]);
+
+  const setManualValue = (field: TaxPrefillField, value: string) => {
+    setForm((prev) => setTaxForecastManualValue(normalizeForm(prev), field, value));
+  };
+
+  const reapplyPreset = () => {
+    if (!confirm("税引前利益・資本金・仮受消費税・仮払消費税のうち、取得できた項目を会計実績で再反映します。手入力した値も更新しますか？")) return;
+    setForm((prev) => applyTaxForecastPreset(normalizeForm(prev), preset, true));
+  };
 
   const updateForm = (updater: (prev: FormState) => FormState) => {
     setForm((prev) => updater(normalizeForm(prev)));
@@ -341,18 +368,32 @@ export function TaxForecastSection() {
     }));
 
   return (
-    <div className="space-y-3">
-      <div className="grid gap-3 md:grid-cols-[320px_1fr]">
-        <div className="space-y-3">
+    <fieldset disabled={!canEdit} className="min-w-0 space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] text-muted-foreground">
+        <p role="status">
+          {isError ? "保存済み入力を読み込めないため、編集を停止しています。ページを再読み込みしてください。"
+            : !canEdit ? "保存済み入力を読み込み中..."
+            : "手入力した値は、対象月の変更やデータの再取得後も保持されます。"}
+        </p>
+        <button type="button" onClick={reapplyPreset}
+          disabled={!Object.values(preset).some((value) => value != null)}
+          className="inline-flex shrink-0 items-center gap-1 rounded border px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-gray-50 disabled:opacity-50">
+          <RotateCcw className="h-3 w-3" /> 会計実績を再反映
+        </button>
+      </div>
+      <div className="grid gap-3 xl:grid-cols-[320px_minmax(0,1fr)]">
+        <div className="min-w-0 space-y-3">
           <div className="rounded-md border bg-white shadow-sm">
             <div className="border-b px-3 py-2 text-xs font-bold text-[var(--color-primary)]">
               所得計算
             </div>
             <div className="space-y-1.5 p-2.5">
               <YenField
-                label="通期予想税引前利益（万円）"
+                label="通期予想税引前利益"
+                unit="万円"
+                allowNegative
                 value={form.pretaxProfit}
-                onChange={(v) => updateForm((p) => ({ ...p, pretaxProfit: v }))}
+                onChange={(v) => setManualValue("pretaxProfit", v)}
               />
               <div className="border-t pt-2">
                 <div className="mb-1 text-[11px] font-semibold text-muted-foreground">
@@ -368,13 +409,15 @@ export function TaxForecastSection() {
                     >
                       {it.kind === "add" ? "+" : "−"}
                     </span>
-                    <span className="flex-1 truncate text-[11px]">{it.label}</span>
+                    <label htmlFor={`tax-adjust-${it.id}`} className="min-w-0 flex-1 text-[11px]">{it.label}</label>
                     <input
+                      id={`tax-adjust-${it.id}`}
+                      aria-label={`${it.label}（万円）`}
                       type="text"
                       inputMode="numeric"
                       value={fmtComma(parseNum(it.amount))}
                       onChange={(e) => setItem(it.id, e.target.value.replace(/[^\d]/g, ""))}
-                      className="w-20 rounded border px-1.5 py-1 text-right text-xs"
+                      className="w-20 shrink-0 rounded border px-1.5 py-1 text-right text-xs tabular-nums"
                     />
                   </div>
                 ))}
@@ -388,9 +431,9 @@ export function TaxForecastSection() {
             </div>
             <div className="space-y-1.5 p-2.5">
               <YenField
-                label="資本金（円）"
+                label="資本金"
                 value={form.capital}
-                onChange={(v) => updateForm((p) => ({ ...p, capital: v }))}
+                onChange={(v) => setManualValue("capital", v)}
               />
               <p className="text-[10px] text-muted-foreground">
                 ※ 資本金 1億円以下の場合に中小法人特例 (軽減税率 15% / 事業税3段階) を自動適用。
@@ -404,17 +447,17 @@ export function TaxForecastSection() {
             </div>
             <div className="space-y-1.5 p-2.5">
               <YenField
-                label="仮受消費税（年換算・円）"
+                label="仮受消費税（年換算）"
                 value={form.vatReceived}
-                onChange={(v) => updateForm((p) => ({ ...p, vatReceived: v }))}
+                onChange={(v) => setManualValue("vatReceived", v)}
               />
               <YenField
-                label="仮払消費税（年換算・円）"
+                label="仮払消費税（年換算）"
                 value={form.vatPaid}
-                onChange={(v) => updateForm((p) => ({ ...p, vatPaid: v }))}
+                onChange={(v) => setManualValue("vatPaid", v)}
               />
               <YenField
-                label="中間納付額（円）"
+                label="中間納付額"
                 value={form.vatMid}
                 onChange={(v) => updateForm((p) => ({ ...p, vatMid: v }))}
               />
@@ -422,7 +465,7 @@ export function TaxForecastSection() {
           </div>
         </div>
 
-        <div className="space-y-3">
+        <div className="min-w-0 space-y-3">
           <div className="rounded-md border-l-4 border-l-blue-500 bg-blue-50/50 p-3">
             <div className="text-xs font-semibold text-muted-foreground">当期予想所得金額</div>
             <div className="text-xl font-bold tabular-nums text-blue-700">
@@ -434,8 +477,8 @@ export function TaxForecastSection() {
           </div>
 
           <div className="rounded-md border bg-white shadow-sm">
-            <div className="flex items-center justify-between border-b px-3 py-2">
-              <span className="text-xs font-bold text-[var(--color-primary)]">法人税等</span>
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b px-3 py-2">
+              <span className="text-xs font-bold text-[var(--color-primary)]">法人税等 <span className="font-normal text-muted-foreground">金額：円 / 税率：%</span></span>
               <button
                 type="button"
                 onClick={resetRatesToStandard}
@@ -445,7 +488,8 @@ export function TaxForecastSection() {
                 <RotateCcw className="h-3 w-3" /> 税率リセット
               </button>
             </div>
-            <table className="w-full text-xs">
+            <div className="overflow-x-auto">
+            <table className="w-full text-xs" aria-label="法人税等の内訳（金額：円、税率：%）">
               <thead className="bg-gray-50 text-[10px] text-muted-foreground">
                 <tr>
                   <th className="px-2 py-1.5 text-left">税目</th>
@@ -477,8 +521,8 @@ export function TaxForecastSection() {
                   const isKintowari = "isKintowari" in r && r.isKintowari;
                   return (
                     <tr key={r.key} className={cn(i % 2 === 1 && "bg-gray-50/30")}>
-                      <td className="px-2 py-1.5 text-[11px]">{r.label}</td>
-                      <td className="px-2 py-1.5 text-right text-[11px] tabular-nums text-muted-foreground">
+                      <td className="px-2 py-1.5 text-[11px] whitespace-nowrap">{r.label}</td>
+                      <td className="px-2 py-1.5 text-right text-[11px] tabular-nums text-muted-foreground whitespace-nowrap">
                         {r.base === null ? "—" : formatYenFromManYen(r.base)}
                         {r.baseLabel !== "—" && r.baseLabel && (
                           <div className="text-[9px] text-muted-foreground/70">
@@ -486,13 +530,14 @@ export function TaxForecastSection() {
                           </div>
                         )}
                       </td>
-                      <td className="px-2 py-1.5 text-right tabular-nums">
+                      <td className="px-2 py-1.5 text-right tabular-nums whitespace-nowrap">
                         {r.ratePct === null ? (
                           <span className="text-muted-foreground">—</span>
                         ) : r.rateEditable && rateKey ? (
                           <input
                             type="text"
                             inputMode="decimal"
+                            aria-label={`${r.label}の税率（%）`}
                             value={form[rateKey] as string}
                             onChange={(e) => setRate(rateKey, e.target.value)}
                             className="w-14 rounded border px-1 py-0.5 text-right text-[11px] focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)]"
@@ -509,6 +554,7 @@ export function TaxForecastSection() {
                           <input
                             type="text"
                             inputMode="numeric"
+                            aria-label="法人住民税 均等割の年税額（円）"
                             value={fmtComma(parseNum(form.kintowariYen))}
                             onChange={(e) =>
                               updateForm((p) => ({
@@ -526,6 +572,7 @@ export function TaxForecastSection() {
                         <input
                           type="text"
                           inputMode="numeric"
+                          aria-label={`${r.label}の中間納付額（円）`}
                           value={fmtComma(parseNum(form.midPaymentsYen[r.key]))}
                           onChange={(e) =>
                             setMidYen(r.key, e.target.value.replace(/[^\d]/g, ""))
@@ -535,7 +582,7 @@ export function TaxForecastSection() {
                       </td>
                       <td
                         className={cn(
-                          "px-2 py-1.5 text-right text-[11px] tabular-nums",
+                          "px-2 py-1.5 text-right text-[11px] tabular-nums whitespace-nowrap",
                           r.periodEnd < 0 ? "text-emerald-700" : "text-rose-700",
                         )}
                       >
@@ -560,6 +607,7 @@ export function TaxForecastSection() {
                 </tr>
               </tbody>
             </table>
+            </div>
             <div className="px-3 py-1.5 text-[10px] text-muted-foreground">
               地方税率セル (法人税割 / 事業税3段 / 特別法人事業税) と均等割年税額・中間納付は編集できます。デフォルトは東京都標準 (中小法人)。
             </div>
@@ -623,7 +671,7 @@ export function TaxForecastSection() {
         ※ 本シートは作成日現在の予測値であり、実際の数値を確約するものではございません。
         中小特例（軽減税率15%、軽減事業税）は資本金1億円以下で自動適用されます。
       </p>
-    </div>
+    </fieldset>
   );
 }
 
@@ -631,21 +679,31 @@ function YenField({
   label,
   value,
   onChange,
+  unit = "円",
+  allowNegative = false,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
+  unit?: "円" | "万円";
+  allowNegative?: boolean;
 }) {
+  const inputId = useId();
   return (
     <div>
-      <label className="mb-0.5 block text-[11px] font-semibold text-muted-foreground">{label}</label>
+      <label htmlFor={inputId} className="mb-0.5 block text-[11px] font-semibold text-muted-foreground">{label}</label>
+      <div className="relative">
       <input
+        id={inputId}
+        aria-label={`${label}（${unit}）`}
         type="text"
-        inputMode="numeric"
-        value={fmtComma(parseNum(value))}
-        onChange={(e) => onChange(e.target.value.replace(/[^\d]/g, ""))}
-        className="w-full rounded border px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)]"
+        inputMode={allowNegative ? "text" : "numeric"}
+        value={value === "" || (allowNegative && value === "-") ? value : fmtComma(parseNum(value))}
+        onChange={(e) => onChange(sanitizeTaxAmount(e.target.value, allowNegative))}
+        className="w-full rounded border py-1.5 pl-2 pr-11 text-right text-xs tabular-nums focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)]"
       />
+      <span aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-[10px] text-muted-foreground">{unit}</span>
+      </div>
     </div>
   );
 }

@@ -130,8 +130,8 @@ export function CategoryGauge({
           <circle cx={cx} cy={cy} r={needleRoot} fill={SLATE.needle} />
         </svg>
 
-        {/* 中央下: スコア数値 + 状態 pill（半円の空きに引き上げる） */}
-        <div className="-mt-7 flex flex-col items-center gap-1">
+        {/* SVGの下に配置し、画面幅や針の角度によらず根元との間隔を確保する。 */}
+        <div className="flex flex-col items-center gap-1">
           <div
             className="text-3xl font-bold tabular-nums leading-none text-[var(--color-text-primary)]"
             aria-hidden="true"

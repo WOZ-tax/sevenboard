@@ -31,8 +31,8 @@ export function IndicatorCard({ def, value }: { def: IndicatorDef; value: number
       <CardContent className="space-y-2.5 p-4">
         {/* ラベル + ヘルプ ......... 状態 pill（右上） */}
         <div className="flex items-start justify-between gap-2">
-          <div className="flex items-center gap-1.5">
-            <div className="text-sm font-medium text-[var(--color-text-primary)]">
+          <div className="flex min-w-0 items-start gap-1.5">
+            <div className="min-w-0 break-words text-sm font-medium text-[var(--color-text-primary)]">
               {def.label}
             </div>
             <Tooltip>
@@ -41,7 +41,7 @@ export function IndicatorCard({ def, value }: { def: IndicatorDef; value: number
                   <button
                     type="button"
                     aria-label={`${def.label}の説明`}
-                    className="inline-flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground/70 hover:text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/30"
+                    className="mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-muted-foreground/70 hover:text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/30"
                   >
                     <HelpCircle className="h-3.5 w-3.5" />
                   </button>
