@@ -16,6 +16,21 @@ import { WithholdingTaxService } from './withholding-tax.service';
 export class WithholdingTaxController {
   constructor(private service: WithholdingTaxService) {}
 
+  @Get('review')
+  @RequirePermission('org:withholding_tax:read')
+  async review(
+    @Param('orgId', ParseUUIDPipe) orgId: string,
+    @Query('year') year: string,
+    @Query('half') half: string,
+    @Query('checkDate') checkDate?: string,
+  ) {
+    return this.service.review(orgId, {
+      year: Number(year),
+      half: Number(half),
+      checkDate,
+    });
+  }
+
   @Get('preview')
   @RequirePermission('org:withholding_tax:read')
   async preview(

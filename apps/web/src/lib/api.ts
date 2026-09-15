@@ -565,6 +565,65 @@ export interface WithholdingTaxPreviewResult {
   };
 }
 
+export type WithholdingTaxReviewStatus =
+  | 'CLEARED'
+  | 'BALANCE_REMAINING'
+  | 'OVERPAID'
+  | 'REVIEW_REQUIRED'
+  | 'NOT_READY'
+  | 'NO_DATA';
+
+export interface WithholdingTaxReviewAmounts {
+  aggregatedTax: number;
+  adjustments: number;
+  periodEndBalance: number | null;
+  /** 半期末残高 − 源泉集計額 − 期中の年末調整等。繰越・期中納付等を含む。 */
+  balanceDifference: number | null;
+  payments: number;
+  nextPeriodTax: number;
+  otherMovements: number;
+  bookBalance: number | null;
+  /** 確認日の源泉預り金残高から、翌期の新規徴収額を除いた残高。 */
+  remainingBalance: number | null;
+}
+
+export interface WithholdingTaxReviewAccount extends WithholdingTaxReviewAmounts {
+  accountName: string;
+  subAccountName: string | null;
+}
+
+export interface WithholdingTaxReviewDetail {
+  journalId: string;
+  journalNumber: string | null;
+  date: string;
+  memo: string | null;
+  accountName: string;
+  subAccountName: string | null;
+  kind: 'WITHHOLDING' | 'ADJUSTMENT' | 'PAYMENT' | 'NEXT_PERIOD' | 'UNCLASSIFIED';
+  /** 貸方（預り金の増加）が正、借方（減少）が負。 */
+  amount: number;
+}
+
+export interface WithholdingTaxReviewResult {
+  year: number;
+  half: 1 | 2;
+  period: { startDate: string; endDate: string };
+  nominalDueDate: string;
+  checkDate: string;
+  checkedThroughDate: string;
+  generatedAt: string;
+  status: WithholdingTaxReviewStatus;
+  totals: WithholdingTaxReviewAmounts;
+  accounts: WithholdingTaxReviewAccount[];
+  details: WithholdingTaxReviewDetail[];
+  issues: string[];
+  coverage: {
+    ranges: Array<{ startDate: string; endDate: string }>;
+    complete: boolean;
+    truncated: boolean;
+  };
+}
+
 /** 保存済 chosho_versions の status (DB enum と一致)。 */
 export type ChoshoVersionStatus = 'DRAFT' | 'APPROVED' | 'ARCHIVED';
 
@@ -1941,6 +2000,10 @@ export const api = {
 
   // === Withholding Tax (源泉所得税集計) ===
   withholdingTax: {
+    review: (orgId: string, params: { year: number; half: 1 | 2; checkDate: string }) => {
+      const qs = new URLSearchParams({ year: String(params.year), half: String(params.half), checkDate: params.checkDate });
+      return apiFetch<WithholdingTaxReviewResult>(`/organizations/${orgId}/withholding-tax/review?${qs.toString()}`);
+    },
     preview: (
       orgId: string,
       params: {

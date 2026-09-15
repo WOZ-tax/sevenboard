@@ -13,7 +13,13 @@ import {
 import type {
   WithholdingTaxJournalInput,
   WithholdingTaxPreviewResult,
+  WithholdingTaxReviewResult,
 } from './withholding-tax.types';
+import {
+  buildWithholdingTaxReview,
+  withholdingReviewDefaultCheckDate,
+  withholdingReviewPeriod,
+} from './withholding-tax-review';
 
 interface WithholdingTaxPreviewParams {
   fiscalYear?: number;
@@ -29,6 +35,195 @@ export class WithholdingTaxService {
     private mfApi: MfApiService,
   ) {}
 
+  async review(
+    orgId: string,
+    params: { year: number; half: number; checkDate?: string },
+  ): Promise<WithholdingTaxReviewResult> {
+    const { year, half } = params;
+    if (
+      !Number.isInteger(year) ||
+      year < 1900 ||
+      year > 2100 ||
+      (half !== 1 && half !== 2)
+    ) {
+      throw new BadRequestException('集計年・半期を確認してください。');
+    }
+    const period = withholdingReviewPeriod(year, half);
+    const checkDate =
+      params.checkDate ?? withholdingReviewDefaultCheckDate(year, half);
+    const latestCheckDate = half === 1 ? `${year}-12-31` : `${year + 1}-06-30`;
+    if (
+      !parseDate(checkDate) ||
+      checkDate <= period.endDate ||
+      checkDate > latestCheckDate
+    ) {
+      throw new BadRequestException(
+        '確認日は半期終了後の6か月以内で指定してください。',
+      );
+    }
+    // MFの取引日は日本の日付。UTC日付への切り替わりで翌日仕訳を先取りしない。
+    const today = new Date(Date.now() + 9 * 60 * 60 * 1000)
+      .toISOString()
+      .slice(0, 10);
+    if (today <= period.endDate) {
+      return buildWithholdingTaxReview({
+        year,
+        half,
+        checkDate,
+        today,
+        journals: [],
+        trialBalance: null,
+        coverage: { ranges: [], complete: false, truncated: false },
+      });
+    }
+
+    const office = await this.mfApi.getOffice(orgId);
+    const accountingPeriods = (office.accounting_periods ?? []).filter(
+      (row) =>
+        Number.isInteger(row.fiscal_year) &&
+        !!parseDate(row.start_date) &&
+        !!parseDate(row.end_date) &&
+        row.start_date <= row.end_date,
+    );
+    // 直前月の未払計上が半期の初月支払に繰り越されるため、1か月広く読む。
+    const requested = {
+      startDate: half === 1 ? `${year - 1}-12-01` : `${year}-06-01`,
+      endDate: checkDate < today ? checkDate : today,
+    };
+    const intersections = intersectRanges(
+      requested,
+      accountingPeriods.map((row) => ({
+        startDate: row.start_date,
+        endDate: row.end_date,
+      })),
+    );
+    const ranges: Array<{ startDate: string; endDate: string }> = [];
+    const journalsById = new Map<string, WithholdingTaxJournalInput>();
+    const issues: string[] = [];
+    let truncated = false;
+    let malformed = false;
+    let lastEnd: string | null = null;
+    for (const intersection of intersections) {
+      // 会計期間が重複して返っても、同じ日付範囲を繰り返し集計しない。
+      const startDate =
+        lastEnd && lastEnd >= intersection.startDate
+          ? formatDate(addUtcDays(parseDate(lastEnd)!, 1))
+          : intersection.startDate;
+      if (startDate > intersection.endDate) continue;
+      const range = { startDate, endDate: intersection.endDate };
+      lastEnd = range.endDate;
+      try {
+        const data = await this.mfApi.getJournals(orgId, range);
+        truncated ||= !!data?.truncated;
+        if (!Array.isArray(data?.journals)) {
+          malformed = true;
+          continue;
+        }
+        ranges.push(range);
+        for (const raw of data.journals as unknown[]) {
+          const journal =
+            raw && typeof raw === 'object'
+              ? normalizeMfJournalForWithholding(raw)
+              : null;
+          if (!journal || !journal.date || !parseDate(journal.date)) {
+            malformed = true;
+            continue;
+          }
+          if (
+            journal.date < requested.startDate ||
+            journal.date > requested.endDate
+          )
+            continue;
+          const branches = (raw as { branches?: unknown }).branches;
+          if (
+            !Array.isArray(branches) ||
+            branches.length === 0 ||
+            branches.some(
+              (branch) =>
+                !branch ||
+                ['debitor', 'creditor'].some((key) => {
+                  const side = (
+                    branch as Record<
+                      string,
+                      Record<string, unknown> | undefined
+                    >
+                  )[key];
+                  return (
+                    side &&
+                    (!Number.isSafeInteger(Number(side.value ?? side.amount)) ||
+                      typeof side.account_name !== 'string' ||
+                      !side.account_name.trim())
+                  );
+                }),
+            )
+          )
+            malformed = true;
+          if (
+            (!journal.debits.length && !journal.credits.length) ||
+            journal.debits.reduce((sum, side) => sum + side.amount, 0) !==
+              journal.credits.reduce((sum, side) => sum + side.amount, 0)
+          )
+            malformed = true;
+          // 複合仕訳の2行目以降にある「年末調整」「納付」を落とさない。
+          if (Array.isArray(branches)) {
+            const remarks = branches
+              .map((branch: { remark?: unknown }) => branch?.remark)
+              .filter(
+                (remark): remark is string =>
+                  typeof remark === 'string' && remark.length > 0,
+              );
+            journal.memo =
+              [...new Set([journal.memo, ...remarks].filter(Boolean))].join(
+                ' / ',
+              ) || null;
+          }
+          const previous = journalsById.get(journal.id);
+          if (previous && JSON.stringify(previous) !== JSON.stringify(journal))
+            malformed = true;
+          journalsById.set(journal.id, journal);
+        }
+      } catch {
+        issues.push(
+          '一部期間の仕訳を取得できませんでした。MF再取得で再確認してください。',
+        );
+      }
+    }
+    if (malformed)
+      issues.push(
+        '日付・金額・識別情報を確認できない仕訳、または重複に不整合がある仕訳があります。',
+      );
+    const endPeriods = accountingPeriods.filter(
+      (row) =>
+        row.start_date <= period.endDate && row.end_date >= period.endDate,
+    );
+    // MFが返した fiscal_year を使う。会計年度の開始年／終了年を推測しない。
+    const trialBalance =
+      endPeriods.length === 1
+        ? await this.mfApi
+            .getTrialBalanceBS(
+              orgId,
+              endPeriods[0].fiscal_year,
+              half === 1 ? 6 : 12,
+              { withSubAccounts: true },
+            )
+            .catch(() => null)
+        : null;
+    return buildWithholdingTaxReview({
+      year,
+      half,
+      checkDate,
+      today,
+      journals: [...journalsById.values()],
+      trialBalance,
+      issues,
+      coverage: {
+        ranges,
+        complete: !malformed && coversRange(requested, ranges),
+        truncated,
+      },
+    });
+  }
+
   async preview(
     orgId: string,
     params: WithholdingTaxPreviewParams,
@@ -40,7 +235,10 @@ export class WithholdingTaxService {
     ) {
       throw new BadRequestException('Invalid fiscal year');
     }
-    if (month != null && (!Number.isInteger(month) || month < 1 || month > 12)) {
+    if (
+      month != null &&
+      (!Number.isInteger(month) || month < 1 || month > 12)
+    ) {
       throw new BadRequestException('Invalid month');
     }
 
@@ -131,8 +329,14 @@ function buildDateRange(params: {
   startDate?: string;
   endDate?: string;
 }): { startDate: string; endDate: string } {
-  const { fiscalYear, fyStartMonth, fiscalMonthEnd, month, startDate, endDate } =
-    params;
+  const {
+    fiscalYear,
+    fyStartMonth,
+    fiscalMonthEnd,
+    month,
+    startDate,
+    endDate,
+  } = params;
 
   if (startDate || endDate) {
     if (!startDate || !endDate) {
@@ -218,8 +422,11 @@ function intersectRanges(
   return ranges
     .map((range) => ({
       startDate:
-        requested.startDate > range.startDate ? requested.startDate : range.startDate,
-      endDate: requested.endDate < range.endDate ? requested.endDate : range.endDate,
+        requested.startDate > range.startDate
+          ? requested.startDate
+          : range.startDate,
+      endDate:
+        requested.endDate < range.endDate ? requested.endDate : range.endDate,
     }))
     .filter((range) => range.startDate <= range.endDate)
     .sort((a, b) => a.startDate.localeCompare(b.startDate));
@@ -258,6 +465,23 @@ function fiscalPeriodEndFor(date: Date, fiscalMonthEnd: number): Date {
 
 function addUtcDays(date: Date, days: number): Date {
   return new Date(
-    Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() + days),
+    Date.UTC(
+      date.getUTCFullYear(),
+      date.getUTCMonth(),
+      date.getUTCDate() + days,
+    ),
   );
+}
+
+function coversRange(
+  requested: { startDate: string; endDate: string },
+  ranges: Array<{ startDate: string; endDate: string }>,
+): boolean {
+  let cursor = requested.startDate;
+  for (const range of ranges) {
+    if (range.startDate > cursor) return false;
+    if (range.endDate >= cursor)
+      cursor = formatDate(addUtcDays(parseDate(range.endDate)!, 1));
+  }
+  return cursor > requested.endDate;
 }

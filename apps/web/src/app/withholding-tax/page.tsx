@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   CalendarDays,
@@ -28,11 +28,13 @@ import type {
   WithholdingTaxSummaryRow,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { WithholdingPaymentReview } from "./_components/payment-review";
 
 export default function WithholdingTaxPage() {
   const { currentOrg } = useCurrentOrg();
   const orgId = useScopedOrgId();
   const office = useMfOffice();
+  const queryClient = useQueryClient();
   const initialYear = new Date().getFullYear();
   const [initializedOrgId, setInitializedOrgId] = useState<string | null>(null);
   const [periodYear, setPeriodYear] = useState(initialYear);
@@ -124,7 +126,10 @@ export default function WithholdingTaxPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => previewQuery.refetch()}
+            onClick={() => {
+              void previewQuery.refetch();
+              void queryClient.invalidateQueries({ queryKey: ["withholding-tax", "review", orgId] });
+            }}
             disabled={previewQuery.isFetching || !isRangeValid}
             className="gap-1.5"
           >
@@ -146,6 +151,14 @@ export default function WithholdingTaxPage() {
             setDateRange(calendarYearRange(year));
           }}
           onRangeChange={setDateRange}
+        />
+
+        <WithholdingPaymentReview
+          key={`${orgId}:${periodYear}:${dateRange.startDate.slice(0, 7)}`}
+          orgId={orgId}
+          year={periodYear}
+          initialHalf={Number(dateRange.startDate.slice(5, 7)) >= 7 ? 2 : 1}
+          enabled={canPreview}
         />
 
         {previewQuery.isError ? (
