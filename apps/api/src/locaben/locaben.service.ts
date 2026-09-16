@@ -86,7 +86,9 @@ export class LocabenService {
       this.mfApi.getTrialBalancePL(orgId, fiscalYear, endMonth),
       this.mfApi.getTrialBalanceBS(orgId, fiscalYear, endMonth),
       prevFy
-        ? this.mfApi.getTrialBalancePL(orgId, prevFy).catch(() => null)
+        ? this.mfApi
+            .getTrialBalancePL(orgId, prevFy, endMonth)
+            .catch(() => null)
         : Promise.resolve(null),
       this.mfApi.getTransitionPL(orgId, fiscalYear, endMonth).catch(() => null),
     ]);
@@ -106,10 +108,7 @@ export class LocabenService {
     // 減価償却費: transition PL の年度累計 (total 列)
     let depreciationYen: number | null = null;
     if (plT) {
-      const deprRow = findRowByCandidates(plT.rows, [
-        '減価償却費',
-        '減価償却',
-      ]);
+      const deprRow = findRowByCandidates(plT.rows, ['減価償却費', '減価償却']);
       if (deprRow) {
         // columns 例: ["4","5",...,"3","settlement_balance","total"]
         const totalIdx = plT.columns.indexOf('total');
