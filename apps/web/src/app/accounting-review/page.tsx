@@ -13,7 +13,10 @@ import { useScopedOrgId } from "@/hooks/use-scoped-org-id";
 import { usePeriodStore, getPeriodLabel } from "@/lib/period-store";
 import { PeriodSegmentControl } from "@/components/ui/period-segment-control";
 import { useMfOffice } from "@/hooks/use-mf-data";
-import { usePeriodDefaultFromKintone } from "@/hooks/use-kintone-progress";
+import {
+  useKintoneProgress,
+  usePeriodDefaultFromKintone,
+} from "@/hooks/use-kintone-progress";
 import {
   FileText,
   ChevronRight,
@@ -38,11 +41,27 @@ const tabs: { key: TabKey; label: string; icon: typeof FileText }[] = [
 
 const STATUS_STEPS = [
   { value: "0.未作業", label: "未作業", color: "bg-gray-200 text-gray-700" },
-  { value: "1.資料依頼済", label: "資料依頼済", color: "bg-yellow-100 text-yellow-800" },
-  { value: "2.資料回収済", label: "資料回収済", color: "bg-blue-100 text-blue-800" },
-  { value: "3.入力済", label: "入力済", color: "bg-indigo-100 text-indigo-800" },
+  {
+    value: "1.資料依頼済",
+    label: "資料依頼済",
+    color: "bg-yellow-100 text-yellow-800",
+  },
+  {
+    value: "2.資料回収済",
+    label: "資料回収済",
+    color: "bg-blue-100 text-blue-800",
+  },
+  {
+    value: "3.入力済",
+    label: "入力済",
+    color: "bg-indigo-100 text-indigo-800",
+  },
   { value: "4.納品済", label: "納品済", color: "bg-green-100 text-green-800" },
-  { value: "5.実施不要", label: "実施不要", color: "bg-gray-100 text-gray-500" },
+  {
+    value: "5.実施不要",
+    label: "実施不要",
+    color: "bg-gray-100 text-gray-500",
+  },
 ];
 
 function getStatusBadge(status: string) {
@@ -95,7 +114,9 @@ function AccountingReviewPageInner() {
     if (tabFromQuery === "journal" || tabFromQuery === "checklist") {
       const params = new URLSearchParams(searchParams.toString());
       params.set("tab", "chosho");
-      router.replace(`/accounting-review?${params.toString()}`, { scroll: false });
+      router.replace(`/accounting-review?${params.toString()}`, {
+        scroll: false,
+      });
       return;
     }
     if (isValidTab(tabFromQuery) && tabFromQuery !== activeTab) {
@@ -109,7 +130,9 @@ function AccountingReviewPageInner() {
       setActiveTabState(next);
       const params = new URLSearchParams(searchParams.toString());
       params.set("tab", next);
-      router.replace(`/accounting-review?${params.toString()}`, { scroll: false });
+      router.replace(`/accounting-review?${params.toString()}`, {
+        scroll: false,
+      });
     },
     [router, searchParams],
   );
@@ -122,19 +145,17 @@ function AccountingReviewPageInner() {
 
   const office = useMfOffice();
 
-  // kintone月次進捗をMF事業者番号で取得
-  const mfCode = office.data?.code || "";
-  const fy = fiscalYear?.toString() || new Date().getFullYear().toString();
-  const kintoneProgress = useQuery({
-    queryKey: ["kintone", "progress", mfCode, fy],
-    queryFn: () => api.kintone.getByMfCode(mfCode, fy),
-    enabled: !!mfCode,
-    staleTime: 60 * 1000,
-  });
+  // ヘッダー・期間デフォルトと同じ顧問先/年度キャッシュを共有する。
+  const kintoneProgress = useKintoneProgress();
 
   const updateStatus = useMutation({
     mutationFn: (params: { recordId: string; month: number; status: string }) =>
-      api.kintone.updateStatus(params.recordId, params.month, params.status),
+      api.kintone.updateOrganizationStatus(
+        orgId,
+        params.recordId,
+        params.month,
+        params.status,
+      ),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["kintone", "progress"] });
     },
@@ -142,7 +163,8 @@ function AccountingReviewPageInner() {
 
   // 現在の月のステータス
   const currentMonth = month || new Date().getMonth() + 1;
-  const currentStatus = kintoneProgress.data?.monthlyStatus?.[currentMonth] || "0.未作業";
+  const currentStatus =
+    kintoneProgress.data?.monthlyStatus?.[currentMonth] || "0.未作業";
   const statusInfo = getStatusBadge(currentStatus);
 
   // SevenBoard MonthlyClose ステータス
@@ -152,12 +174,19 @@ function AccountingReviewPageInner() {
     enabled: !!orgId && !!fiscalYear,
     staleTime: 60 * 1000,
   });
-  const currentClose = monthlyClosesQuery.data?.find((c) => c.month === currentMonth);
+  const currentClose = monthlyClosesQuery.data?.find(
+    (c) => c.month === currentMonth,
+  );
   const currentCloseStatus = currentClose?.status ?? "OPEN";
 
   const setCloseStatus = useMutation({
     mutationFn: (next: "OPEN" | "IN_REVIEW" | "CLOSED") =>
-      api.monthlyClose.setStatus(orgId, fiscalYear as number, currentMonth, next),
+      api.monthlyClose.setStatus(
+        orgId,
+        fiscalYear as number,
+        currentMonth,
+        next,
+      ),
     onSuccess: () => {
       // 一覧 + デフォルト月解決の両方を更新
       queryClient.invalidateQueries({ queryKey: ["monthly-close"] });
@@ -256,7 +285,11 @@ function AccountingReviewPageInner() {
           </Button>
         </div>
 
-        <PeriodSegmentControl showAllPeriod={false} label="対象月（単月）" highlightRange={false} />
+        <PeriodSegmentControl
+          showAllPeriod={false}
+          label="対象月（単月）"
+          highlightRange={false}
+        />
 
         {/* 調書メイン化 — 健康サマリーとAI質疑応答は他画面へ分離 */}
         {/* タブ */}
@@ -281,7 +314,7 @@ function AccountingReviewPageInner() {
                   "flex items-center gap-1.5 whitespace-nowrap border-b-2 px-4 py-2.5 text-sm font-medium transition-colors",
                   selected
                     ? "border-[var(--color-primary)] text-[var(--color-primary)]"
-                    : "border-transparent text-muted-foreground hover:text-[var(--color-text-primary)]"
+                    : "border-transparent text-muted-foreground hover:text-[var(--color-text-primary)]",
                 )}
               >
                 <Icon className="h-4 w-4" />
@@ -293,22 +326,28 @@ function AccountingReviewPageInner() {
 
         {/* タブコンテンツ */}
         {!leavingForMonthlyReview && activeTab === "chosho" && (
-          <div role="tabpanel" id="monthly-panel-chosho" aria-labelledby="monthly-tab-chosho">
+          <div
+            role="tabpanel"
+            id="monthly-panel-chosho"
+            aria-labelledby="monthly-tab-chosho"
+          >
             <ChoshoTab orgId={orgId} fiscalYear={fiscalYear} month={month} />
           </div>
         )}
 
         {!leavingForMonthlyReview && activeTab === "memo" && (
-          <div role="tabpanel" id="monthly-panel-memo" aria-labelledby="monthly-tab-memo">
+          <div
+            role="tabpanel"
+            id="monthly-panel-memo"
+            aria-labelledby="monthly-tab-memo"
+          >
             <MemoTab orgId={orgId} fiscalYear={fiscalYear} month={month} />
           </div>
         )}
-
       </div>
     </DashboardShell>
   );
 }
-
 
 /**
  * 月次進捗チェックリスト。
@@ -326,7 +365,13 @@ export function ChecklistTab({
   onUpdateStatus: (month: number, status: string) => void;
 }) {
   if (isLoading) {
-    return <div className="space-y-2">{Array.from({ length: 12 }).map((_, i) => <div key={i} className="h-10 animate-pulse rounded bg-muted" />)}</div>;
+    return (
+      <div className="space-y-2">
+        {Array.from({ length: 12 }).map((_, i) => (
+          <div key={i} className="h-10 animate-pulse rounded bg-muted" />
+        ))}
+      </div>
+    );
   }
 
   if (!progress) {
@@ -346,7 +391,8 @@ export function ChecklistTab({
         <CardTitle className="flex items-center justify-between text-base">
           <span>月次進捗チェックリスト</span>
           <span className="text-xs font-normal text-muted-foreground">
-            担当: {progress.inCharge?.join(", ") || "—"} / レビュー: {progress.reviewer?.join(", ") || "—"}
+            担当: {progress.inCharge?.join(", ") || "—"} / レビュー:{" "}
+            {progress.reviewer?.join(", ") || "—"}
           </span>
         </CardTitle>
       </CardHeader>
@@ -368,10 +414,16 @@ export function ChecklistTab({
                 )}
               >
                 <div className="flex items-center gap-3">
-                  <span className="w-8 text-sm font-medium text-[var(--color-text-primary)]">{m}月</span>
-                  <Badge className={cn("border text-[10px]", info.color)}>{info.label}</Badge>
+                  <span className="w-8 text-sm font-medium text-[var(--color-text-primary)]">
+                    {m}月
+                  </span>
+                  <Badge className={cn("border text-[10px]", info.color)}>
+                    {info.label}
+                  </Badge>
                   {meetingDate && (
-                    <span className="text-[10px] text-muted-foreground">面談: {meetingDate}</span>
+                    <span className="text-[10px] text-muted-foreground">
+                      面談: {meetingDate}
+                    </span>
                   )}
                 </div>
                 {next && (

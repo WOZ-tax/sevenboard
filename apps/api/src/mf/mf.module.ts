@@ -10,6 +10,7 @@ import { MfController } from './mf.controller';
 import { KintoneModule } from '../kintone/kintone.module';
 import { DataHealthModule } from '../data-health/data-health.module';
 import { MonthlyCloseModule } from '../monthly-close/monthly-close.module';
+import { OrgKintoneController } from '../kintone/org-kintone.controller';
 
 @Module({
   imports: [
@@ -20,8 +21,13 @@ import { MonthlyCloseModule } from '../monthly-close/monthly-close.module';
     DataHealthModule,
     MonthlyCloseModule,
   ],
-  controllers: [MfController],
-  providers: [MfApiService, MfV3ClientService, MfTransformService, ReviewService],
+  controllers: [MfController, OrgKintoneController],
+  providers: [
+    MfApiService,
+    MfV3ClientService,
+    MfTransformService,
+    ReviewService,
+  ],
   exports: [MfApiService, MfV3ClientService, MfTransformService, ReviewService],
 })
 export class MfModule {}

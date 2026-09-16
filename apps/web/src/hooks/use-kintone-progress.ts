@@ -3,25 +3,31 @@
 import { useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { useMfOffice } from "@/hooks/use-mf-data";
 import { usePeriodStore } from "@/lib/period-store";
 import { useCurrentOrg } from "@/contexts/current-org";
 import { useAuthStore } from "@/lib/auth";
+import {
+  kintoneProgressKey,
+  retryKintoneProgress,
+} from "@/lib/kintone-progress-query";
 
 /**
- * kintone 月次進捗アプリから、現在選択中の顧問先(MFコード)+会計年度の1レコードを取得。
+ * kintone 月次進捗アプリから、現在選択中の顧問先+会計年度の1レコードを取得。
  * 全ページで共有できるよう、同じ queryKey で react-query キャッシュに載せる。
  */
 export function useKintoneProgress() {
-  const office = useMfOffice();
+  const orgId = useCurrentOrg().currentOrgId ?? "";
+  const authenticated = useAuthStore((state) => state.isAuthenticated);
   const fiscalYear = usePeriodStore((s) => s.fiscalYear);
-  const mfCode = (office.data as { code?: string } | undefined)?.code ?? "";
   return useQuery({
-    queryKey: ["kintone", "progress", mfCode, fiscalYear ?? null],
-    queryFn: () =>
-      api.kintone.getByMfCode(mfCode, fiscalYear ? String(fiscalYear) : undefined),
-    enabled: !!mfCode,
+    queryKey: kintoneProgressKey(orgId, fiscalYear),
+    queryFn: () => api.kintone.getForOrganization(orgId, fiscalYear),
+    enabled: authenticated && !!orgId && !!fiscalYear,
     staleTime: 5 * 60 * 1000,
+    retry: retryKintoneProgress,
+    retryOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
 }
 
@@ -89,12 +95,5 @@ export function usePeriodDefaultFromKintone() {
         return;
       }
     }
-  }, [
-    monthlyClose.data,
-    kintone.data,
-    month,
-    fiscalYear,
-    locked,
-    setPeriod,
-  ]);
+  }, [monthlyClose.data, kintone.data, month, fiscalYear, locked, setPeriod]);
 }

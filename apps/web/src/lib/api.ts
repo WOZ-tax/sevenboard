@@ -1867,6 +1867,15 @@ export const api = {
       apiFetch<KintoneMonthlyProgress>(
         `/kintone/monthly-progress/by-mf/${mfCode}${fiscalYear ? `?fiscalYear=${fiscalYear}` : ''}`,
       ),
+    getForOrganization: (orgId: string, fiscalYear?: number) =>
+      apiFetch<{ record: KintoneMonthlyProgress | null }>(
+        `/organizations/${encodeURIComponent(orgId)}/kintone/monthly-progress${fiscalYear ? `?fiscalYear=${fiscalYear}` : ''}`,
+      ).then((result) => result.record),
+    updateOrganizationStatus: (orgId: string, recordId: string, month: number, status: string) =>
+      apiFetch<{ success: boolean }>(
+        `/organizations/${encodeURIComponent(orgId)}/kintone/monthly-progress/${encodeURIComponent(recordId)}`,
+        { method: 'PUT', body: JSON.stringify({ month, status }) },
+      ),
     updateStatus: (recordId: string, month: number, status: string) =>
       apiFetch<{ success: boolean }>(`/kintone/monthly-progress/${recordId}`, {
         method: 'PUT',
