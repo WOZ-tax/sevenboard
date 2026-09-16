@@ -159,6 +159,8 @@ export function useLocabenComparison(
           enabled(year) && (sources[index].isLoading || saved[index].isLoading),
         isFetching: sources[index].isFetching || saved[index].isFetching,
         isError: sources[index].isError || saved[index].isError,
+        isMfError: sources[index].isError,
+        isSavedInputsError: saved[index].isError,
         canEdit: enabled(year) && saved[index].isSuccess,
         hasSavedInputs: saved[index].data != null || drafts[key] != null,
         saveStatus: statuses[key],
@@ -168,6 +170,7 @@ export function useLocabenComparison(
       };
     }),
     update,
+    refetchSaved: (index: number) => saved[index].refetch(),
     refetch: () =>
       Promise.allSettled(
         [...sources, ...saved]

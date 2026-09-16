@@ -24,10 +24,12 @@ import {
   Put,
   Query,
   Request,
+  Res,
   UseGuards,
 } from '@nestjs/common';
 import { Logger } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
+import type { Response } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { PermissionGuard } from '../auth/permission.guard';
 import { RequirePermission } from '../auth/require-permission.decorator';
@@ -203,8 +205,12 @@ export class YearEndStateController {
   // ============================================================
   @Get('locaben')
   @RequirePermission('org:locaben:read')
-  async getLocaben(@Param('orgId', ParseUUIDPipe) orgId: string) {
-    return this.svc.getLocabenState(orgId);
+  async getLocaben(
+    @Param('orgId', ParseUUIDPipe) orgId: string,
+    @Res() response: Response,
+  ) {
+    // Nest sends a bare null as an empty body. Keep the existing JSON record|null contract.
+    return response.json(await this.svc.getLocabenState(orgId));
   }
 
   @Put('locaben')
@@ -240,9 +246,12 @@ export class YearEndStateController {
   async getFeature(
     @Param('orgId', ParseUUIDPipe) orgId: string,
     @Param('featureKey') featureKey: string,
+    @Res() response: Response,
     @Query('scope') scope?: string,
   ) {
-    return this.svc.getFeatureState(orgId, featureKey, scope ?? '');
+    return response.json(
+      await this.svc.getFeatureState(orgId, featureKey, scope ?? ''),
+    );
   }
 
   @Put('feature/:featureKey')

@@ -496,9 +496,22 @@ function LocabenContent() {
                 </button>
               </p>
             )}
-            {editingPeriod.isError && (
+            {editingPeriod.isMfError && (
               <p role="alert" className="text-xs text-amber-700">
-                この期のデータを取得できませんでした。「MF再取得」で再試行してください。
+                この期のMFデータを取得できませんでした。「MF再取得」で再試行してください。
+              </p>
+            )}
+            {editingPeriod.isSavedInputsError && (
+              <p role="alert" className="text-xs text-amber-700">
+                この期の保存済み入力を読み込めませんでした。入力内容の保護のため、読み込みが完了するまで編集を停止しています。
+                <button
+                  type="button"
+                  className="ml-2 underline disabled:opacity-50"
+                  disabled={editingPeriod.isFetching}
+                  onClick={() => comparison.refetchSaved(editingIndex)}
+                >
+                  保存済み入力を再読込
+                </button>
               </p>
             )}
             {!editingPeriod.hasSavedInputs &&
