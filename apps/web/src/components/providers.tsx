@@ -6,10 +6,12 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { CurrentOrgProvider } from "@/contexts/current-org";
 import { useEffect, useState } from "react";
 import { useAuthStore } from "@/lib/auth";
+import { useIsClient } from "@/hooks/use-is-client";
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const sessionVersion = useAuthStore((s) => s.sessionVersion);
   const isChecking = useAuthStore((s) => s.isChecking);
+  const hydrated = useIsClient();
   useEffect(() => {
     void useAuthStore.getState().initialize();
     const sync = (event: StorageEvent) => {
@@ -19,7 +21,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener('storage', sync);
   }, []);
 
-  if (isChecking) {
+  // Server HTML and the first client render must match even when this browser
+  // has a stored user. Keep all business components behind the same placeholder.
+  if (!hydrated || isChecking) {
     return <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">ログイン状態を確認中...</div>;
   }
   // Remount the entire data/UI boundary synchronously: no previous user's cached
