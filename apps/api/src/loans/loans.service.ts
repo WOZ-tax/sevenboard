@@ -9,7 +9,11 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { MfApiService } from '../mf/mf-api.service';
 import { SupabaseService } from '../supabase/supabase.service';
-import { createLlmProvider, extractJson, LlmProvider } from '../ai/llm-provider';
+import {
+  createLlmProvider,
+  extractJson,
+  LlmProvider,
+} from '../ai/llm-provider';
 import { HttpService } from '@nestjs/axios';
 import { TB_COL, MfReportRow } from '../mf/types/mf-api.types';
 import {
@@ -20,12 +24,13 @@ import {
   deriveTotals,
   DerivableLoan,
 } from './loan-derive';
-import {
-  LOAN_EXTRACTION_PROMPT,
-  normalizeExtraction,
-} from './loan-extraction';
+import { LOAN_EXTRACTION_PROMPT, normalizeExtraction } from './loan-extraction';
 import { validateLoanSchedule } from './loan-schedule-validator';
-import { CreateLoanDto, UpdateLoanDto, LoanScheduleEntryInput } from './dto/loan.dto';
+import {
+  CreateLoanDto,
+  UpdateLoanDto,
+  LoanScheduleEntryInput,
+} from './dto/loan.dto';
 import type {
   LoansListDto,
   LoanSummaryDto,
@@ -62,7 +67,10 @@ export class LoansService {
   async list(orgId: string, now: Date = new Date()): Promise<LoansListDto> {
     const loans = await this.prisma.loan.findMany({
       where: { orgId },
-      include: { scheduleEntries: { orderBy: { seq: 'asc' } }, documents: true },
+      include: {
+        scheduleEntries: { orderBy: { seq: 'asc' } },
+        documents: true,
+      },
       orderBy: { createdAt: 'asc' },
     });
 
@@ -96,7 +104,7 @@ export class LoansService {
     const totals = deriveTotals(activeDerivable, w);
     const mfBookBalance = await this.computeMfBookBalance(
       orgId,
-      totals.outstandingBalance,
+      activeDerivable,
     );
 
     return { loans: summaries, totals, mfBookBalance };
@@ -107,7 +115,10 @@ export class LoansService {
   async get(orgId: string, loanId: string): Promise<LoanDetailDto> {
     const loan = await this.prisma.loan.findFirst({
       where: { id: loanId, orgId },
-      include: { scheduleEntries: { orderBy: { seq: 'asc' } }, documents: true },
+      include: {
+        scheduleEntries: { orderBy: { seq: 'asc' } },
+        documents: true,
+      },
     });
     if (!loan) throw new NotFoundException('Loan not found');
     return this.toDetailDto(loan);
@@ -144,7 +155,11 @@ export class LoansService {
           status: dto.status,
           updatedById: userId ?? null,
           scheduleEntries: dto.scheduleEntries?.length
-            ? { create: dto.scheduleEntries.map((e) => this.toEntryCreate(tenantId, e)) }
+            ? {
+                create: dto.scheduleEntries.map((e) =>
+                  this.toEntryCreate(tenantId, e),
+                ),
+              }
             : undefined,
         },
       });
@@ -180,10 +195,16 @@ export class LoansService {
         ...(dto.branchName !== undefined ? { branchName: dto.branchName } : {}),
         ...(dto.loanNumber !== undefined ? { loanNumber: dto.loanNumber } : {}),
         ...(dto.loanType !== undefined ? { loanType: dto.loanType } : {}),
-        ...(dto.principal !== undefined ? { principal: BigInt(dto.principal) } : {}),
-        ...(dto.interestRate !== undefined ? { interestRate: dto.interestRate } : {}),
+        ...(dto.principal !== undefined
+          ? { principal: BigInt(dto.principal) }
+          : {}),
+        ...(dto.interestRate !== undefined
+          ? { interestRate: dto.interestRate }
+          : {}),
         ...(dto.rateType !== undefined ? { rateType: dto.rateType } : {}),
-        ...(dto.startDate !== undefined ? { startDate: toDate(dto.startDate) } : {}),
+        ...(dto.startDate !== undefined
+          ? { startDate: toDate(dto.startDate) }
+          : {}),
         ...(dto.termMonths !== undefined ? { termMonths: dto.termMonths } : {}),
         ...(dto.maturityDate !== undefined
           ? { maturityDate: toDate(dto.maturityDate) }
@@ -216,7 +237,10 @@ export class LoansService {
     await this.prisma.$transaction([
       this.prisma.loanScheduleEntry.deleteMany({ where: { loanId } }),
       this.prisma.loanScheduleEntry.createMany({
-        data: entries.map((e) => ({ loanId, ...this.toEntryCreate(tenantId, e) })),
+        data: entries.map((e) => ({
+          loanId,
+          ...this.toEntryCreate(tenantId, e),
+        })),
       }),
     ]);
 
@@ -237,7 +261,12 @@ export class LoansService {
   async extract(
     orgId: string,
     userId: string | undefined,
-    file: { buffer: Buffer; originalname: string; mimetype: string; size: number },
+    file: {
+      buffer: Buffer;
+      originalname: string;
+      mimetype: string;
+      size: number;
+    },
   ): Promise<LoanExtractResultDto> {
     if (!file || !file.buffer?.length) {
       throw new BadRequestException('file is required');
@@ -337,7 +366,9 @@ export class LoansService {
     const storage = this.supabase.client.storage;
     const { data } = await storage.getBucket(STORAGE_BUCKET);
     if (data) return;
-    const { error } = await storage.createBucket(STORAGE_BUCKET, { public: false });
+    const { error } = await storage.createBucket(STORAGE_BUCKET, {
+      public: false,
+    });
     // 並行リクエストで既に作成済みの場合の "already exists" は無視する。
     if (error && !/exist/i.test(error.message)) {
       throw new BadRequestException(
@@ -356,7 +387,10 @@ export class LoansService {
   }
 
   /** 借入が org に属することを確認し tenantId を返す。 */
-  private async assertLoanInOrg(orgId: string, loanId: string): Promise<string> {
+  private async assertLoanInOrg(
+    orgId: string,
+    loanId: string,
+  ): Promise<string> {
     const loan = await this.prisma.loan.findFirst({
       where: { id: loanId, orgId },
       select: { tenantId: true },
@@ -444,7 +478,7 @@ export class LoansService {
    */
   private async computeMfBookBalance(
     orgId: string,
-    ledgerOutstanding: number,
+    loans: DerivableLoan[],
   ): Promise<MfBookBalanceDto> {
     try {
       const bs = await this.mfApi.getTrialBalanceBS(orgId);
@@ -452,7 +486,24 @@ export class LoansService {
       const accounts: { name: string; amount: number }[] = [];
       collectLoanAccounts(liabRoot?.rows ?? [], accounts);
       const amount = accounts.reduce((sum, a) => sum + a.amount, 0);
-      return { amount, accounts, diff: amount - ledgerOutstanding };
+      const asOf = /^\d{4}-\d{2}-\d{2}$/.test(bs.end_date ?? '')
+        ? bs.end_date
+        : null;
+      const reportDate = asOf ? new Date(`${asOf}T00:00:00Z`) : null;
+      const scheduledBalance =
+        reportDate && Number.isFinite(reportDate.getTime())
+          ? loans.reduce(
+              (sum, loan) => sum + deriveCurrentBalance(loan, reportDate),
+              0,
+            )
+          : null;
+      return {
+        amount,
+        accounts,
+        asOf,
+        scheduledBalance,
+        diff: scheduledBalance === null ? null : amount - scheduledBalance,
+      };
     } catch (err) {
       this.logger.warn(
         `MF book balance unavailable for org=${orgId}: ${
@@ -479,7 +530,10 @@ function collectLoanAccounts(
       continue;
     }
     if (row.name.includes('借入金') && !row.name.includes('役員借入金')) {
-      out.push({ name: row.name, amount: (row.values[TB_COL.CLOSING] as number) || 0 });
+      out.push({
+        name: row.name,
+        amount: (row.values[TB_COL.CLOSING] as number) || 0,
+      });
     }
   }
 }

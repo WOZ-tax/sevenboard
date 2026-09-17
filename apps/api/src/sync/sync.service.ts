@@ -54,35 +54,25 @@ export class SyncService {
         accountsSynced++;
       }
 
-      const [plData, bsData] = await Promise.all([
-        this.mfApi.getTrialBalancePL(orgId),
-        this.mfApi.getTrialBalanceBS(orgId),
-      ]);
+      const bsData = await this.mfApi.getTrialBalanceBS(orgId);
 
-      const plRows = this.mfTransform.transformTrialBalancePL(plData);
       const bsResult = this.mfTransform.transformTrialBalanceBS(bsData);
-      const allRows = [
-        ...plRows,
-        ...bsResult.assets,
-        ...bsResult.liabilitiesEquity,
-      ];
+      const allRows = [...bsResult.assets, ...bsResult.liabilitiesEquity];
 
       let entriesUpserted = 0;
       const now = new Date();
+      // BS is a stock at the report date. PL must only come from monthly
+      // transition values, never from the cumulative trial balance fallback.
+      const reportDate = new Date(`${bsData.end_date}T00:00:00Z`);
+      if (!Number.isFinite(reportDate.getTime()))
+        throw new Error('Invalid BS report date');
       const currentMonth = new Date(
-        Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
+        Date.UTC(reportDate.getUTCFullYear(), reportDate.getUTCMonth(), 1),
       );
 
-      // 月次推移(getTransitionPL)が当月の「単月実績」を持つ正本。先にこれを同期し、
-      // 当月に書き込んだ accountId 集合を受け取る。
-      // 試算表ループ(下)は CLOSING(FY累計)を当月行に書くため、推移が当月を埋めた
-      // 科目には累計値を上書きさせない(=月次実績の汚染防止)。推移取得が失敗した場合は
-      // 当月行への書き込み自体を抑止し、FY累計が単月実績として残留しないようにする。
-      const {
-        count: monthlyEntries,
-        transitionOk,
-        currentMonthAccountIds,
-      } = await this.syncMonthlyFromTransition(orgId, tenantId, now);
+      // PLの単月実績は月次推移のみから取得する。BSは別途レポート月の残高を保存する。
+      const { count: monthlyEntries, transitionOk } =
+        await this.syncMonthlyFromTransition(orgId, tenantId, now);
 
       for (const row of allRows) {
         if (row.isHeader) continue;
@@ -93,10 +83,10 @@ export class SyncService {
         });
         if (!account) continue;
 
-        // 推移取得失敗時は当月行を触らない(累計値の残留を防ぐ)。
+        if (!['ASSET', 'LIABILITY', 'EQUITY'].includes(account.category))
+          continue;
+        // 推移取得失敗時は当月行を触らない。
         if (!transitionOk) continue;
-        // 推移が当月を埋めた科目は、累計値で上書きしない。
-        if (currentMonthAccountIds.has(account.id)) continue;
 
         const existing = await this.prisma.actualEntry.findFirst({
           where: {
@@ -188,7 +178,8 @@ export class SyncService {
       const plTransition = await this.mfApi
         .getTransitionPL(orgId)
         .catch(() => null);
-      const fiscalYear = plTransition?.fiscal_year ?? new Date().getUTCFullYear();
+      const fiscalYear =
+        plTransition?.fiscal_year ?? new Date().getUTCFullYear();
       const today = new Date();
       const month = today.getUTCMonth() + 1;
       this.logger.log(
@@ -282,7 +273,9 @@ export class SyncService {
     // 失敗(getTransitionPL が throw / 不正レスポンス) → transitionOk:false を返し、
     // 呼び出し側で 'SUCCESS' を刻ませない。データ0件(正常応答だが行が無い)は
     // transitionOk:true(取得自体は成功)として扱う。
-    let plTransition: Awaited<ReturnType<typeof this.mfApi.getTransitionPL>> | null;
+    let plTransition: Awaited<
+      ReturnType<typeof this.mfApi.getTransitionPL>
+    > | null;
     try {
       plTransition = await this.mfApi.getTransitionPL(orgId);
     } catch (err) {

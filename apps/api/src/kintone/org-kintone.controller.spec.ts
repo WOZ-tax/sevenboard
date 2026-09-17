@@ -12,6 +12,7 @@ import { MfApiService } from '../mf/mf-api.service';
 import { KintoneApiService } from './kintone-api.service';
 import { DataHealthService } from '../data-health/data-health.service';
 import { OrgKintoneController } from './org-kintone.controller';
+import { DemoService } from '../demo/demo.service';
 
 describe('organization-scoped kintone authorization', () => {
   const orgId = '11111111-1111-4111-8111-111111111111';
@@ -37,6 +38,7 @@ describe('organization-scoped kintone authorization', () => {
     const module = await Test.createTestingModule({
       controllers: [OrgKintoneController],
       providers: [
+        { provide: DemoService, useValue: {} },
         PermissionGuard,
         InternalStaffGuard,
         { provide: MfApiService, useValue: { getOffice } },

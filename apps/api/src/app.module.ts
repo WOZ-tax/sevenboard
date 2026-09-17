@@ -47,10 +47,13 @@ import { LocabenModule } from './locaben/locaben.module';
 import { YearEndStateModule } from './year-end-state/year-end-state.module';
 import { WithholdingTaxModule } from './withholding-tax/withholding-tax.module';
 import { LoansModule } from './loans/loans.module';
+import { DemoModule } from './demo/demo.module';
 
 @Module({
   imports: [
-    ScheduleModule.forRoot(),
+    ScheduleModule.forRoot({
+      cronJobs: process.env.DISABLE_SCHEDULED_JOBS !== 'true',
+    }),
     // 既定の緩いグローバルレート制限（個別ルートで @Throttle により上書き可能）。
     // ttl はミリ秒単位（@nestjs/throttler v6）。
     ThrottlerModule.forRoot([
@@ -60,6 +63,7 @@ import { LoansModule } from './loans/loans.module';
       },
     ]),
     PrismaModule,
+    DemoModule,
     CacheModule,
     HealthModule,
     AuthModule,

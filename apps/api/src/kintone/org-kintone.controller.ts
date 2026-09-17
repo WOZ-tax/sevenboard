@@ -19,6 +19,8 @@ import { InternalStaffGuard } from '../auth/internal-staff.guard';
 import { MfApiService } from '../mf/mf-api.service';
 import { KintoneApiService } from './kintone-api.service';
 import { DataHealthService } from '../data-health/data-health.service';
+import { DemoService } from '../demo/demo.service';
+import { isDemoOrg } from '../demo/demo.constants';
 
 /** Resolve the MF identity only after authorization for the selected organization.
  * Organization.code is an optional internal code, not a reliable MF identity.
@@ -32,6 +34,7 @@ export class OrgKintoneController {
     private readonly mfApi: MfApiService,
     private readonly kintoneApi: KintoneApiService,
     private readonly dataHealth: DataHealthService,
+    private readonly demo: DemoService,
   ) {}
 
   private async getMfCode(orgId: string): Promise<string> {
@@ -91,6 +94,8 @@ export class OrgKintoneController {
     ) {
       throw new BadRequestException('Invalid fiscal year');
     }
+    if (isDemoOrg(orgId))
+      return { record: await this.demo.monthlyProgress(fiscalYear) };
     const mfCode = await this.getMfCode(orgId);
     const record = await this.withHealth(orgId, () =>
       this.kintoneApi.getByMfOfficeCode(mfCode, fiscalYear),
@@ -121,6 +126,8 @@ export class OrgKintoneController {
       ].includes(body.status)
     )
       throw new BadRequestException('Invalid status');
+    if (isDemoOrg(orgId))
+      return this.demo.updateMonthlyProgress(recordId, body.month, body.status);
     const mfCode = await this.getMfCode(orgId);
     const recordCode = await this.kintoneApi.getRecordMfCode(recordId);
     if (!recordCode)

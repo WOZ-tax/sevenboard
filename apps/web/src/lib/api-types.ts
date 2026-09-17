@@ -487,6 +487,8 @@ export interface LoanTotals {
 
 /** MF 帳簿(借入金)残高との照合。amount=null は MF 未接続/取得不可。 */
 export interface LoanMfBookBalance {
+  asOf?: string | null;
+  scheduledBalance?: number | null;
   amount: number | null;
   accounts: { name: string; amount: number }[];
   diff: number | null;

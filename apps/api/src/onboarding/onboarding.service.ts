@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { MfApiService } from '../mf/mf-api.service';
-import { MfTransformService } from '../mf/mf-transform.service';
+import { SyncService } from '../sync/sync.service';
 
 function guessCategory(accountName: string, mfCategory?: string): string {
   const source = `${mfCategory ?? ''} ${accountName}`.toUpperCase();
@@ -30,7 +30,7 @@ export class OnboardingService {
   constructor(
     private prisma: PrismaService,
     private mfApi: MfApiService,
-    private mfTransform: MfTransformService,
+    private sync: SyncService,
   ) {}
 
   async startOnboarding(orgId: string) {
@@ -81,10 +81,7 @@ export class OnboardingService {
         continue;
       }
 
-      const category = guessCategory(
-        mfAccount.name,
-        (mfAccount as any).account_category,
-      );
+      const category = guessCategory(mfAccount.name, mfAccount.category);
       try {
         await this.prisma.accountMaster.create({
           data: {
@@ -106,105 +103,46 @@ export class OnboardingService {
 
     let entriesImported = 0;
     try {
-      const [plData, bsData] = await Promise.all([
-        this.mfApi.getTrialBalancePL(orgId),
-        this.mfApi.getTrialBalanceBS(orgId),
-      ]);
-
-      const plRows = this.mfTransform.transformTrialBalancePL(plData);
-      const bsResult = this.mfTransform.transformTrialBalanceBS(bsData);
-      const allRows = [
-        ...plRows,
-        ...bsResult.assets,
-        ...bsResult.liabilitiesEquity,
-      ];
-
-      const now = new Date();
-      const currentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-
-      for (const row of allRows) {
-        if (row.isHeader) continue;
-        const accountName = row.category.trim();
-        const account = await this.prisma.accountMaster.findFirst({
-          where: { tenantId, orgId, name: accountName },
-        });
-        if (!account) continue;
-
-        try {
-          const existingEntry = await this.prisma.actualEntry.findFirst({
-            where: {
-              tenantId,
-              orgId,
-              accountId: account.id,
-              departmentId: null,
-              month: currentMonth,
-            },
-          });
-          if (existingEntry) {
-            await this.prisma.actualEntry.update({
-              where: { id: existingEntry.id },
-              data: {
-                amount: row.current,
-                source: 'MF_CLOUD',
-                syncedAt: now,
-              },
-            });
-          } else {
-            await this.prisma.actualEntry.create({
-              data: {
-                tenantId,
-                orgId,
-                accountId: account.id,
-                month: currentMonth,
-                amount: row.current,
-                source: 'MF_CLOUD',
-                syncedAt: now,
-              },
-            });
-          }
-          entriesImported++;
-        } catch {
-          // Constraint races are non-fatal during onboarding import.
-        }
-      }
+      const result = await this.sync.runSync(orgId);
+      entriesImported =
+        (result.entriesUpserted ?? 0) + (result.monthlyEntries ?? 0);
+      if (result.status !== 'SUCCESS')
+        warnings.push('月次実績の同期が完了していません。再同期してください。');
     } catch (err: any) {
-      warnings.push(`Trial balance import failed: ${err?.message}`);
+      warnings.push(`Monthly import failed: ${err?.message}`);
     }
 
     let fiscalYearCreated = false;
-    const org = await this.prisma.organization.findFirst({
-      where: { id: orgId, tenantId },
-    });
-    if (org) {
-      const now = new Date();
-      const fiscalEnd = org.fiscalMonthEnd;
-      let fyYear = now.getFullYear();
-      if (now.getMonth() + 1 <= fiscalEnd) {
-        fyYear -= 1;
-      }
-
-      const start = new Date(fyYear, fiscalEnd, 1);
-      const end = new Date(fyYear + 1, fiscalEnd, 0);
-
-      try {
+    try {
+      const office = await this.mfApi.getOffice(orgId);
+      for (const period of office.accounting_periods ?? []) {
+        const start = new Date(`${period.start_date}T00:00:00Z`);
+        const end = new Date(`${period.end_date}T00:00:00Z`);
+        if (
+          !Number.isInteger(period.fiscal_year) ||
+          !Number.isFinite(start.getTime()) ||
+          !Number.isFinite(end.getTime()) ||
+          start > end
+        )
+          continue;
         await this.prisma.fiscalYear.upsert({
           where: {
-            tenantId_orgId_year: { tenantId, orgId, year: fyYear },
+            tenantId_orgId_year: { tenantId, orgId, year: period.fiscal_year },
           },
           update: {},
           create: {
             tenantId,
             orgId,
-            year: fyYear,
+            year: period.fiscal_year,
             startDate: start,
             endDate: end,
             status: 'OPEN',
           },
         });
         fiscalYearCreated = true;
-      } catch (err: any) {
-        warnings.push(`Fiscal year create failed: ${err?.message}`);
       }
+    } catch (err: any) {
+      warnings.push(`Fiscal year create failed: ${err?.message}`);
     }
 
     this.logger.log(

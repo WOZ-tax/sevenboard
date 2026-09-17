@@ -19,10 +19,7 @@ function account(name: string, closing: number) {
 
 const NOW = new Date('2025-06-15T00:00:00.000Z');
 
-function buildService(overrides?: {
-  bs?: unknown;
-  bsError?: boolean;
-}) {
+function buildService(overrides?: { bs?: unknown; bsError?: boolean }) {
   const loanA = {
     id: 'loan-a',
     tenantId: 'tenant-1',
@@ -90,6 +87,7 @@ function buildService(overrides?: {
   };
 
   const defaultBs = {
+    end_date: '2025-06-30',
     rows: [
       { name: '資産', type: 'assets', values: [], rows: [] },
       {
@@ -101,7 +99,10 @@ function buildService(overrides?: {
             name: '流動負債',
             type: 'financial_statement_item',
             values: [],
-            rows: [account('短期借入金', 500_000), account('役員借入金', 1_000_000)],
+            rows: [
+              account('短期借入金', 500_000),
+              account('役員借入金', 1_000_000),
+            ],
           },
           {
             name: '固定負債',
@@ -130,6 +131,36 @@ function buildService(overrides?: {
 }
 
 describe('LoansService.list', () => {
+  it('compares the loan schedule at the MF report date, not a different current month', async () => {
+    const { service } = buildService({
+      bs: {
+        end_date: '2025-05-31',
+        rows: [
+          { type: 'liabilities', rows: [account('長期借入金', 1_000_000)] },
+        ],
+      },
+    });
+    const result = await service.list('org-1', NOW);
+    expect(result.totals.outstandingBalance).toBe(900_000);
+    expect(result.mfBookBalance).toMatchObject({
+      asOf: '2025-05-31',
+      scheduledBalance: 1_000_000,
+      diff: 0,
+    });
+  });
+
+  it('does not manufacture a difference when the report date is unknown', async () => {
+    const { service } = buildService({
+      bs: {
+        rows: [
+          { type: 'liabilities', rows: [account('長期借入金', 1_000_000)] },
+        ],
+      },
+    });
+    const { mfBookBalance } = await service.list('org-1', NOW);
+    expect(mfBookBalance.amount).toBe(1_000_000);
+    expect(mfBookBalance.diff).toBeNull();
+  });
   it('derives current-month balance, next payment, and current rate per loan', async () => {
     const { service } = buildService();
     const result = await service.list('org-1', NOW);

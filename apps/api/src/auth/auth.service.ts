@@ -7,6 +7,7 @@ import { AuthResponseDto } from './dto/auth-response.dto';
 import { JwtPayload } from './jwt.strategy';
 import { AuthorizationService } from './authorization.service';
 import { roleHasPermission } from './permissions';
+import { isDemoOrg, DEMO_AS_OF } from '../demo/demo.constants';
 
 type LegacyMembershipRole = 'owner' | 'admin' | 'member' | 'viewer' | 'advisor';
 
@@ -103,7 +104,7 @@ export class AuthService {
     const byOrgId = new Map<string, any>();
 
     const tenantMemberships = await this.prisma.tenantMembership.findMany({
-      where: { userId, status: 'active' },
+      where: { userId },
       include: {
         tenant: {
           include: {
@@ -123,7 +124,14 @@ export class AuthService {
       },
     });
 
+    const blockedTenants = new Set(
+      tenantMemberships
+        .filter((m) => m.status !== 'active' || m.tenant.status !== 'active')
+        .map((m) => m.tenantId),
+    );
+
     for (const membership of tenantMemberships) {
+      if (blockedTenants.has(membership.tenantId)) continue;
       if (!roleHasPermission(membership.role, 'org:organizations:read')) {
         continue;
       }
@@ -137,12 +145,14 @@ export class AuthService {
           orgCode: org.code,
           industry: org.industry,
           fiscalMonthEnd: org.fiscalMonthEnd,
+          isDemo: isDemoOrg(org.id),
+          dataAsOf: isDemoOrg(org.id) ? DEMO_AS_OF : undefined,
         });
       }
     }
 
     const orgMemberships = await this.prisma.organizationMembership.findMany({
-      where: { userId },
+      where: { userId, organization: { tenant: { status: 'active' } } },
       include: {
         organization: {
           select: {
@@ -158,6 +168,7 @@ export class AuthService {
     });
 
     for (const membership of orgMemberships) {
+      if (blockedTenants.has(membership.organization.tenantId)) continue;
       byOrgId.set(membership.organization.id, {
         tenantId: membership.organization.tenantId,
         orgId: membership.organization.id,
@@ -168,32 +179,11 @@ export class AuthService {
         orgCode: membership.organization.code,
         industry: membership.organization.industry,
         fiscalMonthEnd: membership.organization.fiscalMonthEnd,
+        isDemo: isDemoOrg(membership.organization.id),
+        dataAsOf: isDemoOrg(membership.organization.id)
+          ? DEMO_AS_OF
+          : undefined,
       });
-    }
-
-    if (byOrgId.size === 0 && user.orgId) {
-      const org = await this.prisma.organization.findUnique({
-        where: { id: user.orgId },
-        select: {
-          id: true,
-          tenantId: true,
-          name: true,
-          code: true,
-          industry: true,
-          fiscalMonthEnd: true,
-        },
-      });
-      if (org) {
-        byOrgId.set(org.id, {
-          tenantId: org.tenantId,
-          orgId: org.id,
-          role: user.role as LegacyMembershipRole,
-          orgName: org.name,
-          orgCode: org.code,
-          industry: org.industry,
-          fiscalMonthEnd: org.fiscalMonthEnd,
-        });
-      }
     }
 
     return Array.from(byOrgId.values()).sort((a, b) =>

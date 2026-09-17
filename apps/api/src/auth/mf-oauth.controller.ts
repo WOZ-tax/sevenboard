@@ -18,10 +18,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { encryptIfAvailable } from '../common/crypto.util';
 import { MfApiService } from '../mf/mf-api.service';
 import { AuthorizationService } from './authorization.service';
-import {
-  createMfOAuthState,
-  verifyMfOAuthState,
-} from './mf-oauth-state.util';
+import { isDemoOrg, DEMO_AS_OF } from '../demo/demo.constants';
+import { createMfOAuthState, verifyMfOAuthState } from './mf-oauth-state.util';
 
 @Controller('auth/mf')
 export class MfOAuthController {
@@ -45,10 +43,7 @@ export class MfOAuthController {
    */
   @Get('authorize')
   @UseGuards(JwtAuthGuard)
-  async authorize(
-    @Req() req: Request,
-    @Query('orgId') orgId: string,
-  ) {
+  async authorize(@Req() req: Request, @Query('orgId') orgId: string) {
     if (!orgId) {
       throw new BadRequestException('orgId is required');
     }
@@ -89,7 +84,8 @@ export class MfOAuthController {
       // MCP CA v3 エンドポイントが要求する12 scope（401/403 の WWW-Authenticate に出る必須セット）。
       // transaction.read は 2026-07 の MF 側更新で必須化。クライアント登録側に未登録の scope は
       // MF が黙って間引くため、パートナー管理画面のアプリ登録にも同じ scope が必要。
-      scope: 'mfc/accounting/offices.read mfc/accounting/accounts.read mfc/accounting/departments.read mfc/accounting/journal.read mfc/accounting/journal.write mfc/accounting/report.read mfc/accounting/taxes.read mfc/accounting/trade_partners.read mfc/accounting/trade_partners.write mfc/accounting/connected_account.read mfc/accounting/transaction.read mfc/accounting/transaction.write',
+      scope:
+        'mfc/accounting/offices.read mfc/accounting/accounts.read mfc/accounting/departments.read mfc/accounting/journal.read mfc/accounting/journal.write mfc/accounting/report.read mfc/accounting/taxes.read mfc/accounting/trade_partners.read mfc/accounting/trade_partners.write mfc/accounting/connected_account.read mfc/accounting/transaction.read mfc/accounting/transaction.write',
       state,
       resource,
     });
@@ -108,10 +104,7 @@ export class MfOAuthController {
    */
   @Post('refresh')
   @UseGuards(JwtAuthGuard)
-  async refresh(
-    @Req() req: Request,
-    @Query('orgId') orgId: string,
-  ) {
+  async refresh(@Req() req: Request, @Query('orgId') orgId: string) {
     if (!orgId) {
       throw new BadRequestException('orgId is required');
     }
@@ -130,10 +123,7 @@ export class MfOAuthController {
    */
   @Get('status')
   @UseGuards(JwtAuthGuard)
-  async status(
-    @Req() req: Request,
-    @Query('orgId') orgId: string,
-  ) {
+  async status(@Req() req: Request, @Query('orgId') orgId: string) {
     if (!orgId) {
       throw new BadRequestException('orgId is required');
     }
@@ -143,6 +133,16 @@ export class MfOAuthController {
       orgId,
       'org:integrations:read',
     );
+    if (isDemoOrg(orgId))
+      return {
+        connected: true,
+        dataSource: 'demo',
+        dataAsOf: DEMO_AS_OF,
+        expiresAt: null,
+        lastRefreshedAt: null,
+        lastSyncAt: null,
+        syncStatus: 'SUCCESS',
+      };
 
     const integration = await this.prisma.integration.findUnique({
       where: {
@@ -176,8 +176,7 @@ export class MfOAuthController {
     @Query('error') error: string,
     @Res() res: Response,
   ) {
-    const frontendOrigin =
-      process.env.CORS_ORIGIN || 'http://localhost:3000';
+    const frontendOrigin = process.env.CORS_ORIGIN || 'http://localhost:3000';
 
     // OAuth error (ユーザーが拒否した場合など)
     if (error) {
@@ -198,9 +197,7 @@ export class MfOAuthController {
       this.logger.warn(
         `MF OAuth callback: state ${verified.reason ?? 'invalid'}`,
       );
-      res.redirect(
-        `${frontendOrigin}/settings?mf=error&reason=invalid_state`,
-      );
+      res.redirect(`${frontendOrigin}/settings?mf=error&reason=invalid_state`);
       return;
     }
     const { tenantId, orgId, userId } = verified.payload;
@@ -224,9 +221,7 @@ export class MfOAuthController {
       this.logger.warn(
         `MF OAuth callback: post-auth access check failed: ${err instanceof Error ? err.message : err}`,
       );
-      res.redirect(
-        `${frontendOrigin}/settings?mf=error&reason=access_denied`,
-      );
+      res.redirect(`${frontendOrigin}/settings?mf=error&reason=access_denied`);
       return;
     }
 
@@ -236,7 +231,9 @@ export class MfOAuthController {
       const resource =
         process.env.MF_MCP_URL ||
         'https://beta.mcp.developers.biz.moneyforward.com/mcp/ca/v3';
-      const basicAuth = Buffer.from(`${process.env.MF_CLIENT_ID}:${process.env.MF_CLIENT_SECRET}`).toString('base64');
+      const basicAuth = Buffer.from(
+        `${process.env.MF_CLIENT_ID}:${process.env.MF_CLIENT_SECRET}`,
+      ).toString('base64');
       const tokenRes: AxiosResponse = await firstValueFrom(
         this.httpService.post(
           'https://api.biz.moneyforward.com/token',
@@ -249,7 +246,7 @@ export class MfOAuthController {
           {
             headers: {
               'Content-Type': 'application/x-www-form-urlencoded',
-              'Authorization': `Basic ${basicAuth}`,
+              Authorization: `Basic ${basicAuth}`,
             },
           },
         ) as any,
@@ -270,9 +267,7 @@ export class MfOAuthController {
           refreshToken: refresh_token
             ? encryptIfAvailable(refresh_token)
             : null,
-          tokenExpiry: new Date(
-            Date.now() + (expires_in || 2592000) * 1000,
-          ),
+          tokenExpiry: new Date(Date.now() + (expires_in || 2592000) * 1000),
           syncStatus: 'SUCCESS',
           lastSyncAt: new Date(),
         },
@@ -281,9 +276,7 @@ export class MfOAuthController {
           refreshToken: refresh_token
             ? encryptIfAvailable(refresh_token)
             : undefined,
-          tokenExpiry: new Date(
-            Date.now() + (expires_in || 2592000) * 1000,
-          ),
+          tokenExpiry: new Date(Date.now() + (expires_in || 2592000) * 1000),
           syncStatus: 'SUCCESS',
           lastSyncAt: new Date(),
         },

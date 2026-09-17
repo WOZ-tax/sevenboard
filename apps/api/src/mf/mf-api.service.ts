@@ -14,6 +14,14 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CacheService } from '../common/cache.service';
 import { DataHealthService } from '../data-health/data-health.service';
 import { decryptIfAvailable, encryptIfAvailable } from '../common/crypto.util';
+import { isDemoOrg } from '../demo/demo.constants';
+import {
+  demoAccounts,
+  demoJournals,
+  demoOffice,
+  demoTransition,
+  demoTrialBalance,
+} from '../demo/wholesale-ledger';
 import {
   MfOffice,
   MfTrialBalance,
@@ -173,7 +181,8 @@ export class MfApiService {
     return {
       refreshed: true,
       expiresAt: updated?.tokenExpiry?.toISOString() ?? '',
-      lastRefreshedAt: updated?.updatedAt?.toISOString() ?? new Date().toISOString(),
+      lastRefreshedAt:
+        updated?.updatedAt?.toISOString() ?? new Date().toISOString(),
     };
   }
 
@@ -191,7 +200,9 @@ export class MfApiService {
     try {
       const clientId = process.env.MF_CLIENT_ID || '';
       const clientSecret = process.env.MF_CLIENT_SECRET || '';
-      const basicAuth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+      const basicAuth = Buffer.from(`${clientId}:${clientSecret}`).toString(
+        'base64',
+      );
 
       const res: AxiosResponse = await lastValueFrom(
         this.httpService.post(
@@ -361,12 +372,15 @@ export class MfApiService {
     );
 
     // Extract session ID from Mcp-Session header
-    const sessionId = res.headers['mcp-session'] || res.headers['mcp-session-id'] || '';
+    const sessionId =
+      res.headers['mcp-session'] || res.headers['mcp-session-id'] || '';
 
     // Parse response: may be JSON or SSE
     const body = this.parseMcpResponse(res.data);
     if (body?.error) {
-      throw new InternalServerErrorException(`MCP init error: ${body.error.message}`);
+      throw new InternalServerErrorException(
+        `MCP init error: ${body.error.message}`,
+      );
     }
 
     // Send initialized notification
@@ -430,35 +444,57 @@ export class MfApiService {
 
     const body = this.parseMcpResponse(res.data);
     if (body?.error) {
-      throw new InternalServerErrorException(`MCP tool error: ${body.error.message}`);
+      throw new InternalServerErrorException(
+        `MCP tool error: ${body.error.message}`,
+      );
     }
 
     // Extract content from MCP tool result
     const result = body?.result;
     if (!result) {
-      this.logger.warn(`MCP tool ${toolName}: result is null/undefined, body=${JSON.stringify(body).substring(0, 300)}`);
+      this.logger.warn(
+        `MCP tool ${toolName}: result is null/undefined, body=${JSON.stringify(body).substring(0, 300)}`,
+      );
       return result;
     }
 
     // 個別の result 内容はログに残さない（財務明細の漏洩リスク）。キー有無だけ debug で残す。
-    this.logger.debug(`MCP ${toolName} result keys=[${Object.keys(result).join(',')}]`);
+    this.logger.debug(
+      `MCP ${toolName} result keys=[${Object.keys(result).join(',')}]`,
+    );
 
     // MCPツール実行エラーは result.isError=true で返る。そのままparseすると壊れたデータが下流に流れるので throw。
     if (result.isError === true) {
       const errText = Array.isArray(result.content)
-        ? result.content.map((c: any) => c?.text).filter(Boolean).join(' ')
+        ? result.content
+            .map((c: any) => c?.text)
+            .filter(Boolean)
+            .join(' ')
         : 'unknown MCP tool error';
-      this.logger.warn(`MCP tool ${toolName} returned isError=true: ${errText.substring(0, 300)}`);
-      throw new InternalServerErrorException(`MF MCP tool error: ${errText.substring(0, 200)}`);
+      this.logger.warn(
+        `MCP tool ${toolName} returned isError=true: ${errText.substring(0, 300)}`,
+      );
+      throw new InternalServerErrorException(
+        `MF MCP tool error: ${errText.substring(0, 200)}`,
+      );
     }
 
     // MCP 2025-03 spec: structuredContent に構造化JSONが入る（優先）
-    if (result.structuredContent && typeof result.structuredContent === 'object') {
+    if (
+      result.structuredContent &&
+      typeof result.structuredContent === 'object'
+    ) {
       const sc = result.structuredContent;
       // structuredContent の中身(財務データ)は本番ログに出さない。キー名のみ。
-      this.logger.debug(`MCP ${toolName} structuredContent keys=[${Object.keys(sc).join(',')}]`);
+      this.logger.debug(
+        `MCP ${toolName} structuredContent keys=[${Object.keys(sc).join(',')}]`,
+      );
       // MF MCP はまれに { result: {...} } で二重ラップしてくる
-      if (sc.rows !== undefined || sc.columns !== undefined || sc.accounts !== undefined) {
+      if (
+        sc.rows !== undefined ||
+        sc.columns !== undefined ||
+        sc.accounts !== undefined
+      ) {
         return sc;
       }
       if (sc.result && typeof sc.result === 'object') {
@@ -468,14 +504,18 @@ export class MfApiService {
     }
 
     if (!result.content) {
-      this.logger.warn(`MCP tool ${toolName}: no content/structuredContent, result=${JSON.stringify(result).substring(0, 400)}`);
+      this.logger.warn(
+        `MCP tool ${toolName}: no content/structuredContent, result=${JSON.stringify(result).substring(0, 400)}`,
+      );
       return result;
     }
 
     // MCP returns content as array of {type, text} blocks
     const textBlock = result.content.find((c: any) => c.type === 'text');
     if (!textBlock?.text) {
-      this.logger.warn(`MCP tool ${toolName}: no text block in content, content=${JSON.stringify(result.content).substring(0, 300)}`);
+      this.logger.warn(
+        `MCP tool ${toolName}: no text block in content, content=${JSON.stringify(result.content).substring(0, 300)}`,
+      );
       return result;
     }
 
@@ -495,7 +535,11 @@ export class MfApiService {
 
     // Pure JSON
     if (trimmed.startsWith('{')) {
-      try { return JSON.parse(trimmed); } catch { /* fall through */ }
+      try {
+        return JSON.parse(trimmed);
+      } catch {
+        /* fall through */
+      }
     }
 
     // SSE format: events separated by double newlines.
@@ -517,15 +561,21 @@ export class MfApiService {
       const joined = dataFragments.join('');
       try {
         const parsed = JSON.parse(joined);
-        if (parsed.id !== undefined || parsed.result || parsed.error) return parsed;
-      } catch { /* try next */ }
+        if (parsed.id !== undefined || parsed.result || parsed.error)
+          return parsed;
+      } catch {
+        /* try next */
+      }
 
       // Try each fragment individually
       for (const frag of dataFragments) {
         try {
           const parsed = JSON.parse(frag);
-          if (parsed.id !== undefined || parsed.result || parsed.error) return parsed;
-        } catch { /* skip */ }
+          if (parsed.id !== undefined || parsed.result || parsed.error)
+            return parsed;
+        } catch {
+          /* skip */
+        }
       }
     }
 
@@ -548,7 +598,9 @@ export class MfApiService {
     // 同じ cacheKey で進行中のリクエストがあれば、その Promise を共有して de-dupe する。
     // cold load 時に dashboard/alerts/triage/briefing から同じ MF API が同時叩きされる構造
     // のため、これを入れないと外部 MF へのコール数が初期表示で 5〜10 倍に膨らむ。
-    const inFlight = this.requestInFlight.get(cacheKey) as Promise<T> | undefined;
+    const inFlight = this.requestInFlight.get(cacheKey) as
+      | Promise<T>
+      | undefined;
     if (inFlight) return inFlight;
 
     const promise = this.executeMcpRequest<T>(orgId, toolName, args, cacheKey);
@@ -612,10 +664,16 @@ export class MfApiService {
       const status = err?.response?.status;
       const msg = err?.response?.data || err?.message;
       const headers = err?.response?.headers || {};
-      this.logger.error(`MF MCP error detail: status=${status} wwwAuth=${headers['www-authenticate']} body=${JSON.stringify(msg).substring(0, 500)}`);
+      this.logger.error(
+        `MF MCP error detail: status=${status} wwwAuth=${headers['www-authenticate']} body=${JSON.stringify(msg).substring(0, 500)}`,
+      );
 
       // 401/403: try token refresh (MCP server returns 401 for expired/invalid tokens)
-      if (status === 401 || status === 403 || String(msg).includes('invalid_token')) {
+      if (
+        status === 401 ||
+        status === 403 ||
+        String(msg).includes('invalid_token')
+      ) {
         this.logger.warn('MF MCP 401, attempting token refresh');
         // 401 回復のリフレッシュも orgId 単位の single-flight (tokenInFlight) に合流させる。
         // 直接 refreshToken を呼ぶと、複数リクエストが同時に 401 を受けた際にそれぞれ
@@ -659,14 +717,20 @@ export class MfApiService {
     }
   }
 
-  private recordHealth(orgId: string, status: 'SUCCESS' | 'FAILED', errorMessage?: string) {
+  private recordHealth(
+    orgId: string,
+    status: 'SUCCESS' | 'FAILED',
+    errorMessage?: string,
+  ) {
     const key = `${orgId}:${status}`;
     const last = this.lastHealthRecordAt.get(key) ?? 0;
     if (Date.now() - last < 60_000) return;
     this.lastHealthRecordAt.set(key, Date.now());
     this.dataHealth
       .record({ orgId, source: 'MF_CLOUD', status, errorMessage })
-      .catch((err) => this.logger.warn(`health record failed: ${err?.message}`));
+      .catch((err) =>
+        this.logger.warn(`health record failed: ${err?.message}`),
+      );
   }
 
   // ============================
@@ -688,10 +752,17 @@ export class MfApiService {
     const cached = this.cache.get<T>(cacheKey);
     if (cached) return cached;
 
-    const inFlight = this.requestInFlight.get(cacheKey) as Promise<T> | undefined;
+    const inFlight = this.requestInFlight.get(cacheKey) as
+      | Promise<T>
+      | undefined;
     if (inFlight) return inFlight;
 
-    const promise = this.executeApiRequest<T>(orgId, cacheKey, exec, cacheTtlMs);
+    const promise = this.executeApiRequest<T>(
+      orgId,
+      cacheKey,
+      exec,
+      cacheTtlMs,
+    );
     this.requestInFlight.set(cacheKey, promise);
     try {
       return await promise;
@@ -748,7 +819,9 @@ export class MfApiService {
           'Selected date range is outside MoneyForward accounting periods',
         );
       }
-      this.logger.error(`MF v3 error: status=${err.status} code=${err.code ?? '-'}`);
+      this.logger.error(
+        `MF v3 error: status=${err.status} code=${err.code ?? '-'}`,
+      );
       this.recordHealth(orgId, 'FAILED', err.message.substring(0, 200));
       return new InternalServerErrorException(
         `MF API error: ${err.status || 'unknown'}`,
@@ -766,9 +839,12 @@ export class MfApiService {
   // ============================
 
   async getOffice(orgId: string): Promise<MfOffice> {
+    if (isDemoOrg(orgId)) return demoOffice();
     if (this.transport === 'api') {
-      return this.apiRequest<MfOffice>(orgId, `mf:${orgId}:api:office`, async (ctx) =>
-        adaptOffice(await this.v3.getOffice(ctx)),
+      return this.apiRequest<MfOffice>(
+        orgId,
+        `mf:${orgId}:api:office`,
+        async (ctx) => adaptOffice(await this.v3.getOffice(ctx)),
       );
     }
     return this.mcpRequest<MfOffice>(orgId, 'mfc_ca_currentOffice');
@@ -779,6 +855,7 @@ export class MfApiService {
     fiscalYear?: number,
     endMonth?: number,
   ): Promise<MfTrialBalance> {
+    if (isDemoOrg(orgId)) return demoTrialBalance('pl', fiscalYear, endMonth);
     const args: Record<string, any> = {};
     if (fiscalYear) args.fiscal_year = fiscalYear;
     if (endMonth) args.end_month = endMonth;
@@ -786,7 +863,8 @@ export class MfApiService {
       return this.apiRequest<MfTrialBalance>(
         orgId,
         `mf:${orgId}:api:tb_pl:${JSON.stringify(args)}`,
-        async (ctx) => adaptTrialBalance(await this.v3.getTrialBalancePl(ctx, args)),
+        async (ctx) =>
+          adaptTrialBalance(await this.v3.getTrialBalancePl(ctx, args)),
       );
     }
     return this.mcpRequest<MfTrialBalance>(
@@ -802,6 +880,8 @@ export class MfApiService {
     endMonth?: number,
     options?: { startMonth?: number; withSubAccounts?: boolean },
   ): Promise<MfTrialBalance> {
+    if (isDemoOrg(orgId))
+      return demoTrialBalance('bs', fiscalYear, endMonth, options?.startMonth);
     const args: Record<string, any> = {};
     if (fiscalYear) args.fiscal_year = fiscalYear;
     if (endMonth) args.end_month = endMonth;
@@ -812,7 +892,8 @@ export class MfApiService {
       return this.apiRequest<MfTrialBalance>(
         orgId,
         `mf:${orgId}:api:tb_bs:${JSON.stringify(args)}`,
-        async (ctx) => adaptTrialBalance(await this.v3.getTrialBalanceBs(ctx, args)),
+        async (ctx) =>
+          adaptTrialBalance(await this.v3.getTrialBalanceBs(ctx, args)),
       );
     }
     return this.mcpRequest<MfTrialBalance>(
@@ -827,6 +908,7 @@ export class MfApiService {
     fiscalYear?: number,
     endMonth?: number,
   ): Promise<MfTransition> {
+    if (isDemoOrg(orgId)) return demoTransition('pl', fiscalYear, endMonth);
     const args: Record<string, any> = { type: 'monthly' };
     if (fiscalYear) args.fiscal_year = fiscalYear;
     if (endMonth) args.end_month = endMonth;
@@ -834,7 +916,8 @@ export class MfApiService {
       return this.apiRequest<MfTransition>(
         orgId,
         `mf:${orgId}:api:tr_pl:${JSON.stringify(args)}`,
-        async (ctx) => adaptTransition(await this.v3.getTransitionPl(ctx, args as any)),
+        async (ctx) =>
+          adaptTransition(await this.v3.getTransitionPl(ctx, args as any)),
       );
     }
     return this.mcpRequest<MfTransition>(
@@ -850,6 +933,7 @@ export class MfApiService {
     endMonth?: number,
     options?: { withSubAccounts?: boolean },
   ): Promise<MfTransition> {
+    if (isDemoOrg(orgId)) return demoTransition('bs', fiscalYear, endMonth);
     const args: Record<string, any> = { type: 'monthly' };
     if (fiscalYear) args.fiscal_year = fiscalYear;
     if (endMonth) args.end_month = endMonth;
@@ -860,7 +944,8 @@ export class MfApiService {
       return this.apiRequest<MfTransition>(
         orgId,
         `mf:${orgId}:api:tr_bs:${JSON.stringify(args)}`,
-        async (ctx) => adaptTransition(await this.v3.getTransitionBs(ctx, args as any)),
+        async (ctx) =>
+          adaptTransition(await this.v3.getTransitionBs(ctx, args as any)),
       );
     }
     return this.mcpRequest<MfTransition>(
@@ -871,6 +956,7 @@ export class MfApiService {
   }
 
   async getAccounts(orgId: string): Promise<{ accounts: MfAccount[] }> {
+    if (isDemoOrg(orgId)) return demoAccounts();
     if (this.transport === 'api') {
       return this.apiRequest<{ accounts: MfAccount[] }>(
         orgId,
@@ -886,6 +972,7 @@ export class MfApiService {
     orgId: string,
     params?: { startDate?: string; endDate?: string },
   ): Promise<any> {
+    if (isDemoOrg(orgId)) return demoJournals(params);
     if (this.transport === 'api') {
       const query: Record<string, any> = {};
       if (params?.startDate) query.start_date = params.startDate;
@@ -893,7 +980,8 @@ export class MfApiService {
       return this.apiRequest<{ journals: any[]; truncated: boolean }>(
         orgId,
         `mf:${orgId}:api:journals:${JSON.stringify(query)}`,
-        async (ctx) => adaptJournalsResult(await this.v3.getAllJournals(ctx, query)),
+        async (ctx) =>
+          adaptJournalsResult(await this.v3.getAllJournals(ctx, query)),
       );
     }
     const PER_PAGE = 500;
@@ -936,7 +1024,8 @@ export class MfApiService {
       if (page === 1) pageSize = batch.length;
 
       // 空ページ or 実効ページサイズ未満 = 最終ページ
-      if (batch.length === 0 || pageSize === 0 || batch.length < pageSize) break;
+      if (batch.length === 0 || pageSize === 0 || batch.length < pageSize)
+        break;
 
       page += 1;
       if (page > MAX_PAGES) {

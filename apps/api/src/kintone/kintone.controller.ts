@@ -21,6 +21,8 @@ import { OrgAccessService } from '../auth/org-access.service';
 import { KintoneApiService } from './kintone-api.service';
 import { DataHealthService } from '../data-health/data-health.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { DemoService } from '../demo/demo.service';
+import { DEMO_USER_ID, DEMO_ORG_ID } from '../demo/demo.constants';
 
 @Controller('kintone')
 @UseGuards(JwtAuthGuard)
@@ -30,6 +32,7 @@ export class KintoneController {
     private dataHealth: DataHealthService,
     private prisma: PrismaService,
     private orgAccess: OrgAccessService,
+    private demo: DemoService,
   ) {}
 
   /**
@@ -120,6 +123,10 @@ export class KintoneController {
   ) {
     const user = req.user as { id: string; role: string; orgId: string | null };
     const fy = fiscalYear || new Date().getFullYear().toString();
+    if (user.id === DEMO_USER_ID) {
+      await this.orgAccess.assertOrgAccess(user, DEMO_ORG_ID);
+      return [await this.demo.monthlyProgress(fiscalYear)];
+    }
     const records = await this.withHealthRecord(req, () =>
       this.kintoneApi.getMonthlyProgress(fy, search, assignee),
     );
@@ -132,7 +139,9 @@ export class KintoneController {
         where: { id: { in: accessible } },
         select: { code: true },
       })
-      .then((rows) => new Set(rows.map((r) => r.code).filter(Boolean) as string[]));
+      .then(
+        (rows) => new Set(rows.map((r) => r.code).filter(Boolean) as string[]),
+      );
 
     return records.filter((r: { mfOfficeCode?: string }) =>
       r.mfOfficeCode ? allowedMfCodes.has(r.mfOfficeCode) : false,
@@ -172,7 +181,12 @@ export class KintoneController {
    * 月次進捗ステータスを更新
    */
   private static VALID_STATUSES = [
-    '0.未作業', '1.資料依頼済', '2.資料回収済', '3.入力済', '4.納品済', '5.実施不要',
+    '0.未作業',
+    '1.資料依頼済',
+    '2.資料回収済',
+    '3.入力済',
+    '4.納品済',
+    '5.実施不要',
   ];
 
   /**
@@ -196,7 +210,9 @@ export class KintoneController {
       throw new BadRequestException('month must be 1-12');
     }
     if (!KintoneController.VALID_STATUSES.includes(body.status)) {
-      throw new BadRequestException(`Invalid status. Must be one of: ${KintoneController.VALID_STATUSES.join(', ')}`);
+      throw new BadRequestException(
+        `Invalid status. Must be one of: ${KintoneController.VALID_STATUSES.join(', ')}`,
+      );
     }
 
     const user = req.user as { id: string; role: string; orgId: string | null };
@@ -204,14 +220,18 @@ export class KintoneController {
 
     const mfCode = await this.kintoneApi.getRecordMfCode(recordId);
     if (!mfCode) {
-      throw new NotFoundException('対象レコードが存在しないか、MF事業者番号が未設定です');
+      throw new NotFoundException(
+        '対象レコードが存在しないか、MF事業者番号が未設定です',
+      );
     }
     const org = await this.prisma.organization.findUnique({
       where: { code: mfCode },
       select: { id: true },
     });
     if (!org || !accessible.includes(org.id)) {
-      throw new ForbiddenException('この顧問先の月次進捗を更新する権限がありません');
+      throw new ForbiddenException(
+        'この顧問先の月次進捗を更新する権限がありません',
+      );
     }
 
     const ok = await this.kintoneApi.updateMonthlyStatus(

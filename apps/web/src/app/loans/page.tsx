@@ -389,7 +389,7 @@ function MfReconcileCard({
                   hasDiff ? "font-semibold text-amber-700" : "text-muted-foreground",
                 )}
               >
-                差異: {yen(diff)}
+                差異: {diff === null ? "比較日を確認できません" : yen(diff)}
               </span>
               {mf!.accounts.length > 0 && (
                 <button
@@ -409,6 +409,11 @@ function MfReconcileCard({
           )}
         </div>
 
+        {!unavailable && mf?.asOf && (
+          <p className="mt-2 text-xs text-muted-foreground">
+            照合日: {mf.asOf} · 同日時点の返済予定表残高: {yen(mf.scheduledBalance ?? null)}
+          </p>
+        )}
         {unavailable && !loading && (
           <p className="mt-2 text-xs text-muted-foreground">
             MF未接続、または借入金勘定の残高を取得できませんでした。

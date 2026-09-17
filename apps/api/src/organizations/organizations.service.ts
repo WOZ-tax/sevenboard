@@ -83,12 +83,14 @@ export class OrganizationsService {
     // 担当に指定された全員が SEVENRICH スタッフ（owner / advisor）であることを検証
     if (assigneeIds.size > 0) {
       const users = await this.prisma.user.findMany({
-        where: { id: { in: Array.from(assigneeIds) } },
+        where: {
+          id: { in: Array.from(assigneeIds) },
+          tenantMemberships: { some: { tenantId, status: 'active' } },
+        },
         select: { id: true, role: true, orgId: true },
       });
       const invalid = users.filter(
-        (u) =>
-          u.orgId !== null || (u.role !== 'owner' && u.role !== 'advisor'),
+        (u) => u.orgId !== null || (u.role !== 'owner' && u.role !== 'advisor'),
       );
       if (invalid.length > 0) {
         throw new BadRequestException(

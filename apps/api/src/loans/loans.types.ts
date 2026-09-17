@@ -36,6 +36,8 @@ export interface LoanTotalsDto {
 }
 
 export interface MfBookBalanceDto {
+  asOf?: string | null;
+  scheduledBalance?: number | null;
   amount: number | null;
   accounts: { name: string; amount: number }[];
   diff: number | null;

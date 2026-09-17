@@ -33,6 +33,8 @@ export interface Membership {
   orgCode: string | null;
   industry?: string | null;
   fiscalMonthEnd?: number | null;
+  isDemo?: boolean;
+  dataAsOf?: string;
 }
 
 interface CurrentOrgContextValue {
@@ -89,6 +91,14 @@ export function CurrentOrgProvider({ children }: { children: ReactNode }) {
   }, [list, currentOrgId]);
 
   const currentRole = currentOrg?.role ?? null;
+
+  useEffect(() => {
+    const period = usePeriodStore.getState();
+    if (currentOrg?.isDemo && currentOrg.dataAsOf && !period.locked) {
+      const [year, month] = currentOrg.dataAsOf.split("-").map(Number);
+      period.setPeriod(year, month, { lock: false });
+    }
+  }, [currentOrg?.orgId, currentOrg?.isDemo, currentOrg?.dataAsOf]);
 
   // 解決後の値が localStorage と乖離していたら同期
   useEffect(() => {

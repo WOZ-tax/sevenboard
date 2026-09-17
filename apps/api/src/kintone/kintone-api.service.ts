@@ -2,6 +2,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { lastValueFrom } from 'rxjs';
 import { AxiosResponse } from 'axios';
+import { DemoService } from '../demo/demo.service';
+import { DEMO_CODE } from '../demo/demo.constants';
 
 export interface KintoneRecord {
   [key: string]: { type: string; value: any };
@@ -54,7 +56,10 @@ export class KintoneApiService {
   private readonly appId: string;
   private readonly customerAppId: string;
 
-  constructor(private httpService: HttpService) {
+  constructor(
+    private httpService: HttpService,
+    private demo: DemoService,
+  ) {
     this.baseUrl = process.env.KINTONE_BASE_URL || 'https://plvu6.cybozu.com';
     this.appId = process.env.KINTONE_MONTHLY_APP_ID || '139';
     this.customerAppId = process.env.KINTONE_CUSTOMER_APP_ID || '16';
@@ -87,10 +92,13 @@ export class KintoneApiService {
     }
     if (assignee) {
       const a = esc(assignee);
-      conditions.push(`(InCharge in ("${a}") or Reviewer in ("${a}") or Preparer in ("${a}"))`);
+      conditions.push(
+        `(InCharge in ("${a}") or Reviewer in ("${a}") or Preparer in ("${a}"))`,
+      );
     }
 
-    const q = conditions.join(' and ') + ' order by クライアント名 asc limit 500';
+    const q =
+      conditions.join(' and ') + ' order by クライアント名 asc limit 500';
 
     try {
       const res: AxiosResponse = await lastValueFrom(
@@ -121,6 +129,8 @@ export class KintoneApiService {
     mfOfficeCode: string,
     fiscalYear?: string,
   ): Promise<MonthlyProgressRecord | null> {
+    if (mfOfficeCode === DEMO_CODE)
+      return this.demo.monthlyProgress(fiscalYear);
     const esc = (s: string) => s.replace(/"/g, '\\"');
     const conditions = [`MF事業者番号 = "${esc(mfOfficeCode)}"`];
     if (fiscalYear) {
@@ -237,6 +247,7 @@ export class KintoneApiService {
   async getCustomerBasicByMfCode(
     mfOfficeCode: string,
   ): Promise<CustomerBasic | null> {
+    if (mfOfficeCode === DEMO_CODE) return this.demo.customer();
     const monthly = await this.getByMfOfficeCode(mfOfficeCode);
     if (!monthly?.clientId) return null;
     return this.getCustomerBasicByClientId(monthly.clientId);
@@ -254,9 +265,16 @@ export class KintoneApiService {
     const rawFields: Record<string, string> = {};
     // 一般的にLLMに渡しても意味のある文字列/数値系フィールドだけ抽出
     const SKIP = new Set([
-      'レコード番号', '$id', '$revision',
-      '作成者', '更新者', '作成日時', '更新日時',
-      'ステータス', '作業者', 'カテゴリー',
+      'レコード番号',
+      '$id',
+      '$revision',
+      '作成者',
+      '更新者',
+      '作成日時',
+      '更新日時',
+      'ステータス',
+      '作業者',
+      'カテゴリー',
     ]);
     for (const [k, v] of Object.entries(r)) {
       if (SKIP.has(k)) continue;
@@ -276,11 +294,15 @@ export class KintoneApiService {
       establishedAt: pick('設立年月日') || pick('設立日') || undefined,
       closingMonth: pick('決算月') || undefined,
       mainBanks: pick('取引銀行')
-        ? pick('取引銀行').split(/[,、]/).map((s) => s.trim()).filter(Boolean)
+        ? pick('取引銀行')
+            .split(/[,、]/)
+            .map((s) => s.trim())
+            .filter(Boolean)
         : undefined,
       representativeName: pick('代表者') || pick('代表者名') || undefined,
       headOffice: pick('本社所在地') || pick('住所') || undefined,
-      contractStatusTax: pick('契約状況(税務)') || pick('契約状況税務') || undefined,
+      contractStatusTax:
+        pick('契約状況(税務)') || pick('契約状況税務') || undefined,
       websiteUrl:
         pick('HP') ||
         pick('URL') ||

@@ -199,26 +199,7 @@ export const TENANT_ROLE_PERMISSIONS: Record<string, Permission[]> = {
   ],
   // Current SevenBoard behavior lets advisors create a new client and assigns
   // them to it. Keep that during the migration to scoped memberships.
-  firm_advisor: [
-    'tenant:organizations:create',
-    'org:risk_findings:read',
-    'org:risk_findings:manage',
-    'org:risk_findings:scan',
-    'org:chosho:read',
-    'org:chosho:manage',
-    'org:journal_review:read',
-    'org:journal_review:manage',
-    'org:withholding_tax:read',
-    'org:withholding_tax:manage',
-    'org:loans:read',
-    'org:loans:manage',
-    'org:year_end_review:read',
-    'org:year_end_review:manage',
-    'org:locaben:read',
-    'org:locaben:manage',
-    'org:feature_state:read',
-    'org:feature_state:write',
-  ],
+  firm_advisor: ['tenant:organizations:create'],
   // Team-scoped manager access needs Team/Assignment models. Keep it closed
   // until that scope exists instead of silently granting tenant-wide access.
   firm_manager: [],
@@ -249,6 +230,7 @@ export const TENANT_ROLE_PERMISSIONS: Record<string, Permission[]> = {
     'org:chosho:read',
     'org:journal_review:read',
     'org:withholding_tax:read',
+    'org:loans:read',
     'org:year_end_review:read',
     'org:locaben:read',
     'org:feature_state:read',

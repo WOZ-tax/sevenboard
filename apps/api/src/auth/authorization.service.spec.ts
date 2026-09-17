@@ -680,7 +680,7 @@ describe('AuthorizationService', () => {
 
   it('returns tenant-wide organizations plus explicitly assigned organizations', async () => {
     prisma.tenantMembership.findMany.mockResolvedValue([
-      { tenantId: 'tenant-1', role: 'firm_viewer' },
+      { tenantId: 'tenant-1', role: 'firm_viewer', status: 'active' },
     ]);
     prisma.organization.findMany.mockResolvedValue([
       { id: 'org-1', name: 'A社' },

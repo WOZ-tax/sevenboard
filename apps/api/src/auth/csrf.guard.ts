@@ -35,7 +35,7 @@ export class CsrfGuard implements CanActivate {
     // /auth/mf/refresh まで免除され、本番Cookie(sameSite:'none')下でCSRFを許してしまう。
     // callback は冪等GETなので冒頭のメソッド判定でも素通りするが、意図を明示するため列挙する。
     const path = req.path || req.url || '';
-    if (path.startsWith('/auth/login') || path.startsWith('/auth/mf/callback')) {
+    if (path === '/auth/login' || path === '/auth/mf/callback') {
       return true;
     }
 
@@ -50,12 +50,8 @@ export class CsrfGuard implements CanActivate {
       return true;
     }
 
-    // Bearer認証を使っている場合はCSRFリスクなし（トークンは自動送信されない）
-    const authHeader = req.headers['authorization'] || '';
-    if (authHeader.startsWith('Bearer ')) {
-      return true;
-    }
-
+    // JwtStrategy prioritizes the cookie over Bearer. A supplied Bearer header
+    // must therefore never waive CSRF while an authentication cookie is present.
     // Cookie認証(sb_token)を使っていない場合はCSRFリスクなし
     // 判定基準はCSRF Cookieの有無ではなく認証Cookieの有無
     if (!req.cookies?.[JWT_COOKIE_NAME]) {

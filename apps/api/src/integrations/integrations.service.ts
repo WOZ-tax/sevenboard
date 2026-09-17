@@ -2,13 +2,23 @@ import {
   Injectable,
   NotFoundException,
   NotImplementedException,
+  BadGatewayException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { encryptIfAvailable, decryptIfAvailable } from '../common/crypto.util';
+import { encryptIfAvailable } from '../common/crypto.util';
+import { SyncService } from '../sync/sync.service';
+import { MfApiService } from '../mf/mf-api.service';
+import { KintoneApiService } from '../kintone/kintone-api.service';
+import { isDemoOrg, DEMO_AS_OF } from '../demo/demo.constants';
 
 @Injectable()
 export class IntegrationsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private syncService: SyncService,
+    private mf: MfApiService,
+    private kintone: KintoneApiService,
+  ) {}
 
   async findAll(orgId: string) {
     const { tenantId } = await this.prisma.orgScope(orgId);
@@ -19,7 +29,9 @@ export class IntegrationsService {
     // トークンは返さない（セキュリティ）
     return integrations.map((i) => ({
       provider: i.provider,
-      isConnected: !!i.accessToken,
+      isConnected: isDemoOrg(orgId) || !!i.accessToken,
+      dataSource: isDemoOrg(orgId) ? 'demo' : 'external',
+      dataAsOf: isDemoOrg(orgId) ? DEMO_AS_OF : undefined,
       lastSyncAt: i.lastSyncAt,
       syncStatus: i.syncStatus,
     }));
@@ -31,6 +43,12 @@ export class IntegrationsService {
 
     // kintone: 環境変数で認証。疎通テスト後にIntegrationレコード作成
     if (providerEnum === 'BOOKKEEPING_PLUGIN') {
+      const office = await this.mf.getOffice(orgId);
+      const progress = await this.kintone.getByMfOfficeCode(office.code);
+      if (!progress)
+        throw new BadGatewayException(
+          'kintoneの月次進捗を取得できませんでした',
+        );
       await this.prisma.integration.upsert({
         where: {
           tenantId_orgId_provider: { tenantId, orgId, provider: providerEnum },
@@ -97,19 +115,30 @@ export class IntegrationsService {
       },
     });
 
-    if (!integration || !integration.accessToken) {
-      throw new NotFoundException(
-        `Integration ${provider} not connected`,
-      );
+    if (!integration || (!integration.accessToken && !isDemoOrg(orgId))) {
+      throw new NotFoundException(`Integration ${provider} not connected`);
     }
 
-    // トークンを復号して利用可能か確認（本番ではAPI呼び出しに使用）
-    const _accessToken = decryptIfAvailable(integration.accessToken);
-    const _refreshToken = integration.refreshToken
-      ? decryptIfAvailable(integration.refreshToken)
-      : null;
-
-    // 本番ではMFデータ取込を実行。今はステータスをSUCCESSに更新するだけ
+    if (providerEnum === 'MF_CLOUD') {
+      const result = await this.syncService.runSync(orgId);
+      if (result.status !== 'SUCCESS')
+        throw new BadGatewayException(
+          'MFの同期が完了しませんでした。データ連携状況を確認してください。',
+        );
+      return {
+        provider,
+        ...result,
+        syncStatus: 'SUCCESS',
+        lastSyncAt: result.syncedAt,
+      };
+    }
+    if (providerEnum !== 'BOOKKEEPING_PLUGIN')
+      throw new NotImplementedException(`${provider}の同期は未対応です`);
+    // Only mark success after reading the actual connection (or isolated demo source).
+    const office = await this.mf.getOffice(orgId);
+    const progress = await this.kintone.getByMfOfficeCode(office.code);
+    if (!progress)
+      throw new BadGatewayException('kintoneの月次進捗を取得できませんでした');
     await this.prisma.integration.update({
       where: { id: integration.id },
       data: {
@@ -142,7 +171,9 @@ export class IntegrationsService {
 
     return {
       provider: integration.provider,
-      isConnected: !!integration.accessToken,
+      isConnected: isDemoOrg(orgId) || !!integration.accessToken,
+      dataSource: isDemoOrg(orgId) ? 'demo' : 'external',
+      dataAsOf: isDemoOrg(orgId) ? DEMO_AS_OF : undefined,
       lastSyncAt: integration.lastSyncAt,
       syncStatus: integration.syncStatus,
     };

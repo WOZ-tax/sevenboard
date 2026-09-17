@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
 import { useScopedOrgId } from "@/hooks/use-scoped-org-id";
+import { useCurrentOrg } from "@/contexts/current-org";
 import { useSidebarConfig, ALWAYS_VISIBLE } from "@/lib/sidebar-config";
 import { menuItems } from "@/components/layout/sidebar";
 import {
@@ -110,6 +111,8 @@ function IntegrationCard({
   isDisconnecting: boolean;
   isRefreshingToken?: boolean;
 }) {
+  const { currentOrg } = useCurrentOrg();
+  const isDemo = currentOrg?.isDemo;
   const meta = PROVIDER_META[provider] || { name: provider, description: "" };
   const connected = status?.isConnected ?? false;
   const syncStatus = status?.syncStatus ?? "NEVER";
@@ -122,6 +125,7 @@ function IntegrationCard({
   const expiresSoon = expiresAtMs != null && expiresAtMs - Date.now() < 5 * 60 * 1000;
 
   const badgeNode = (() => {
+    if (isDemo) return <Badge variant="outline">デモデータ</Badge>;
     if (isSyncing || syncStatus === "IN_PROGRESS") {
       return (
         <Badge className="flex items-center gap-1 border border-yellow-300 bg-yellow-100 px-2 py-0.5 text-yellow-700">
@@ -153,7 +157,7 @@ function IntegrationCard({
           </span>
           {badgeNode}
         </div>
-        <div className="mt-0.5 text-xs text-muted-foreground">{meta.description}</div>
+        <div className="mt-0.5 text-xs text-muted-foreground">{isDemo ? "架空データを使用中。外部アカウントへの接続変更はできません。" : meta.description}</div>
         {connected && lastSyncAt && (
           <div className="mt-0.5 text-xs text-muted-foreground">
             最終同期: {formatDateTime(lastSyncAt)}
@@ -189,7 +193,7 @@ function IntegrationCard({
               {isSyncing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
               <span className="ml-1">再同期</span>
             </Button>
-            {onRefreshToken && (
+            {onRefreshToken && !isDemo && (
               <Button
                 variant="outline"
                 size="sm"
@@ -205,7 +209,7 @@ function IntegrationCard({
                 <span className="ml-1">トークン更新</span>
               </Button>
             )}
-            <Button variant="destructive" size="sm" disabled={isBusy} onClick={onDisconnect}>
+            <Button variant="destructive" size="sm" disabled={isBusy || isDemo} onClick={onDisconnect}>
               {isDisconnecting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Unlink className="h-3.5 w-3.5" />}
               <span className="ml-1">解除</span>
             </Button>

@@ -1,7 +1,17 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { UserLike } from './staff.helpers';
 import { Permission, roleHasPermission } from './permissions';
+import {
+  DEMO_RESTRICTED_PERMISSIONS,
+  DEMO_USER_ID,
+  DEMO_ORG_ID,
+  DEMO_TENANT_ID,
+} from '../demo/demo.constants';
 
 export interface AuthorizationUser extends UserLike {
   email?: string;
@@ -25,15 +35,24 @@ export class AuthorizationService {
     permission: Permission,
     tenantId?: string,
   ): Promise<TenantPermissionResult> {
+    if (user.id === DEMO_USER_ID)
+      throw new ForbiddenException('デモでは事務所の管理操作はできません');
     const resolvedTenantId =
       tenantId ?? (await this.resolveCurrentTenantId(user));
     const membership = await this.prisma.tenantMembership.findUnique({
-      where: { userId_tenantId: { userId: user.id, tenantId: resolvedTenantId } },
-      select: { role: true, status: true },
+      where: {
+        userId_tenantId: { userId: user.id, tenantId: resolvedTenantId },
+      },
+      select: {
+        role: true,
+        status: true,
+        tenant: { select: { status: true } },
+      },
     });
 
     if (
       membership?.status === 'active' &&
+      (!membership.tenant || membership.tenant.status === 'active') &&
       roleHasPermission(membership.role, permission)
     ) {
       return { tenantId: resolvedTenantId };
@@ -47,18 +66,39 @@ export class AuthorizationService {
     orgId: string,
     permission: Permission,
   ): Promise<OrganizationContext> {
+    if (
+      user.id === DEMO_USER_ID &&
+      (orgId !== DEMO_ORG_ID || DEMO_RESTRICTED_PERMISSIONS.has(permission))
+    ) {
+      throw new ForbiddenException(
+        'デモでは顧問先の業務データのみ操作できます',
+      );
+    }
     const org = await this.prisma.organization.findUnique({
       where: { id: orgId },
-      select: { id: true, tenantId: true },
+      select: {
+        id: true,
+        tenantId: true,
+        tenant: { select: { status: true } },
+      },
     });
     if (!org) {
       throw new NotFoundException(`Organization ${orgId} not found`);
     }
 
+    if (org.tenant && org.tenant.status !== 'active')
+      throw new ForbiddenException('Tenant is not active');
     const tenantMembership = await this.prisma.tenantMembership.findUnique({
       where: { userId_tenantId: { userId: user.id, tenantId: org.tenantId } },
       select: { role: true, status: true },
     });
+    // An old organization assignment must not reactivate suspended staff.
+    if (tenantMembership && tenantMembership.status !== 'active') {
+      throw new ForbiddenException('Tenant membership is not active');
+    }
+    if (user.id === DEMO_USER_ID && org.tenantId !== DEMO_TENANT_ID) {
+      throw new ForbiddenException('Invalid demo tenant');
+    }
     if (
       tenantMembership?.status === 'active' &&
       roleHasPermission(tenantMembership.role, permission)
@@ -81,11 +121,25 @@ export class AuthorizationService {
     const byId = new Map<string, any>();
 
     const tenantMemberships = await this.prisma.tenantMembership.findMany({
-      where: { userId: user.id, status: 'active' },
-      select: { tenantId: true, role: true },
+      where: { userId: user.id },
+      select: {
+        tenantId: true,
+        role: true,
+        status: true,
+        tenant: { select: { status: true } },
+      },
     });
+    const blockedTenants = new Set(
+      tenantMemberships
+        .filter(
+          (m) =>
+            m.status !== 'active' || (m.tenant && m.tenant.status !== 'active'),
+        )
+        .map((m) => m.tenantId),
+    );
 
     for (const membership of tenantMemberships) {
+      if (blockedTenants.has(membership.tenantId)) continue;
       if (roleHasPermission(membership.role, 'org:organizations:read')) {
         const orgs = await this.prisma.organization.findMany({
           where: { tenantId: membership.tenantId },
@@ -96,10 +150,14 @@ export class AuthorizationService {
     }
 
     const orgMemberships = await this.prisma.organizationMembership.findMany({
-      where: { userId: user.id },
+      where: {
+        userId: user.id,
+        organization: { tenant: { status: 'active' } },
+      },
       include: { organization: true },
     });
     for (const membership of orgMemberships) {
+      if (blockedTenants.has(membership.organization.tenantId)) continue;
       if (
         this.orgMembershipAllows(
           { role: membership.role, side: membership.side },
@@ -115,7 +173,9 @@ export class AuthorizationService {
     );
   }
 
-  private async resolveCurrentTenantId(user: AuthorizationUser): Promise<string> {
+  private async resolveCurrentTenantId(
+    user: AuthorizationUser,
+  ): Promise<string> {
     const membership = await this.prisma.tenantMembership.findFirst({
       where: { userId: user.id, status: 'active' },
       select: { tenantId: true },
