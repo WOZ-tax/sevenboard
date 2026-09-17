@@ -180,6 +180,7 @@ export class AuthService {
         orgId: membership.organization.id,
         role: membership.role as LegacyMembershipRole,
         orgRole: membership.role,
+        tenantRole: tenantMemberships.find(m => m.tenantId === membership.organization.tenantId)?.role,
         side: membership.side,
         orgName: membership.organization.name,
         orgCode: membership.organization.code,
