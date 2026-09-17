@@ -33,6 +33,7 @@ RUN node apps/api/scripts/copy-prisma-client.js
 RUN npm run build -w apps/api
 # Build tools are not needed by the running API. Keep the generated Prisma client.
 RUN npm prune --omit=dev --ignore-scripts && node apps/api/scripts/copy-prisma-client.js
+RUN node -e "require('express'); require('./apps/api/dist/src/app.module.js')"
 
 ENV NODE_ENV=production
 ENV REVIEW_SCRIPT_PATH=/app/apps/api/scripts/analyze.py
