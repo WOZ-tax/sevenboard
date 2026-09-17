@@ -18,7 +18,7 @@ describe('nullable year-end state HTTP responses', () => {
   const tenantId = 'tenant-a';
   const organization = { findUniqueOrThrow: jest.fn() };
   const locabenState = { findFirst: jest.fn() };
-  const featureState = { findFirst: jest.fn() };
+  const featureState = { findFirst: jest.fn(), upsert: jest.fn() };
   const cases = [
     {
       route: 'locaben',
@@ -84,6 +84,43 @@ describe('nullable year-end state HTTP responses', () => {
     organization.findUniqueOrThrow.mockResolvedValue({ tenantId });
     locabenState.findFirst.mockResolvedValue(null);
     featureState.findFirst.mockResolvedValue(null);
+  });
+
+  it.each(['application/json', 'application/json, application/json'])(
+    'rejects missing JSON value (%s) without reporting a false save',
+    async (contentType) => {
+      const response = await fetch(
+        `${origin}/organizations/${orgId}/year-end-state/feature/budget.workflow`,
+        {
+          method: 'PUT',
+          headers: { 'content-type': contentType },
+          body: '{}',
+        },
+      );
+      expect(response.status).toBe(400);
+      expect(featureState.upsert).not.toHaveBeenCalled();
+    },
+  );
+
+  it('persists a valid state including a manual zero', async () => {
+    featureState.upsert.mockResolvedValue({
+      id: 'saved',
+      value: { profit: 0 },
+    });
+    const response = await fetch(
+      `${origin}/organizations/${orgId}/year-end-state/feature/tax?scope=2026`,
+      {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ value: { profit: 0 } }),
+      },
+    );
+    expect(response.status).toBe(200);
+    expect(featureState.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        update: { value: { profit: 0 }, updatedById: 'advisor' },
+      }),
+    );
   });
 
   describe.each(cases)(

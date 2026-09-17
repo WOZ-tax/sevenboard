@@ -12,6 +12,7 @@
  */
 
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -194,7 +195,7 @@ export class YearEndStateController {
         : undefined;
     const ct = req.headers?.['content-type'];
     this.logger.log(
-      `slack-notify diag: query.text.length=${textQuery?.length ?? -1} body.text.length=${bodyText?.length ?? -1} body.type=${typeof req.body} content-type=${Array.isArray(ct) ? ct.join(',') : ct ?? ''}`,
+      `slack-notify diag: query.text.length=${textQuery?.length ?? -1} body.text.length=${bodyText?.length ?? -1} body.type=${typeof req.body} content-type=${Array.isArray(ct) ? ct.join(',') : (ct ?? '')}`,
     );
     const text = textQuery ?? bodyText ?? '';
     return this.svc.sendScheduleToSlack(orgId, text);
@@ -263,6 +264,15 @@ export class YearEndStateController {
     @Query('scope') scope: string | undefined,
     @Body() body: { value: Prisma.InputJsonValue },
   ) {
+    if (
+      !body ||
+      !Object.prototype.hasOwnProperty.call(body, 'value') ||
+      body.value === undefined
+    ) {
+      throw new BadRequestException(
+        '保存するvalueが必要です。JSON形式で送信してください。',
+      );
+    }
     return this.svc.upsertFeatureState(
       orgId,
       featureKey,

@@ -38,7 +38,7 @@ const SECTIONS: Array<{
   largeCapOnly?: boolean;
 }> = [
   { id: "landing-pl", num: "①", title: "当期財務サマリ（前期×当期×着地予測）", component: LandingPlSection },
-  { id: "cashflow-landing", num: "②", title: "資金繰り着地予測（向こう6ヶ月）", component: CashflowLandingSection },
+  { id: "cashflow-landing", num: "②", title: "資金繰り着地予測（向こう12ヶ月）", component: CashflowLandingSection },
   { id: "tax-forecast", num: "③", title: "納税予想（法人税系 + 消費税）", component: TaxForecastSection },
   { id: "tax-saving-plan", num: "④", title: "節税アクションプラン", component: TaxSavingPlanSection },
   { id: "exec-comp", num: "⑤", title: "役員報酬シミュレーター", component: ExecCompSimulatorSection },

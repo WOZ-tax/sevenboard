@@ -1,3 +1,4 @@
+import { apiRequestHeaders } from './request-headers';
 import type {
   AiSummaryResponse,
   AlertItem,
@@ -145,15 +146,14 @@ async function apiFetch<T>(
   const csrfToken = getCsrfToken();
   const method = options?.method?.toUpperCase() || 'GET';
   const needsCsrf = !['GET', 'HEAD', 'OPTIONS'].includes(method);
+  // Header names are case-insensitive. Object spreading both Content-Type and
+  // content-type combines them into an invalid media type in browser fetch.
+  const headers = apiRequestHeaders(options?.headers, needsCsrf ? csrfToken : null);
 
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
     credentials: 'include', // httpOnly Cookie(sb_token)で認証
-    headers: {
-      'Content-Type': 'application/json',
-      ...(needsCsrf && csrfToken ? { 'x-csrf-token': csrfToken } : {}),
-      ...options?.headers,
-    },
+    headers,
   });
   if (res.status === 401) {
     // Cookie 期限切れ/無効 → ログイン画面にリダイレクト
