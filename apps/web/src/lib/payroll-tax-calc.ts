@@ -374,7 +374,7 @@ export function simulate(p: SimulationInput): SimulationResult {
   const ctiRaw = p.revenueManYen - p.expensesManYen - annualComp - si.totalCorp;
   const cti = ctiRaw >= 0 ? floor1000(ctiRaw) : ctiRaw;
   const corpTax = calcCorpTax(Math.max(0, ctiRaw), p.capitalManYen, DEFAULT_LOCAL_TAX_RATES, p.fiscalStartDate);
-  const corpNetProfit = Math.max(0, cti) - corpTax.total;
+  const corpNetProfit = cti - corpTax.total;
   const corpCashflow =
     corpNetProfit + p.depreciationManYen - p.loanRepaymentManYen;
 
@@ -393,7 +393,9 @@ export function simulate(p: SimulationInput): SimulationResult {
   );
   const it = floor100(incomeTax(pti));
   const rt = floor100(it * RECONSTRUCTION_TAX_RATE);
-  const re = floor100(pti * PERSONAL_RESIDENT_TAX_RATE + 0.5);
+  // This model has salary income only. No income means no personal resident tax.
+  // Other cases retain the existing simplified estimate (not a filing calculation).
+  const re = salInc <= 0 ? 0 : floor100(pti * PERSONAL_RESIDENT_TAX_RATE + 0.5);
   const ptt = it + rt + re + si.totalPersonal;
   const pn = annualComp - ptt;
   const tn = corpNetProfit + pn;

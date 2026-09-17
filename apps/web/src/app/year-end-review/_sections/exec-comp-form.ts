@@ -49,7 +49,9 @@ export function applyExecPreset(form: ExecCompForm, preset: Partial<Pick<ExecCom
 
 export function sumTransitionToMonth(rows: {month:string;amount:number}[] | undefined, startMonth:number, elapsed:number): number {
   return (rows ?? []).reduce((total,row) => {
-    const month = Number(row.month.slice(5,7));
+    const month = /^\d{4}-\d{2}/.test(row.month)
+      ? Number(row.month.slice(5,7))
+      : Number(row.month.match(/^(\d{1,2})月$/)?.[1]);
     const order = (month - startMonth + 12) % 12 + 1;
     return month >= 1 && month <= 12 && order <= elapsed && Number.isFinite(row.amount) ? total + row.amount : total;
   },0);

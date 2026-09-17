@@ -20,4 +20,5 @@ test('transition sums stop at the selected month including fiscal years spanning
   const rows=[{month:'2025-04',amount:10},{month:'2025-08',amount:20},{month:'2025-09',amount:30},{month:'2026-01',amount:40}];
   assert.equal(sumTransitionToMonth(rows,4,5),30);
   assert.equal(sumTransitionToMonth(rows,4,10),100);
+  assert.equal(sumTransitionToMonth([{month:'4月',amount:10},{month:'8月',amount:20},{month:'9月',amount:30},{month:'1月',amount:40}],4,5),30);
 });
