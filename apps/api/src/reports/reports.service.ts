@@ -1,4 +1,8 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { Decimal } from '@prisma/client/runtime/library';
 import { MfApiService } from '../mf/mf-api.service';
@@ -62,10 +66,16 @@ export class ReportsService {
     // Get budget entries
     const budgetWhere: any = { budgetVersionId };
     if (startMonth) {
-      budgetWhere.month = { ...(budgetWhere.month || {}), gte: new Date(startMonth) };
+      budgetWhere.month = {
+        ...(budgetWhere.month || {}),
+        gte: new Date(startMonth),
+      };
     }
     if (endMonth) {
-      budgetWhere.month = { ...(budgetWhere.month || {}), lte: new Date(endMonth) };
+      budgetWhere.month = {
+        ...(budgetWhere.month || {}),
+        lte: new Date(endMonth),
+      };
     }
 
     const budgetEntries = await this.prisma.budgetEntry.findMany({
@@ -78,10 +88,16 @@ export class ReportsService {
     // Get actual entries for the same period
     const actualWhere: any = { tenantId, orgId };
     if (startMonth) {
-      actualWhere.month = { ...(actualWhere.month || {}), gte: new Date(startMonth) };
+      actualWhere.month = {
+        ...(actualWhere.month || {}),
+        gte: new Date(startMonth),
+      };
     }
     if (endMonth) {
-      actualWhere.month = { ...(actualWhere.month || {}), lte: new Date(endMonth) };
+      actualWhere.month = {
+        ...(actualWhere.month || {}),
+        lte: new Date(endMonth),
+      };
     }
 
     const actualEntries = await this.prisma.actualEntry.findMany({
@@ -105,10 +121,18 @@ export class ReportsService {
     const budgetMonths = budgetEntries.map((be) => be.month);
     const priorYearMap = new Map<string, Decimal>();
     if (budgetMonths.length > 0) {
-      const minMonth = new Date(Math.min(...budgetMonths.map((m) => m.getTime())));
-      const maxMonth = new Date(Math.max(...budgetMonths.map((m) => m.getTime())));
-      const priorMin = new Date(Date.UTC(minMonth.getUTCFullYear() - 1, minMonth.getUTCMonth(), 1));
-      const priorMax = new Date(Date.UTC(maxMonth.getUTCFullYear() - 1, maxMonth.getUTCMonth(), 1));
+      const minMonth = new Date(
+        Math.min(...budgetMonths.map((m) => m.getTime())),
+      );
+      const maxMonth = new Date(
+        Math.max(...budgetMonths.map((m) => m.getTime())),
+      );
+      const priorMin = new Date(
+        Date.UTC(minMonth.getUTCFullYear() - 1, minMonth.getUTCMonth(), 1),
+      );
+      const priorMax = new Date(
+        Date.UTC(maxMonth.getUTCFullYear() - 1, maxMonth.getUTCMonth(), 1),
+      );
       const priorActuals = await this.prisma.actualEntry.findMany({
         where: {
           tenantId,
@@ -118,11 +142,16 @@ export class ReportsService {
       });
       for (const ae of priorActuals) {
         // 前年月 → 当年月にキー化
-        const shiftedMonth = new Date(Date.UTC(ae.month.getUTCFullYear() + 1, ae.month.getUTCMonth(), 1));
+        const shiftedMonth = new Date(
+          Date.UTC(ae.month.getUTCFullYear() + 1, ae.month.getUTCMonth(), 1),
+        );
         const key = `${ae.accountId}:${shiftedMonth.toISOString().slice(0, 10)}`;
         // 科目×月 に複数部門が存在しうるため後勝ち上書きせず加算して合算する。
         const prev = priorYearMap.get(key);
-        priorYearMap.set(key, prev !== undefined ? prev.plus(ae.amount) : ae.amount);
+        priorYearMap.set(
+          key,
+          prev !== undefined ? prev.plus(ae.amount) : ae.amount,
+        );
       }
     }
 
@@ -134,8 +163,20 @@ export class ReportsService {
       'EXTRAORDINARY_INCOME',
     ]);
 
-    // Compute variance for each budget entry
-    const result: VarianceRow[] = budgetEntries.map((be) => {
+    // The report is company-wide. Aggregate departmental budgets before joining
+    // company-wide actuals, otherwise each department repeats the same actuals.
+    const companyBudgets = new Map<string, (typeof budgetEntries)[number]>();
+    for (const entry of budgetEntries) {
+      const key = `${entry.accountId}:${entry.month.toISOString()}`;
+      const previous = companyBudgets.get(key);
+      companyBudgets.set(
+        key,
+        previous
+          ? { ...previous, amount: previous.amount.plus(entry.amount) }
+          : { ...entry },
+      );
+    }
+    const result: VarianceRow[] = [...companyBudgets.values()].map((be) => {
       const monthStr = be.month.toISOString().slice(0, 10);
       const key = `${be.accountId}:${monthStr}`;
       const budgetAmt = Number(be.amount);
@@ -144,7 +185,9 @@ export class ReportsService {
       // 収益科目: actual - budget（実績が予算を上回ればプラス）
       // 費用科目: budget - actual（実績が予算を下回ればプラス）
       const isRevenue = revenueCategories.has(be.account.category);
-      const variance = isRevenue ? actualAmt - budgetAmt : budgetAmt - actualAmt;
+      const variance = isRevenue
+        ? actualAmt - budgetAmt
+        : budgetAmt - actualAmt;
       const variancePct = budgetAmt !== 0 ? (variance / budgetAmt) * 100 : null;
 
       const priorYearRaw = priorYearMap.get(key);
@@ -239,7 +282,9 @@ export class ReportsService {
       where: { tenantId, orgId },
       select: { name: true, isVariableCost: true },
     });
-    const overrideMap = new Map(overrides.map((a) => [a.name, a.isVariableCost]));
+    const overrideMap = new Map(
+      overrides.map((a) => [a.name, a.isVariableCost]),
+    );
 
     const revenueRoot = this.findRow(pl.rows, '売上高合計');
     const cogsRoot = this.findRow(pl.rows, '売上原価');
@@ -264,7 +309,10 @@ export class ReportsService {
       }
       const override = overrideMap.get(leaf.name);
       const isVariable = override !== undefined ? override : true;
-      (isVariable ? variableCosts : fixedCosts).push({ name: leaf.name, amount });
+      (isVariable ? variableCosts : fixedCosts).push({
+        name: leaf.name,
+        amount,
+      });
     }
 
     for (const leaf of sgaLeaves) {
@@ -273,7 +321,10 @@ export class ReportsService {
       const override = overrideMap.get(leaf.name);
       const isVariable =
         override !== undefined ? override : this.isVariableByName(leaf.name);
-      (isVariable ? variableCosts : fixedCosts).push({ name: leaf.name, amount });
+      (isVariable ? variableCosts : fixedCosts).push({
+        name: leaf.name,
+        amount,
+      });
     }
 
     const totalVariableCost = variableCosts.reduce((s, c) => s + c.amount, 0);

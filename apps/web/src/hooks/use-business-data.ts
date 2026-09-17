@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useScopedOrgId } from "@/hooks/use-scoped-org-id";
+import { usePeriodStore } from "@/lib/period-store";
 import type {
   BudgetEntry,
   BudgetEntryInput,
@@ -32,6 +33,7 @@ export interface NormalizedVarianceRow {
 
 export function useBudgetContext() {
   const orgId = useScopedOrgId();
+  const fiscalYear = usePeriodStore((s) => s.fiscalYear);
 
   const fiscalYearsQuery = useQuery({
     queryKey: ["fiscal-years", orgId],
@@ -40,7 +42,9 @@ export function useBudgetContext() {
     staleTime: 5 * 60 * 1000,
   });
 
-  const activeFiscalYear = fiscalYearsQuery.data?.[0] ?? null;
+  const activeFiscalYear = (fiscalYear == null
+    ? fiscalYearsQuery.data?.[0]
+    : fiscalYearsQuery.data?.find((fy) => fy.year === fiscalYear)) ?? null;
   const activeBudgetVersion = activeFiscalYear?.budgetVersions?.[0] ?? null;
 
   const budgetEntriesQuery = useQuery({
@@ -111,7 +115,7 @@ export function useNormalizedBudgetRows(
     const grouped = new Map<string, NormalizedBudgetRow>();
 
     for (const entry of entries) {
-      const key = entry.accountId;
+      const key = `${entry.accountId}:${entry.departmentId ?? "all"}`;
       const month = new Date(entry.month).getMonth() + 1;
       const targetMonth = monthMap[month];
       if (!targetMonth) continue;
@@ -120,7 +124,7 @@ export function useNormalizedBudgetRows(
         grouped.set(key, {
           id: key,
           accountId: entry.accountId,
-          category: entry.account.name,
+          category: entry.department?.name ? `${entry.account.name}（${entry.department.name}）` : entry.account.name,
           apr: 0,
           may: 0,
           jun: 0,

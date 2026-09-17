@@ -140,7 +140,9 @@ export class BudgetsService {
     return this.prisma.budgetEntry.findMany({
       where: { budgetVersionId },
       include: {
-        account: { select: { id: true, code: true, name: true, category: true } },
+        account: {
+          select: { id: true, code: true, name: true, category: true },
+        },
         department: { select: { id: true, name: true } },
       },
       orderBy: [{ month: 'asc' }, { account: { displayOrder: 'asc' } }],
@@ -199,6 +201,22 @@ export class BudgetsService {
     // トランザクション全体をロールバックする（配列 $transaction はコミット後に
     // throw しても巻き戻せないため interactive 版へ移行）。
     return this.prisma.$transaction(async (tx) => {
+      const workflow = await tx.featureState.findUnique({
+        where: {
+          orgId_featureKey_scope: {
+            orgId,
+            featureKey: 'budget.workflow',
+            scope: budgetVersionId,
+          },
+        },
+      });
+      if (
+        (workflow?.value as { status?: string } | null)?.status === 'LOCKED'
+      ) {
+        throw new ForbiddenException(
+          '確定済みの予算です。確定を解除してから編集してください。',
+        );
+      }
       const results: Array<{ count: number } | { id: string }> = [];
       for (const entry of dto.entries) {
         if (entry.id) {

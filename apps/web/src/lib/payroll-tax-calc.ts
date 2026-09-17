@@ -89,6 +89,7 @@ export function calcCorpTax(
   taxableIncomeManYen: number,
   capitalManYen: number,
   localRates: LocalTaxRates = DEFAULT_LOCAL_TAX_RATES,
+  fiscalStartDate?: string,
 ): CorpTaxBreakdown {
   const ti = floor1000(Math.max(0, taxableIncomeManYen));
   const isSmb = capitalManYen <= 10000;
@@ -119,9 +120,12 @@ export function calcCorpTax(
   };
 
   // 防衛特別法人税 — 課税標準は (法人税額 - 500万円) の千円未満切り捨て
-  const defenseBase = floor1000(
+  // NTA: applies to fiscal years beginning on/after 2026-04-01.
+  // Date-less standalone simulations retain the current-rate assumption.
+  const defenseApplies = fiscalStartDate == null || (/^\d{4}-\d{2}-\d{2}/.test(fiscalStartDate) && fiscalStartDate.slice(0, 10) >= '2026-04-01');
+  const defenseBase = defenseApplies ? floor1000(
     Math.max(0, corporateTaxTotal - DEFENSE_TAX.deduction),
-  );
+  ) : 0;
   const defenseTax: TaxLineRow = {
     base: defenseBase,
     rate: DEFENSE_TAX.rate,
@@ -294,6 +298,7 @@ export function calcSocialInsurance(
 // ===========================================================
 
 export interface SimulationInput {
+  fiscalStartDate?: string;
   /** 売上(年・万円) */
   revenueManYen: number;
   /** 経費(年・役員報酬除く・万円) */
@@ -368,7 +373,7 @@ export function simulate(p: SimulationInput): SimulationResult {
   // 法人側
   const ctiRaw = p.revenueManYen - p.expensesManYen - annualComp - si.totalCorp;
   const cti = ctiRaw >= 0 ? floor1000(ctiRaw) : ctiRaw;
-  const corpTax = calcCorpTax(Math.max(0, ctiRaw), p.capitalManYen);
+  const corpTax = calcCorpTax(Math.max(0, ctiRaw), p.capitalManYen, DEFAULT_LOCAL_TAX_RATES, p.fiscalStartDate);
   const corpNetProfit = Math.max(0, cti) - corpTax.total;
   const corpCashflow =
     corpNetProfit + p.depreciationManYen - p.loanRepaymentManYen;

@@ -1,4 +1,4 @@
-FROM node:20-slim
+FROM node:22-slim
 RUN apt-get update && apt-get install -y openssl python3 && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 
@@ -31,6 +31,8 @@ RUN prisma generate --schema=packages/database/prisma/schema.prisma
 # generated client を apps/api/node_modules にコピー（apps/api からの import を解決するため）
 RUN node apps/api/scripts/copy-prisma-client.js
 RUN npm run build -w apps/api
+# Build tools are not needed by the running API. Keep the generated Prisma client.
+RUN npm prune --omit=dev --ignore-scripts && node apps/api/scripts/copy-prisma-client.js
 
 ENV NODE_ENV=production
 ENV REVIEW_SCRIPT_PATH=/app/apps/api/scripts/analyze.py

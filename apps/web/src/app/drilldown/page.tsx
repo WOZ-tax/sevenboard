@@ -20,6 +20,9 @@ import { cn } from "@/lib/utils";
 import { ChevronRight, Search, ArrowLeft, Download } from "lucide-react";
 import { useMfAccountTransition, useMfJournals } from "@/hooks/use-mf-data";
 import { MfEmptyState } from "@/components/ui/mf-empty-state";
+import { usePeriodStore } from "@/lib/period-store";
+import { fiscalMonths } from "@/lib/fiscal-months";
+import { journalDisplayRows } from "@/lib/journal-display";
 import {
   BarChart,
   Bar,
@@ -46,39 +49,6 @@ interface JournalRow {
   description: string;
 }
 
-interface RawJournalDetail {
-  debit_account_name?: string;
-  credit_account_name?: string;
-  account_item_name?: string;
-  amount?: number;
-  description?: string;
-}
-
-interface RawJournal {
-  id?: string;
-  date?: string;
-  recognized_at?: string;
-  amount?: number;
-  description?: string;
-  details?: RawJournalDetail[];
-}
-
-// 月名→月番号マップ（年度期間推定用）
-const MONTH_MAP: Record<string, { month: number; offset: number }> = {
-  "4月": { month: 4, offset: 0 },
-  "5月": { month: 5, offset: 0 },
-  "6月": { month: 6, offset: 0 },
-  "7月": { month: 7, offset: 0 },
-  "8月": { month: 8, offset: 0 },
-  "9月": { month: 9, offset: 0 },
-  "10月": { month: 10, offset: 0 },
-  "11月": { month: 11, offset: 0 },
-  "12月": { month: 12, offset: 0 },
-  "1月": { month: 1, offset: 1 },
-  "2月": { month: 2, offset: 1 },
-  "3月": { month: 3, offset: 1 },
-};
-
 export default function DrilldownPage() {
   return (
     <Suspense fallback={<DashboardShell><div className="py-8 text-center text-muted-foreground">読み込み中...</div></DashboardShell>}>
@@ -91,6 +61,8 @@ function DrilldownContent() {
   const searchParams = useSearchParams();
   const accountName = searchParams.get("account") || "";
   const monthParam = searchParams.get("month") || "";
+  const { fiscalYear, periods } = usePeriodStore();
+  const period = periods.find((p) => p.fiscal_year === fiscalYear) ?? periods[0];
 
   const [selectedMonth, setSelectedMonth] = useState<string | null>(
     monthParam ? `${monthParam}月` : null
@@ -100,20 +72,14 @@ function DrilldownContent() {
 
   // 仕訳クエリ用のdate range計算
   const journalParams = useMemo(() => {
-    if (!selectedMonth) return undefined;
-    const m = MONTH_MAP[selectedMonth];
+    if (!period || !accountName) return undefined;
+    if (!selectedMonth) return { startDate: period.start_date, endDate: period.end_date, accountName };
+    const m = fiscalMonths(period.start_date, period.end_date).find(m => m.label === selectedMonth);
     if (!m) return undefined;
-    // 現在の会計年度(4月開始)の開始年を算出し、月offsetで次年判定
-    const today = new Date();
-    const currentCalMonth = today.getMonth() + 1;
-    const fyStartYear =
-      currentCalMonth >= 4 ? today.getFullYear() : today.getFullYear() - 1;
-    const year = fyStartYear + m.offset;
-    const startDate = `${year}-${String(m.month).padStart(2, "0")}-01`;
-    const lastDay = new Date(year, m.month, 0).getDate();
-    const endDate = `${year}-${String(m.month).padStart(2, "0")}-${lastDay}`;
+    const startDate = m.date;
+    const endDate = new Date(Date.UTC(Number(m.date.slice(0, 4)), m.month, 0)).toISOString().slice(0, 10);
     return { startDate, endDate, accountName };
-  }, [selectedMonth, accountName]);
+  }, [selectedMonth, accountName, period]);
 
   const journals = useMfJournals(journalParams);
 
@@ -125,15 +91,8 @@ function DrilldownContent() {
 
   const journalList = useMemo(() => {
     if (!journals.data?.journals?.length) return [];
-    return (journals.data.journals as RawJournal[]).map((j, idx): JournalRow => ({
-      id: j.id || String(idx),
-      date: j.date || j.recognized_at || "",
-      debit: j.details?.[0]?.debit_account_name || j.details?.[0]?.account_item_name || "",
-      credit: j.details?.[0]?.credit_account_name || "",
-      amount: j.details?.[0]?.amount || j.amount || 0,
-      description: j.description || j.details?.[0]?.description || "",
-    }));
-  }, [journals.data]);
+    return journalDisplayRows(journals.data.journals, accountName);
+  }, [journals.data, accountName]);
 
   // --- フィルタ state ---
   const [searchText, setSearchText] = useState("");

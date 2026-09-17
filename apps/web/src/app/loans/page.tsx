@@ -148,10 +148,11 @@ export default function LoansPage() {
           </Card>
         )}
 
+        {listQuery.data?.scheduleAsOf && <p className="text-xs text-muted-foreground">返済予定表の集計基準日: {listQuery.data.scheduleAsOf}（当月末）。帳簿残高は下欄の照合日で比較します。</p>}
         {/* サマリカード */}
         <div className="grid gap-3 sm:grid-cols-3">
           <SummaryCard
-            label="借入合計残高"
+            label="当月末の予定残高"
             value={yen(totals?.outstandingBalance)}
             loading={listQuery.isLoading}
           />
@@ -211,8 +212,8 @@ export default function LoansPage() {
                     <TableHead className="text-right">利率</TableHead>
                     <TableHead>開始日</TableHead>
                     <TableHead className="text-right">期間</TableHead>
-                    <TableHead className="text-right">当月残高</TableHead>
-                    <TableHead>次回返済</TableHead>
+                    <TableHead className="text-right">当月末予定残高</TableHead>
+                    <TableHead>翌月以降の初回返済</TableHead>
                     <TableHead>状態</TableHead>
                   </TableRow>
                 </TableHeader>

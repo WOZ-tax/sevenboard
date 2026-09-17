@@ -8,6 +8,18 @@ import {
 } from 'class-validator';
 
 const IMPACT_TAGS = ['sales', 'cost', 'cash', 'headcount'] as const;
+export const EVENT_TYPES = [
+  'HIRE',
+  'RESIGNATION',
+  'PRICE_CHANGE',
+  'CAMPAIGN_START',
+  'CAMPAIGN_END',
+  'PRODUCT_LAUNCH',
+  'CONTRACT_WIN',
+  'CONTRACT_LOSS',
+  'SYSTEM_CHANGE',
+  'OTHER',
+] as const;
 type ImpactTag = (typeof IMPACT_TAGS)[number];
 
 export class CreateBusinessEventDto {
@@ -16,6 +28,7 @@ export class CreateBusinessEventDto {
 
   @IsString()
   @IsNotEmpty()
+  @IsIn(EVENT_TYPES)
   eventType: string;
 
   @IsString()

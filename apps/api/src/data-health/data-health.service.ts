@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { SyncSource, SyncResult, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { isDemoOrg } from '../demo/demo.constants';
 
 export interface RecordSyncParams {
   orgId: string;
@@ -31,6 +32,28 @@ export class DataHealthService {
           where: { tenantId, orgId, source },
           orderBy: { syncedAt: 'desc' },
         });
+        if (
+          !latest &&
+          isDemoOrg(orgId) &&
+          (source === 'MF_CLOUD' || source === 'KINTONE')
+        ) {
+          const imported = await this.prisma.integration.findFirst({
+            where: {
+              tenantId,
+              orgId,
+              provider:
+                source === 'MF_CLOUD' ? 'MF_CLOUD' : 'BOOKKEEPING_PLUGIN',
+            },
+          });
+          return {
+            source,
+            lastSyncAt: imported?.lastSyncAt?.toISOString() ?? null,
+            status:
+              imported?.syncStatus === 'SUCCESS' ? ('SUCCESS' as const) : null,
+            errorMessage: null,
+            durationMs: null,
+          };
+        }
         return {
           source,
           lastSyncAt: latest?.syncedAt.toISOString() ?? null,
@@ -89,7 +112,11 @@ export class DataHealthService {
   }
 
   private computeOverall(
-    statuses: Array<{ source: SyncSource; status: SyncResult | null; lastSyncAt: string | null }>,
+    statuses: Array<{
+      source: SyncSource;
+      status: SyncResult | null;
+      lastSyncAt: string | null;
+    }>,
   ): 'HEALTHY' | 'DEGRADED' | 'UNKNOWN' {
     const known = statuses.filter((s) => s.status !== null);
     if (known.length === 0) return 'UNKNOWN';

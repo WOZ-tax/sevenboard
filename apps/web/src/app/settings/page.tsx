@@ -231,7 +231,7 @@ function IntegrationCard({
 }
 
 export default function SettingsPage() {
-  const [notifications, setNotifications] = useState(initialNotifications);
+  const { currentOrg } = useCurrentOrg();
   const orgId = useScopedOrgId();
   const queryClient = useQueryClient();
   const searchParams = useSearchParams();
@@ -411,12 +411,6 @@ export default function SettingsPage() {
     },
   });
 
-  const toggleNotification = (id: string) => {
-    setNotifications((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, enabled: !n.enabled } : n))
-    );
-  };
-
   return (
     <DashboardShell>
       <div className="space-y-4">
@@ -428,11 +422,16 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        <BusinessProfileCard orgId={orgId} />
-
-        <CostAccountingCard orgId={orgId} />
-
-        <BriefingPushCard orgId={orgId} />
+        {currentOrg?.isDemo && (
+          <p className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
+            共通デモの会社情報・外部接続・通知先は固定です。予算・レビュー・タスクなどの業務入力は保存できます。
+          </p>
+        )}
+        <fieldset disabled={currentOrg?.isDemo} className="space-y-4">
+          <BusinessProfileCard orgId={orgId} />
+          <CostAccountingCard orgId={orgId} />
+          <BriefingPushCard orgId={orgId} />
+        </fieldset>
 
         <CashflowCertaintyCard orgId={orgId} />
 
@@ -441,25 +440,16 @@ export default function SettingsPage() {
             <CardTitle className="flex items-center gap-2 text-base font-semibold text-[var(--color-text-primary)]">
               <BellRing className="h-4 w-4" />
               通知設定
+              <Badge variant="outline">準備中</Badge>
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              {notifications.map((item) => (
+              <p className="text-sm text-muted-foreground">通知の個別設定は準備中です。Slackへの配信は上の配信設定で管理できます。</p>
+              {initialNotifications.map((item) => (
                 <div key={item.id} className="flex items-center justify-between rounded-md border px-4 py-3">
                   <span className="text-sm text-[var(--color-text-primary)]">{item.label}</span>
-                  <button
-                    role="switch"
-                    aria-checked={item.enabled}
-                    aria-label={item.label}
-                    className={cn(
-                      "relative inline-flex h-6 w-11 rounded-full border-2 border-transparent transition-colors",
-                      item.enabled ? "bg-[var(--color-primary)]" : "bg-gray-200"
-                    )}
-                    onClick={() => toggleNotification(item.id)}
-                  >
-                    <span className={cn("inline-block h-5 w-5 rounded-full bg-white shadow transition-transform", item.enabled ? "translate-x-5" : "translate-x-0")} />
-                  </button>
+                  <span className="text-xs text-muted-foreground">個別設定は未提供</span>
                 </div>
               ))}
             </div>

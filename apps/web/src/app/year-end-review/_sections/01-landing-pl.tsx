@@ -1,6 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useCurrentOrg } from "@/contexts/current-org";
+import { api } from "@/lib/api";
+import { useFeatureStateLocal } from "@/hooks/use-year-end-state";
 import { useMfPL } from "@/hooks/use-mf-data";
 import { useIndustryCode } from "@/hooks/use-industry-code";
 import { getIndustryKnowledge } from "@/lib/industry-knowledge";
@@ -10,10 +14,19 @@ import { cn } from "@/lib/utils";
 
 const fmtComma = (n: number): string =>
   Number.isFinite(n) ? Math.round(n).toLocaleString() : "0";
+const DEFAULT_LANDING = { revenue: null as number | null, adjustPercent: 0 };
 
 export function LandingPlSection() {
   const pl = useMfPL();
   const lockedMonth = usePeriodStore((s) => s.month);
+  const fiscalYear = usePeriodStore((s) => s.fiscalYear);
+  const { currentOrgId } = useCurrentOrg();
+  const priorFull = useQuery({
+    queryKey: ["mf", "pl", currentOrgId, fiscalYear == null ? undefined : fiscalYear - 1, undefined],
+    queryFn: () => api.mf.getPL(currentOrgId!, fiscalYear! - 1),
+    enabled: !!currentOrgId && fiscalYear != null,
+    staleTime: 5 * 60 * 1000,
+  });
   const { fyStartMonth } = useFyElapsed();
   const elapsedMonths = getFyElapsedFromMonth(lockedMonth, fyStartMonth);
 
@@ -23,11 +36,11 @@ export function LandingPlSection() {
     return pl.data.map((r) => ({
       name: r.category,
       current: r.current ?? 0,
-      prior: r.prior ?? 0,
+      prior: priorFull.data?.find((p) => p.category === r.category)?.current ?? null,
       indent: r.isHeader ? 0 : 1,
       isTotal: r.isTotal ?? false,
     }));
-  }, [pl.data]);
+  }, [pl.data, priorFull.data]);
 
   // 売上行を見つけて、デフォルトの着地売上（YTD × 12/N）を算出
   const defaultLandingRevenue = useMemo(() => {
@@ -43,17 +56,11 @@ export function LandingPlSection() {
   }, [rows, elapsedMonths]);
 
   // ユーザーが上書きした売上着地（円）。null = 自動。
-  const [userLandingRevenue, setUserLandingRevenue] = useState<number | null>(null);
-  // 直接入力 vs スライダーの表示切替（保存対象外）
-  const [adjustPercent, setAdjustPercent] = useState(0);
-
-  // 自動値が変わったら手動値もリセット（顧問先切り替え時など）
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- 自動着地値の変化に同期して手動値リセット
-    setUserLandingRevenue(null);
-     
-    setAdjustPercent(0);
-  }, [defaultLandingRevenue]);
+  const landing = useFeatureStateLocal("year-end-review.landing-pl", String(fiscalYear ?? ''), DEFAULT_LANDING);
+  const userLandingRevenue = landing.value.revenue;
+  const adjustPercent = landing.value.adjustPercent;
+  const setUserLandingRevenue = (revenue: number | null) => landing.setValue(p => ({ ...p, revenue }));
+  const setAdjustPercent = (adjustPercent: number) => landing.setValue(p => ({ ...p, adjustPercent }));
 
   // 実際に使う着地売上 = 直接入力 ?? デフォルト × (1 + 調整%/100)
   const targetLandingRevenue =
@@ -96,7 +103,7 @@ export function LandingPlSection() {
       return {
         ...r,
         landing: adjusted,
-        delta: r.prior > 0 ? (adjusted - r.prior) / r.prior : 0,
+        delta: r.prior != null && r.prior > 0 ? (adjusted - r.prior) / r.prior : 0,
         ratio,
         benchmark,
       };
@@ -111,7 +118,8 @@ export function LandingPlSection() {
   }
 
   return (
-    <div className="space-y-3">
+    <fieldset disabled={!landing.isHydrated || landing.isError} className="space-y-3">
+      {priorFull.isError && <p className="text-sm text-amber-700">前期通期の実績を取得できませんでした。前期比は表示を保留しています。</p>}
       <div className="rounded-md border bg-white p-3 shadow-sm">
         <div className="mb-2 flex flex-wrap items-center gap-3 text-xs">
           <span className="font-semibold text-muted-foreground">着地売上見込み</span>
@@ -191,7 +199,7 @@ export function LandingPlSection() {
           <thead className="border-b bg-muted/40 text-[10px] text-muted-foreground">
             <tr>
               <th className="px-3 py-2 text-left">勘定科目</th>
-              <th className="px-3 py-2 text-right">前期</th>
+              <th className="px-3 py-2 text-right">前期（通期）</th>
               <th className="px-3 py-2 text-right">当期(YTD)</th>
               <th className="px-3 py-2 text-right">着地予測</th>
               <th className="px-3 py-2 text-right">前期比</th>
@@ -214,7 +222,7 @@ export function LandingPlSection() {
                   <td className="px-3 py-1.5" style={{ paddingLeft: `${12 + r.indent * 12}px` }}>
                     {r.name}
                   </td>
-                  <td className="px-3 py-1.5 text-right text-muted-foreground">{fmtComma(r.prior)}</td>
+                  <td className="px-3 py-1.5 text-right text-muted-foreground">{r.prior == null ? '—' : fmtComma(r.prior)}</td>
                   <td className="px-3 py-1.5 text-right">{fmtComma(r.current)}</td>
                   <td className="px-3 py-1.5 text-right font-bold text-blue-700">{fmtComma(r.landing)}</td>
                   <td
@@ -224,7 +232,7 @@ export function LandingPlSection() {
                       r.delta < 0 && "text-rose-700",
                     )}
                   >
-                    {r.prior > 0 ? `${(r.delta * 100).toFixed(1)}%` : "—"}
+                    {r.prior != null && r.prior > 0 ? `${(r.delta * 100).toFixed(1)}%` : "—"}
                   </td>
                   <td className="px-3 py-1.5 text-right text-[10px]">
                     {r.benchmark !== null ? (
@@ -258,6 +266,6 @@ export function LandingPlSection() {
         厳密な按分（変動費/固定費の分離）は行わず、利益率を YTD で固定する単純化版です。
         業界平均は <strong>{industry.label}</strong> の指標目安（{industry.metrics.sourceNote ?? "—"}）。
       </p>
-    </div>
+    </fieldset>
   );
 }

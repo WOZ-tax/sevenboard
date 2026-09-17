@@ -269,7 +269,7 @@ export function useFeatureStateLocal<T>(
   // サーバー値で初期化 (scope 毎に 1 回)
   useEffect(() => {
     if (hydrated) return;
-    if (query.isLoading) return;
+    if (!query.isSuccess) return;
     if (
       query.data &&
       query.data.value !== undefined &&
@@ -280,7 +280,7 @@ export function useFeatureStateLocal<T>(
       // サーバーに記録なし → default のまま (setLocal は scope 切替時に既に default 化済)
     }
     setHydrated(true);
-  }, [hydrated, query.isLoading, query.data]);
+  }, [hydrated, query.isSuccess, query.data]);
 
   // 保存失敗の通知: 失敗状態が変化した時 (成功 → 失敗) のみ toast を出し、
   // 連続失敗 (ユーザーが入力を続けて何度も PUT が失敗) でスパムしないようにする。
@@ -300,6 +300,7 @@ export function useFeatureStateLocal<T>(
 
   const setValue = useMemo(() => {
     return (next: T | ((prev: T) => T)) => {
+      if (!orgId || query.isError || lastScopeRef.current !== scopeHash) return;
       setLocal((prev) => {
         const resolved =
           typeof next === "function" ? (next as (p: T) => T)(prev) : next;
@@ -308,14 +309,14 @@ export function useFeatureStateLocal<T>(
         if (hydrated) {
           if (timerRef.current) clearTimeout(timerRef.current);
           timerRef.current = setTimeout(() => {
+            if (lastScopeRef.current !== scopeHash) return;
             mutation.mutate(resolved);
           }, debounceMs);
         }
         return resolved;
       });
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- mutation は安定参照前提
-  }, [debounceMs, hydrated]);
+  }, [debounceMs, hydrated, scopeHash, orgId, query.isError, mutation.mutate]);
 
   useEffect(() => {
     return () => {

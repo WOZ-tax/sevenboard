@@ -44,6 +44,7 @@ export interface MfBookBalanceDto {
 }
 
 export interface LoansListDto {
+  scheduleAsOf?: string;
   loans: LoanSummaryDto[];
   totals: LoanTotalsDto;
   mfBookBalance: MfBookBalanceDto;

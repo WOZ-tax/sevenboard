@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ExternalLink, Plus, X } from "lucide-react";
 import { useMfCashflow } from "@/hooks/use-mf-data";
 import { usePeriodStore } from "@/lib/period-store";
+import { fiscalMonths } from "@/lib/fiscal-months";
 import { formatYen } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useFeatureStateLocal } from "@/hooks/use-year-end-state";
@@ -45,7 +46,7 @@ function uid(): string {
 }
 
 function monthLabel(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
 const parseNum = (s: string | undefined | null): number =>
@@ -70,6 +71,11 @@ function normalizeInput(raw: CfLandingInput | undefined | null): CfLandingInput 
 export function CashflowLandingSection() {
   const cf = useMfCashflow();
   const fiscalYear = usePeriodStore((s) => s.fiscalYear);
+  const periods = usePeriodStore((s) => s.periods);
+  const selectedMonth = usePeriodStore((s) => s.month);
+  const accountingPeriod = periods.find(p => p.fiscal_year === fiscalYear) ?? periods[0];
+  const reportMonth = Number(cf.data?.months?.at(-1)?.match(/\d{1,2}(?=月|$)/)?.[0]);
+  const anchor = fiscalMonths(accountingPeriod?.start_date, accountingPeriod?.end_date).find(m => m.month === (selectedMonth ?? reportMonth))?.date;
   const { value: rawInput, setValue: setInput } =
     useFeatureStateLocal<CfLandingInput>(
       "year-end-review.cf-landing",
@@ -127,10 +133,10 @@ export function CashflowLandingSection() {
       capex: number;
       delta: number;
     }> = [];
-    const now = new Date();
+    const now = anchor ? new Date(anchor) : new Date();
     let runningBalance = summary.cashBalance;
     for (let i = 1; i <= 12; i++) {
-      const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+      const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + i, 1));
       const monthKey = monthLabel(d);
       const monthOutflows = input.outflows.filter((o) => o.month === monthKey);
       const tax = monthOutflows
@@ -155,18 +161,18 @@ export function CashflowLandingSection() {
       });
     }
     return out;
-  }, [summary, input.outflows]);
+  }, [summary, input.outflows, anchor]);
 
   // 月選択肢 (向こう6ヶ月)
   const monthOptions = useMemo(() => {
     const opts: string[] = [];
-    const now = new Date();
+    const now = anchor ? new Date(anchor) : new Date();
     for (let i = 1; i <= 12; i++) {
-      const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+      const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + i, 1));
       opts.push(monthLabel(d));
     }
     return opts;
-  }, []);
+  }, [anchor]);
 
   const addOutflow = (kind: OutflowKind) => {
     const defaultMonth = monthOptions[0] ?? monthLabel(new Date());
@@ -434,7 +440,7 @@ export function CashflowLandingSection() {
       <p className="text-xs text-muted-foreground">
         ※ 通常 Burn は MF 連携の Net Burn 平均値。税・賞与・設備投資の月別予定額を
         手入力すると、それぞれの月に上乗せして予測残高に反映します。入力データは
-        ブラウザに保存されます (顧問先・期単位)。
+        顧問先・期ごとに共有保存されます。
       </p>
     </div>
   );

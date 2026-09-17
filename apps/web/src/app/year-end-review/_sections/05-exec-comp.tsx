@@ -152,6 +152,7 @@ export function ExecCompSimulatorSection() {
 
   const simInput: SimulationInput = useMemo(
     () => ({
+      fiscalStartDate: office.data?.accounting_periods?.find((p) => p.fiscal_year === fiscalYear)?.start_date ?? '',
       revenueManYen: parseYen(form.revenue) / 10000,
       expensesManYen: parseYen(form.expenses) / 10000,
       monthlyCompManYen: form.monthlyComp / 10000,
@@ -165,7 +166,7 @@ export function ExecCompSimulatorSection() {
       loanRepaymentManYen: parseYen(form.loanRepayment) / 10000,
       smallBizKyosaiManYen: parseYen(form.smallBizKyosai) / 10000,
     }),
-    [form],
+    [form, office.data, fiscalYear],
   );
 
   const result = useMemo(() => simulate(simInput), [simInput]);

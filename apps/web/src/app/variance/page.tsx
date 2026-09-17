@@ -1,6 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { usePeriodStore } from "@/lib/period-store";
+import { fiscalMonths, filterFiscalRows } from "@/lib/fiscal-months";
 import Link from "next/link";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -21,31 +23,16 @@ import {
   useNormalizedVarianceRows,
 } from "@/hooks/use-business-data";
 
-const months = [
-  "4月",
-  "5月",
-  "6月",
-  "7月",
-  "8月",
-  "9月",
-  "10月",
-  "11月",
-  "12月",
-  "1月",
-  "2月",
-  "3月",
-];
-
-const departments = ["全社", "営業部", "管理部", "開発チーム"];
-
 export default function VariancePage() {
   const { activeFiscalYear, varianceQuery } = useBudgetContext();
-  const apiRows = useNormalizedVarianceRows(varianceQuery.data);
-  const [selectedMonth, setSelectedMonth] = useState("3月");
-  const [selectedDept, setSelectedDept] = useState("全社");
-  const [viewMode, setViewMode] = useState<"monthly" | "cumulative">("monthly");
-
-  const rows = apiRows;
+  const { month, fiscalYear, setPeriod } = usePeriodStore();
+  const [viewMode, setViewMode] = useState<"monthly" | "cumulative">("cumulative");
+  const months = useMemo(() => fiscalMonths(activeFiscalYear?.startDate, activeFiscalYear?.endDate), [activeFiscalYear]);
+  const selected = months.find((m) => m.month === month) ?? months.at(-1);
+  const from = viewMode === "monthly" ? selected?.date : months[0]?.date;
+  const until = selected?.date;
+  const periodRows = useMemo(() => from && until ? filterFiscalRows(varianceQuery.data, from, until) : [], [varianceQuery.data, from, until]);
+  const rows = useNormalizedVarianceRows(periodRows);
 
   return (
     <DashboardShell>
@@ -56,34 +43,25 @@ export default function VariancePage() {
           </h1>
           <p className="text-sm text-muted-foreground">
             {activeFiscalYear
-              ? `${activeFiscalYear.year}年度 予算実績比較`
+                ? `${activeFiscalYear.year}年度 ${selected?.label ?? ""}${viewMode === "monthly" ? "単月" : "までの累計"} 予算実績比較`
               : "予算実績比較"}
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
           <select
-            value={selectedMonth}
-            onChange={(e) => setSelectedMonth(e.target.value)}
+            aria-label="予実の対象月"
+            value={selected?.month ?? ""}
+            onChange={(e) => setPeriod(fiscalYear, Number(e.target.value))}
             className="h-9 rounded-md border border-input bg-background px-3 text-sm"
           >
             {months.map((m) => (
-              <option key={m} value={m}>
-                {m}
+              <option key={m.date} value={m.month}>
+                {m.label}
               </option>
             ))}
           </select>
-          <select
-            value={selectedDept}
-            onChange={(e) => setSelectedDept(e.target.value)}
-            className="h-9 rounded-md border border-input bg-background px-3 text-sm"
-          >
-            {departments.map((d) => (
-              <option key={d} value={d}>
-                {d}
-              </option>
-            ))}
-          </select>
+          <span className="text-sm text-muted-foreground">全社</span>
           <div className="flex overflow-hidden rounded-md border border-input">
             <Button
               variant={viewMode === "monthly" ? "default" : "ghost"}
@@ -117,7 +95,7 @@ export default function VariancePage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {rows.length === 0 ? (
+            {varianceQuery.isError ? <p role="alert">予実データを取得できませんでした。再読み込みしてください。</p> : varianceQuery.isLoading ? <p>読み込み中…</p> : rows.length === 0 ? (
               <MfEmptyState title="予実データがありません" description="予算を設定しMFクラウド会計を接続すると、予実差異が表示されます。" />
             ) : (
             <div className="overflow-x-auto">
@@ -140,10 +118,10 @@ export default function VariancePage() {
                       差異率
                     </TableHead>
                     <TableHead className="w-28 text-right font-semibold text-[var(--color-text-primary)]">
-                      前年同月
+                      {viewMode === "monthly" ? "前年同月" : "前年同期"}
                     </TableHead>
                     <TableHead className="w-28 text-right font-semibold text-[var(--color-text-primary)]">
-                      前年同月比
+                      {viewMode === "monthly" ? "前年同月比" : "前年同期比"}
                     </TableHead>
                   </TableRow>
                 </TableHeader>

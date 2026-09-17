@@ -5,6 +5,7 @@ import {
   IsArray,
   IsIn,
 } from 'class-validator';
+import { EVENT_TYPES } from './create-business-event.dto';
 
 const IMPACT_TAGS = ['sales', 'cost', 'cash', 'headcount'] as const;
 type ImpactTag = (typeof IMPACT_TAGS)[number];
@@ -16,6 +17,7 @@ export class UpdateBusinessEventDto {
 
   @IsOptional()
   @IsString()
+  @IsIn(EVENT_TYPES)
   eventType?: string;
 
   @IsOptional()

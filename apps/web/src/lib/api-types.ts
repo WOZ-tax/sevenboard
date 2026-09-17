@@ -495,6 +495,7 @@ export interface LoanMfBookBalance {
 }
 
 export interface LoanListResponse {
+  scheduleAsOf?: string;
   loans: LoanSummary[];
   totals: LoanTotals;
   mfBookBalance: LoanMfBookBalance;

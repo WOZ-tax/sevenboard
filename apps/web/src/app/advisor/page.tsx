@@ -163,8 +163,8 @@ function AdvisorPortalContent() {
     }
   }, [hydrated, user, orgLoading, canAccess, router]);
 
-  const canCreateOrg = canAccess;
-  const canEditOrg = canAccess;
+  const canCreateOrg = canAccess && !currentOrg?.isDemo;
+  const canEditOrg = canAccess && !currentOrg?.isDemo;
   const canDeleteOrg = user?.role === "owner";
   // 事務所スタッフ管理: firm_owner に加え firm_admin / firm_manager も許可。
   const canManageStaff = tenantCaps.canManageStaff;

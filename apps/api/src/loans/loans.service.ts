@@ -107,7 +107,12 @@ export class LoansService {
       activeDerivable,
     );
 
-    return { loans: summaries, totals, mfBookBalance };
+    return {
+      loans: summaries,
+      totals,
+      mfBookBalance,
+      scheduleAsOf: toDateStr(w.monthEnd),
+    };
   }
 
   // ============================ 詳細 ============================

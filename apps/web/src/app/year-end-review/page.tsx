@@ -214,7 +214,7 @@ function PageHeader({
         <div>
           <h1 className="text-lg font-bold tracking-tight">決算検討</h1>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            {periodLabel} ／ 期首から{elapsedMonths}ヶ月経過 ／ 決算まであと{remainingMonths}ヶ月
+            {periodLabel} ／ 本日基準で期首から{elapsedMonths}ヶ月経過・決算まであと{remainingMonths}ヶ月
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3 text-xs">

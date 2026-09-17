@@ -247,7 +247,7 @@ export default function BusinessEventsPage() {
     setEditingId(e.id);
     setShowForm(true);
     setFormDate(e.eventDate.slice(0, 10));
-    setFormType(e.eventType);
+    setFormType(eventTypeConfig[e.eventType] ? e.eventType : "OTHER");
     setFormTitle(e.title);
     setFormNote(e.note || "");
     setFormTags(e.impactTags);
@@ -464,7 +464,7 @@ export default function BusinessEventsPage() {
             ) : (
               <ul className="divide-y">
                 {events.map((e) => {
-                  const typeCfg = eventTypeConfig[e.eventType];
+                  const typeCfg = eventTypeConfig[e.eventType] ?? eventTypeConfig.OTHER;
                   const TypeIcon = typeCfg.icon;
                   return (
                     <li key={e.id} className="p-4 flex items-start gap-3">
@@ -485,6 +485,7 @@ export default function BusinessEventsPage() {
                           </Badge>
                           {e.impactTags.map((tag) => {
                             const tagCfg = impactTagConfig[tag];
+                            if (!tagCfg) return null;
                             return (
                               <Badge
                                 key={tag}

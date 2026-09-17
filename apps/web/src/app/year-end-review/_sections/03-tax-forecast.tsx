@@ -141,6 +141,8 @@ function TaxForecastForm() {
   const bs = useMfBS();
   const lockedMonth = usePeriodStore((s) => s.month);
   const fiscalYear = usePeriodStore((s) => s.fiscalYear);
+  const periods = usePeriodStore((s) => s.periods);
+  const fiscalStart = periods.find((p) => p.fiscal_year === fiscalYear)?.start_date ?? '';
   const { fyStartMonth, isReady: isFiscalPeriodReady } = useFyElapsed();
   const { value: rawForm, setValue: setForm, isHydrated, isLoading, isError } = useFeatureStateLocal<FormState>(
     "year-end-review.tax-forecast",
@@ -185,7 +187,7 @@ function TaxForecastForm() {
     const annualize = (v: number) => Math.round((v / elapsed) * 12);
     const annualizeManYen = (v: number) => Math.round(((v / elapsed) * 12) / 10000);
 
-    const ord = findPl("経常利益");
+    const ord = findPl("税引前当期純利益") ?? findPl("経常利益");
     const cap = findBs("資本金");
     const vatRecv = findBs("仮受消費税");
     const vatPaid = findBs("仮払消費税");
@@ -246,8 +248,8 @@ function TaxForecastForm() {
   const isSmb = capitalManYen <= 10000;
 
   const corpTax = useMemo(
-    () => calcCorpTax(taxableIncome, capitalManYen, localRates),
-    [taxableIncome, capitalManYen, localRates],
+    () => calcCorpTax(taxableIncome, capitalManYen, localRates, fiscalStart),
+    [taxableIncome, capitalManYen, localRates, fiscalStart],
   );
 
   const vatPayable = useMemo(() => {
@@ -294,7 +296,7 @@ function TaxForecastForm() {
         corpTax.corporateTaxHigh,
       ),
       mk("localCorp", "地方法人税", "法人税合計", corpTax.localCorporateTax),
-      mk("defense", "防衛特別法人税", "法人税合計 − 500万円", corpTax.defenseTax),
+      mk("defense", "防衛特別法人税", fiscalStart >= '2026-04-01' ? "法人税合計 − 500万円" : "2026年4月1日以後開始の事業年度から適用", corpTax.defenseTax),
       // 地方税 — 税率編集可
       mk("resident", "法人住民税 法人税割", "法人税合計", corpTax.residentTaxOnIncome, {
         rateEditable: true,
@@ -333,7 +335,7 @@ function TaxForecastForm() {
       return all.filter((r) => !["corpLow", "bizLv1", "bizLv2"].includes(r.key));
     }
     return all;
-  }, [corpTax, form.kintowariYen, form.midPaymentsYen, isSmb]);
+  }, [corpTax, form.kintowariYen, form.midPaymentsYen, isSmb, fiscalStart]);
 
   const totalAnnual = rows.reduce((acc, r) => acc + r.annual, 0);
   const totalMid = rows.reduce((acc, r) => acc + r.mid, 0);

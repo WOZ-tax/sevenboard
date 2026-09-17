@@ -1,6 +1,9 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, useMemo } from "react";
+import { fiscalMonths } from "@/lib/fiscal-months";
+import { useFeatureState, useFeatureStateMutation } from "@/hooks/use-year-end-state";
+import { toast } from "sonner";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -68,30 +71,18 @@ type BudgetUiRow = {
   sourceEntries?: BudgetEntry[];
 };
 
-const months: { key: MonthKey; label: string; monthValue: string }[] = [
-  { key: "apr", label: "4月", monthValue: "-04-01" },
-  { key: "may", label: "5月", monthValue: "-05-01" },
-  { key: "jun", label: "6月", monthValue: "-06-01" },
-  { key: "jul", label: "7月", monthValue: "-07-01" },
-  { key: "aug", label: "8月", monthValue: "-08-01" },
-  { key: "sep", label: "9月", monthValue: "-09-01" },
-  { key: "oct", label: "10月", monthValue: "-10-01" },
-  { key: "nov", label: "11月", monthValue: "-11-01" },
-  { key: "dec", label: "12月", monthValue: "-12-01" },
-  { key: "jan", label: "1月", monthValue: "-01-01" },
-  { key: "feb", label: "2月", monthValue: "-02-01" },
-  { key: "mar", label: "3月", monthValue: "-03-01" },
-];
-
-const monthOrder: MonthKey[] = ["apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec", "jan", "feb", "mar"];
-
 export default function BudgetPage() {
   const { activeFiscalYear, activeBudgetVersion, budgetEntriesQuery } =
     useBudgetContext();
   const apiRows = useNormalizedBudgetRows(budgetEntriesQuery.data);
   const [data, setData] = useState<BudgetUiRow[]>([]);
-  const [budgetStatus, setBudgetStatus] = useState<BudgetStatus>("DRAFT");
-  const isLocked = budgetStatus === "LOCKED";
+  const workflow = useFeatureState<{ status: BudgetStatus }>("budget.workflow", activeBudgetVersion?.id ?? "");
+  const workflowMutation = useFeatureStateMutation<{ status: BudgetStatus }>("budget.workflow", activeBudgetVersion?.id ?? "");
+  const rawStatus = workflow.data?.value?.status;
+  const budgetStatus: BudgetStatus = rawStatus && rawStatus in statusConfig ? rawStatus : "DRAFT";
+  const isLocked = budgetStatus === "LOCKED" || workflow.isLoading || workflow.isError;
+  const months = useMemo(() => fiscalMonths(activeFiscalYear?.startDate, activeFiscalYear?.endDate), [activeFiscalYear]);
+  const monthOrder = months.map(m => m.key);
 
   const [editingCell, setEditingCell] = useState<{
     rowId: string;
@@ -100,6 +91,8 @@ export default function BudgetPage() {
   const [originalValue, setOriginalValue] = useState<number | null>(null);
   const [saveStatus, setSaveStatus] = useState<"idle" | "dirty" | "saving" | "saved">("idle");
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const latestSaveRef = useRef<(() => Promise<void>) | null>(null);
+  const editRevisionRef = useRef(0);
   const updateMutation = useUpdateBudgetEntries(activeBudgetVersion?.id ?? null);
 
   const isTotal = (): boolean => false;
@@ -120,12 +113,16 @@ export default function BudgetPage() {
   const seededVersionIdRef = useRef<string | null>(null);
   useEffect(() => {
     const currentId = activeBudgetVersion?.id ?? null;
-    if (currentId !== seededVersionIdRef.current && apiRows.length > 0) {
-      seededVersionIdRef.current = currentId;
+    if (currentId !== seededVersionIdRef.current) {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      if (apiRows.length > 0 || !budgetEntriesQuery.isPending) seededVersionIdRef.current = currentId;
       // eslint-disable-next-line react-hooks/set-state-in-effect -- Seed local editable rows when the budget version changes; local edits are preserved across refetches of the same version.
       setData(apiRows);
+      setEditingCell(null);
+      setSaveStatus("idle");
     }
-  }, [apiRows, activeBudgetVersion]);
+  }, [apiRows, activeBudgetVersion, budgetEntriesQuery.isPending]);
+  useEffect(() => () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); }, []);
 
   const startEditing = (rowId: string, month: MonthKey) => {
     const row = data.find((r) => r.id === rowId);
@@ -138,62 +135,58 @@ export default function BudgetPage() {
     startEditing(rowId, month);
   };
 
-  const handleStatusTransition = (next: BudgetStatus, message: string) => {
+  const handleStatusTransition = async (next: BudgetStatus, message: string) => {
     if (window.confirm(message)) {
-      setBudgetStatus(next);
+      try {
+        if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+        if (saveStatus === "dirty") await latestSaveRef.current?.();
+        await workflowMutation.mutateAsync({ status: next });
+      } catch { toast.error("予算の状態を保存できませんでした。"); }
     }
   };
 
   const buildPayload = useCallback(() => {
-    if (!activeBudgetVersion || !activeFiscalYear) return null;
-
-    const fiscalYear = activeFiscalYear.year;
+    if (!activeBudgetVersion || !activeFiscalYear || seededVersionIdRef.current !== activeBudgetVersion.id) return null;
 
     return data.flatMap((row) =>
       months.map((month) => {
-        const monthNum = Number(month.monthValue.slice(1, 3));
-        // Jan-Mar belong to the next calendar year in a fiscal year starting April
-        const calendarYear = monthNum <= 3 ? fiscalYear + 1 : fiscalYear;
-
         const existing = row.sourceEntries?.find(
-          (entry) => new Date(entry.month).getMonth() + 1 === monthNum,
+          (entry) => entry.month.slice(0, 10) === month.date,
         );
 
         return {
           id: existing?.id,
           accountId: row.accountId ?? row.id,
           departmentId: existing?.departmentId ?? undefined,
-          month: `${calendarYear}${month.monthValue}`,
+          month: month.date,
           amount: Number(row[month.key]),
         };
       })
     );
-  }, [data, activeBudgetVersion, activeFiscalYear]);
+  }, [data, activeBudgetVersion, activeFiscalYear, months]);
 
   const executeSave = useCallback(async () => {
     const payload = buildPayload();
-    if (!payload || !activeBudgetVersion) return;
+    if (!payload || !activeBudgetVersion || isLocked) return;
 
+    const editRevision = editRevisionRef.current;
     setSaveStatus("saving");
     try {
-      updateMutation.mutate(payload, {
-        onSuccess: () => {
-          setSaveStatus("saved");
-          setTimeout(() => setSaveStatus((prev) => prev === "saved" ? "idle" : prev), 3000);
-        },
-        onError: () => {
-          setSaveStatus("dirty");
-        },
-      });
-    } catch {
+      await updateMutation.mutateAsync(payload);
+      setSaveStatus(editRevision === editRevisionRef.current ? "saved" : "dirty");
+    } catch (error) {
       setSaveStatus("dirty");
+      toast.error("予算を保存できませんでした。再度保存してください。");
+      throw error;
     }
-  }, [buildPayload, activeBudgetVersion, updateMutation]);
+  }, [buildPayload, activeBudgetVersion, updateMutation, isLocked]);
+  useEffect(() => { latestSaveRef.current = executeSave; }, [executeSave]);
 
   const handleCellChange = useCallback(
     (rowId: string, month: MonthKey, value: string) => {
       const numValue = parseInt(value.replace(/[^0-9-]/g, ""), 10);
       if (Number.isNaN(numValue)) return;
+      editRevisionRef.current += 1;
 
       setData((prev) =>
         prev.map((row) =>
@@ -204,10 +197,10 @@ export default function BudgetPage() {
       setSaveStatus("dirty");
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
       saveTimerRef.current = setTimeout(() => {
-        executeSave();
+        void latestSaveRef.current?.().catch(() => {});
       }, 2000);
     },
-    [executeSave]
+    []
   );
 
   const handleCellRevert = useCallback(
@@ -271,7 +264,7 @@ export default function BudgetPage() {
 
   const handleSave = () => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    executeSave();
+    void latestSaveRef.current?.().catch(() => {});
   };
 
   return (
@@ -293,15 +286,17 @@ export default function BudgetPage() {
               {statusConfig[budgetStatus].label}
             </Badge>
 
+            {workflow.isError && <span role="alert">予算の状態を読み込めませんでした。</span>}
+            <fieldset disabled={!activeBudgetVersion || workflow.isLoading || workflow.isError || workflowMutation.isPending || updateMutation.isPending} className="flex items-center gap-2">
             {budgetStatus === "DRAFT" && (
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() =>
-                  handleStatusTransition("PENDING", "確認依頼を送信しますか？")
+                  handleStatusTransition("PENDING", "この予算を確認待ちにしますか？")
                 }
               >
-                確認依頼を送信
+                確認待ちにする
               </Button>
             )}
             {budgetStatus === "PENDING" && (
@@ -342,12 +337,13 @@ export default function BudgetPage() {
                 variant="outline"
                 size="sm"
                 onClick={() =>
-                  handleStatusTransition("DRAFT", "修正版を新規作成しますか？現在の確定版はそのまま残ります。")
+                  handleStatusTransition("DRAFT", "この予算の確定を解除して、編集を再開しますか？")
                 }
               >
-                修正版を作成
+                確定を解除
               </Button>
             )}
+            </fieldset>
 
             {saveStatus === "dirty" && (
               <span className="text-sm text-yellow-600">未保存の変更あり</span>

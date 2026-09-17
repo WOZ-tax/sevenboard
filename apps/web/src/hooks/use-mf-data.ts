@@ -191,9 +191,11 @@ export function useVariableCost(fiscalYear?: number, endMonth?: number) {
 
 export function useMfAccountTransition(accountName: string, fiscalYear?: number) {
   const orgId = useOrgId();
+  const globalFiscalYear = usePeriodStore((s) => s.fiscalYear);
+  const targetYear = fiscalYear ?? globalFiscalYear;
   return useQuery({
-    queryKey: ["mf", "account-transition", orgId, accountName, fiscalYear],
-    queryFn: () => api.mf.getAccountTransition(orgId, accountName, fiscalYear),
+    queryKey: ["mf", "account-transition", orgId, accountName, targetYear],
+    queryFn: () => api.mf.getAccountTransition(orgId, accountName, targetYear),
     enabled: !!orgId && !!accountName,
     staleTime: 5 * 60 * 1000,
   });
