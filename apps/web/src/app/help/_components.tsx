@@ -43,7 +43,7 @@ export function HelpIndex() {
           <p className="mb-3 text-xs font-semibold tracking-wider text-[var(--color-primary)]">
             はじめての SevenBoard
           </p>
-          <h1 className="text-3xl font-bold leading-snug tracking-tight sm:text-4xl">
+          <h1 className="text-2xl font-bold leading-snug tracking-tight sm:text-4xl">
             数字を確かめる。
             <br />
             次の支援につなげる。
