@@ -69,7 +69,7 @@ export const useCopilotStore = create<CopilotState>((set, get) => ({
       };
     }),
   setPending: (pending) => set({ pending }),
-  reset: () => set({ messages: [], pending: false }),
+  reset: () => set({ open: false, mode: "observe", agentKey: null, messages: [], pending: false, seed: null }),
   openWith: (options) =>
     set({
       open: true,

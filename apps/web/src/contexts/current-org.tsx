@@ -60,16 +60,17 @@ const CurrentOrgContext = createContext<CurrentOrgContextValue | null>(null);
  */
 export function CurrentOrgProvider({ children }: { children: ReactNode }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const userId = useAuthStore((s) => s.user?.id);
   const queryClient = useQueryClient();
 
   const memberships = useQuery<Membership[]>({
-    queryKey: ["auth", "memberships"],
+    queryKey: ["auth", "memberships", userId],
     queryFn: () => api.getMemberships(),
     enabled: isAuthenticated,
     staleTime: 30_000,
   });
 
-  const list = memberships.data ?? [];
+  const list = isAuthenticated ? memberships.data ?? [] : [];
 
   const [selectedId, setSelectedId] = useState<string | null>(() =>
     readCurrentOrgStorage(),
@@ -109,9 +110,11 @@ export function CurrentOrgProvider({ children }: { children: ReactNode }) {
 
   const setCurrentOrgId = useCallback(
     (orgId: string) => {
+      if (!list.some((membership) => membership.orgId === orgId)) return;
       if (orgId === currentOrgId) return;
       setSelectedId(orgId);
       writeCurrentOrgStorage(orgId);
+      sessionStorage.removeItem('funding-scenarios');
       // org スコープの全クエリを破棄。次の render で各 hook が新しい orgId で再フェッチ。
       // memberships 自身は orgId 非依存なので残す。
       queryClient.removeQueries({
@@ -128,7 +131,7 @@ export function CurrentOrgProvider({ children }: { children: ReactNode }) {
       usePeriodStore.getState().reset();
       useCopilotStore.getState().reset();
     },
-    [currentOrgId, queryClient],
+    [currentOrgId, list, queryClient],
   );
 
   const value = useMemo<CurrentOrgContextValue>(

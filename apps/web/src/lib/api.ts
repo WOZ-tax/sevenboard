@@ -1,5 +1,7 @@
 import { apiRequestHeaders } from './request-headers';
 import { readApiJson } from './api-response';
+import { fetchInSession, sessionSignal } from './session-requests';
+import { serializeAuthChange } from './auth-transition';
 import type {
   AiSummaryResponse,
   AlertItem,
@@ -83,6 +85,10 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 const CSRF_STORAGE_KEY = 'sb_csrf_token';
 let csrfTokenInMemory: string | null = null;
 
+export function forgetCsrfTokenMemory(): void {
+  csrfTokenInMemory = null;
+}
+
 export function setCsrfToken(token: string | null): void {
   csrfTokenInMemory = token;
   if (typeof window === 'undefined') return;
@@ -115,17 +121,20 @@ let csrfHealInFlight: Promise<boolean> | null = null;
 
 async function tryHealCsrfToken(): Promise<boolean> {
   if (!csrfHealInFlight) {
+    const signal = sessionSignal();
     csrfHealInFlight = (async () => {
       try {
         const res = await fetch(`${API_BASE}/auth/refresh`, {
           method: 'POST',
           credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
+          signal,
         });
         if (!res.ok) return false;
         const body = (await res.json().catch(() => null)) as {
           csrfToken?: string;
         } | null;
+        signal.throwIfAborted();
         if (!body?.csrfToken) return false;
         setCsrfToken(body.csrfToken);
         return true;
@@ -151,8 +160,12 @@ async function apiFetch<T>(
   // content-type combines them into an invalid media type in browser fetch.
   const headers = apiRequestHeaders(options?.headers, needsCsrf ? csrfToken : null);
 
-  const res = await fetch(`${API_BASE}${path}`, {
+  // Logout must finish clearing its cookie before the next login issues one.
+  // All business/profile requests belong to the current login and are aborted on switch.
+  const request = path === '/auth/login' || path === '/auth/logout' ? fetch : fetchInSession;
+  const res = await request(`${API_BASE}${path}`, {
     ...options,
+    cache: 'no-store',
     credentials: 'include', // httpOnly Cookie(sb_token)で認証
     headers,
   });
@@ -206,8 +219,9 @@ async function apiFetchForm<T>(
   isCsrfRetry = false,
 ): Promise<T> {
   const csrfToken = getCsrfToken();
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await fetchInSession(`${API_BASE}${path}`, {
     method: 'POST',
+    cache: 'no-store',
     credentials: 'include',
     // Content-Type は付けない (boundary をブラウザに任せる)
     headers: {
@@ -707,26 +721,39 @@ export interface ChoshoVersionDetail {
   rows: ChoshoPreviewRow[];
 }
 
+let logoutInFlight: Promise<unknown> | null = null;
+
 export const api = {
   // Auth
   login: async (email: string, password: string) => {
-    const result = await apiFetch<{
-      accessToken: string;
-      user: AuthUser;
-      csrfToken?: string;
-    }>('/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ email, password }),
+    await logoutInFlight?.catch(() => {});
+    return serializeAuthChange(async () => {
+      const result = await apiFetch<{
+        accessToken: string;
+        user: AuthUser;
+        csrfToken?: string;
+      }>('/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ email, password }),
+      });
+      // Cross-origin clients receive the CSRF value in the response body.
+      if (result.csrfToken) setCsrfToken(result.csrfToken);
+      return result;
     });
-    // クロスオリジン本番では sb_csrf Cookie を読めないため、body 経由の
-    // トークンをメモリに保持する (API が返す場合。同一サイト開発では Cookie 側で動く)。
-    if (result.csrfToken) setCsrfToken(result.csrfToken);
-    return result;
   },
 
   // 認証 Cookie(sb_token/sb_csrf)をサーバ側でクリアする。
-  logout: () =>
-    apiFetch<{ message: string }>('/auth/logout', { method: 'POST' }),
+  logout: () => {
+    if (!logoutInFlight) {
+      logoutInFlight = serializeAuthChange(() => apiFetch<{ message: string }>('/auth/logout', { method: 'POST' }, true)
+        .finally(() => {
+          setCsrfToken(null);
+        })).finally(() => { logoutInFlight = null; });
+    }
+    return logoutInFlight;
+  },
+
+  getProfile: () => apiFetch<AuthUser>('/auth/me'),
 
   // Advisor organizations
   getAdvisorOrgs: () =>

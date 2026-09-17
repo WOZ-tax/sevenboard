@@ -49,6 +49,16 @@ export function OrgSwitcher() {
     return null;
   }
 
+  if (currentOrg?.isDemo) {
+    return (
+      <div aria-label="デモ会社" className="flex items-center gap-2 rounded-md border border-[var(--color-border)] bg-[var(--color-primary)]/5 px-2.5 py-1 text-xs">
+        <Building2 className="h-3.5 w-3.5 text-[var(--color-primary)]" />
+        <span className="font-medium text-[var(--color-text-primary)]">{currentOrg.orgName}</span>
+        <span className="text-[10px] text-muted-foreground">デモ専用</span>
+      </div>
+    );
+  }
+
   // 1 件しかない場合でも顧問先切替の入口として常にドロップダウンを出す
   // （内部 owner は将来増える顧問先を見据えて常時切替 UI を期待する）
 
