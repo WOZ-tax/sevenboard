@@ -7,7 +7,7 @@ import { AuthResponseDto } from './dto/auth-response.dto';
 import { JwtPayload } from './jwt.strategy';
 import { AuthorizationService } from './authorization.service';
 import { roleHasPermission } from './permissions';
-import { isDemoOrg, DEMO_AS_OF } from '../demo/demo.constants';
+import { isDemoOrg, DEMO_AS_OF, DEMO_USER_ID, DEMO_ORG_ID, DEMO_TENANT_ID } from '../demo/demo.constants';
 
 type LegacyMembershipRole = 'owner' | 'admin' | 'member' | 'viewer' | 'advisor';
 
@@ -102,13 +102,15 @@ export class AuthService {
     if (!user) return [];
 
     const byOrgId = new Map<string, any>();
+    const demo = userId === DEMO_USER_ID;
 
     const tenantMemberships = await this.prisma.tenantMembership.findMany({
-      where: { userId },
+      where: { userId, ...(demo ? { tenantId: DEMO_TENANT_ID } : {}) },
       include: {
         tenant: {
           include: {
             organizations: {
+              ...(demo ? { where: { id: DEMO_ORG_ID } } : {}),
               select: {
                 id: true,
                 tenantId: true,
@@ -152,7 +154,11 @@ export class AuthService {
     }
 
     const orgMemberships = await this.prisma.organizationMembership.findMany({
-      where: { userId, organization: { tenant: { status: 'active' } } },
+      where: {
+        userId,
+        ...(demo ? { orgId: DEMO_ORG_ID } : {}),
+        organization: { tenant: { status: 'active' }, ...(demo ? { tenantId: DEMO_TENANT_ID } : {}) },
+      },
       include: {
         organization: {
           select: {
@@ -186,7 +192,9 @@ export class AuthService {
       });
     }
 
-    return Array.from(byOrgId.values()).sort((a, b) =>
+    return Array.from(byOrgId.values()).filter((membership) =>
+      !demo || (membership.orgId === DEMO_ORG_ID && membership.tenantId === DEMO_TENANT_ID),
+    ).sort((a, b) =>
       a.orgName.localeCompare(b.orgName),
     );
   }

@@ -119,9 +119,10 @@ export class AuthorizationService {
 
   async findAccessibleOrganizations(user: AuthorizationUser) {
     const byId = new Map<string, any>();
+    const demo = user.id === DEMO_USER_ID;
 
     const tenantMemberships = await this.prisma.tenantMembership.findMany({
-      where: { userId: user.id },
+      where: { userId: user.id, ...(demo ? { tenantId: DEMO_TENANT_ID } : {}) },
       select: {
         tenantId: true,
         role: true,
@@ -142,7 +143,7 @@ export class AuthorizationService {
       if (blockedTenants.has(membership.tenantId)) continue;
       if (roleHasPermission(membership.role, 'org:organizations:read')) {
         const orgs = await this.prisma.organization.findMany({
-          where: { tenantId: membership.tenantId },
+          where: { tenantId: membership.tenantId, ...(demo ? { id: DEMO_ORG_ID } : {}) },
           orderBy: { name: 'asc' },
         });
         for (const org of orgs) byId.set(org.id, org);
@@ -152,7 +153,8 @@ export class AuthorizationService {
     const orgMemberships = await this.prisma.organizationMembership.findMany({
       where: {
         userId: user.id,
-        organization: { tenant: { status: 'active' } },
+        ...(demo ? { orgId: DEMO_ORG_ID } : {}),
+        organization: { tenant: { status: 'active' }, ...(demo ? { tenantId: DEMO_TENANT_ID } : {}) },
       },
       include: { organization: true },
     });
@@ -168,7 +170,9 @@ export class AuthorizationService {
       }
     }
 
-    return Array.from(byId.values()).sort((a, b) =>
+    return Array.from(byId.values()).filter((org) =>
+      !demo || (org.id === DEMO_ORG_ID && org.tenantId === DEMO_TENANT_ID),
+    ).sort((a, b) =>
       a.name.localeCompare(b.name),
     );
   }

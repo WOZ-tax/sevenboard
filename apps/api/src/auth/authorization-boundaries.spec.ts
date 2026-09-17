@@ -151,4 +151,45 @@ describe('advisor assignment boundaries', () => {
       [],
     );
   });
+
+  it('keeps every demo company list fixed even if wider memberships were accidentally granted', async () => {
+    const demoUser = { ...user, id: DEMO_USER_ID };
+    const demoOrg = { id: DEMO_ORG_ID, tenantId: DEMO_TENANT_ID, name: 'Demo' };
+    const otherInDemoTenant = { id: 'not-demo', tenantId: DEMO_TENANT_ID, name: 'Other in demo tenant' };
+    const otherTenantOrg = { ...org, name: 'Other tenant' };
+    prisma.user = { findUnique: jest.fn().mockResolvedValue(demoUser) };
+    prisma.tenantMembership.findMany = jest.fn().mockResolvedValue([
+      {
+        tenantId: DEMO_TENANT_ID, role: 'firm_owner', status: 'active',
+        tenant: { status: 'active', organizations: [demoOrg, otherInDemoTenant] },
+      },
+      {
+        tenantId: org.tenantId, role: 'firm_owner', status: 'active',
+        tenant: { status: 'active', organizations: [otherTenantOrg] },
+      },
+    ]);
+    prisma.organization.findMany = jest.fn().mockResolvedValue([demoOrg, otherInDemoTenant, otherTenantOrg]);
+    prisma.organizationMembership.findMany = jest.fn().mockResolvedValue(
+      [demoOrg, otherInDemoTenant, otherTenantOrg].map(organization => ({ role: 'advisor', side: 'advisor', organization })),
+    );
+    await expect(service.findAccessibleOrganizations(demoUser)).resolves.toEqual([demoOrg]);
+    const auth = new AuthService(prisma, {} as any, service);
+    const memberships = await auth.getUserMemberships(demoUser.id, demoUser.role);
+    expect(memberships.map(m => m.orgId)).toEqual([DEMO_ORG_ID]);
+    await expect(auth.getUserOrganizations(demoUser.id, demoUser.role)).resolves.toEqual([demoOrg]);
+    await expect(service.assertOrgPermission(demoUser, otherInDemoTenant.id, 'org:reports:read')).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(service.assertTenantPermission(demoUser, 'tenant:staff:manage')).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('does not return the demo company if its tenant identity has changed', async () => {
+    const demoUser = { ...user, id: DEMO_USER_ID };
+    prisma.user = { findUnique: jest.fn().mockResolvedValue(demoUser) };
+    prisma.tenantMembership.findMany = jest.fn().mockResolvedValue([]);
+    prisma.organizationMembership.findMany = jest.fn().mockResolvedValue([
+      { role: 'advisor', side: 'advisor', organization: { id: DEMO_ORG_ID, tenantId: 'other-tenant', name: 'Moved company' } },
+    ]);
+    const auth = new AuthService(prisma, {} as any, service);
+    await expect(service.findAccessibleOrganizations(demoUser)).resolves.toEqual([]);
+    await expect(auth.getUserMemberships(demoUser.id, demoUser.role)).resolves.toEqual([]);
+  });
 });
