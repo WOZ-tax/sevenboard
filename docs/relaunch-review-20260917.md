@@ -86,6 +86,8 @@
 
 API全35スイート365件成功。Webの通信中断・認証処理の順序に関する回帰テスト5件成功。本番用ビルド成功。実ブラウザの同一タブ／別タブ切替は、DOM変更を監視して旧会社名の瞬間的な再表示も検査する。再現・修正後の結果は`output/sevenboard-relaunch-review/demo-isolation-*.json`に記録する。
 
+最終公開版で隔離24項目、主要7画面がすべて成功。JavaScript例外0、API失敗0、待機中リクエスト0。APIの10項目ではデモへの保存・再取得も確認した。認証確認中の初期HTMLとクライアント表示の不一致も修正済み。最新の配信識別子と検証資料は`output/sevenboard-relaunch-review/demo-isolation-release.md`に記録した。
+
 ## 参照資料
 
 - [Next公式アドバイザリー](https://github.com/vercel/next.js/security/advisories/GHSA-2xp9-vwfh-vxw4)
