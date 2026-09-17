@@ -35,6 +35,7 @@
     "esbuild": "0.28.2"
   },
   "dependencies": {
+    "express": "4.22.1",
     "@prisma/client": "^6.6.0"
   }
 }
