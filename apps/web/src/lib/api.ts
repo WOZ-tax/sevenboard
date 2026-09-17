@@ -1,4 +1,5 @@
 import { apiRequestHeaders } from './request-headers';
+import { readApiJson } from './api-response';
 import type {
   AiSummaryResponse,
   AlertItem,
@@ -186,7 +187,7 @@ async function apiFetch<T>(
     err.statusCode = res.status;
     throw err;
   }
-  return res.json();
+  return readApiJson<T>(res);
 }
 
 export function isMfNotConnected(err: unknown): boolean {
@@ -240,7 +241,7 @@ async function apiFetchForm<T>(
     err.statusCode = res.status;
     throw err;
   }
-  return res.json();
+  return readApiJson<T>(res);
 }
 
 export type MonthlyReviewApprovalStatus =

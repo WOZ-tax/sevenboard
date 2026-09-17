@@ -5,6 +5,7 @@ import {
   useMfAccountTransition,
   useMfOffice,
   useMfPL,
+  useMfBS,
 } from "@/hooks/use-mf-data";
 import { useFyElapsed } from "@/hooks/use-fy-elapsed";
 import { getFyElapsedFromMonth, usePeriodStore } from "@/lib/period-store";
@@ -18,42 +19,14 @@ import {
 } from "@/lib/payroll-tax-calc";
 import type { ExecAgeBracket } from "@/lib/tax-rates-2026";
 import { cn } from "@/lib/utils";
+import { statementAmount } from "@/lib/statement-amount";
+import { DEFAULT_EXEC_FORM as DEFAULT_FORM, normalizeExecForm, applyExecPreset, sumTransitionToMonth, type ExecCompForm as FormState } from './exec-comp-form';
 
 // :v2 = 旧バージョンの空フォーム自動保存バグの localStorage を無効化
 // orgId をキーに含めて顧問先ごとにスコープする（マルチテナント漏洩防止）
 const STORAGE_BASE = "sevenboard:exec-comp-input:v2";
 const storageKeyFor = (orgId: string, fy: number | undefined) =>
   `${STORAGE_BASE}:${orgId || "_"}:${fy ?? "_"}`;
-
-interface FormState {
-  revenue: string;
-  expenses: string;
-  monthlyComp: number;
-  age: ExecAgeBracket;
-  dependents: number;
-  spouseAnnual: string;
-  spouseAge: "general" | "elderly";
-  otherDeduction: string;
-  capital: string;
-  depreciation: string;
-  loanRepayment: string;
-  smallBizKyosai: string;
-}
-
-const DEFAULT_FORM: FormState = {
-  revenue: "50000000",
-  expenses: "20000000",
-  monthlyComp: 1_000_000,
-  age: "40to64",
-  dependents: 0,
-  spouseAnnual: "0",
-  spouseAge: "general",
-  otherDeduction: "0",
-  capital: "1000000",
-  depreciation: "0",
-  loanRepayment: "0",
-  smallBizKyosai: "0",
-};
 
 const parseYen = (s: string | undefined | null): number =>
   parseFloat((s ?? "0").replace(/,/g, "")) || 0;
@@ -63,9 +36,10 @@ const fmtComma = (n: number): string =>
 export function ExecCompSimulatorSection() {
   const office = useMfOffice();
   const pl = useMfPL();
+  const bs = useMfBS();
   const lockedMonth = usePeriodStore((s) => s.month);
   const fiscalYear = usePeriodStore((s) => s.fiscalYear);
-  const { fyStartMonth } = useFyElapsed();
+  const { fyStartMonth, isReady } = useFyElapsed();
   // PL Statement では役員報酬・減価償却費は販管費に集約されているため、
   // それぞれ個別に transition PL から再帰検索する。
   const execCompTransition = useMfAccountTransition("役員報酬", fiscalYear);
@@ -76,10 +50,7 @@ export function ExecCompSimulatorSection() {
     String(fiscalYear ?? ""),
     DEFAULT_FORM,
   );
-  const form: FormState = useMemo(() => ({
-    ...DEFAULT_FORM,
-    ...rawForm,
-  }), [rawForm]);
+  const form = useMemo(() => normalizeExecForm(rawForm), [rawForm]);
 
   // 旧 LocalStorage クリーンアップ (DB 化後不要)
   useEffect(() => {
@@ -96,57 +67,27 @@ export function ExecCompSimulatorSection() {
     }
   }, []);
 
-  // MF実績からプリセット (空欄項目だけ補完)
-  /* eslint-disable react-hooks/set-state-in-effect -- MFデータからのプリセット */
-  useEffect(() => {
-    if (!isHydrated) return;
-    if (!Array.isArray(pl.data)) return;
-
-    const findPl = (key: string, exclude?: string[]): number => {
-      const row = pl.data!.find(
-        (r) =>
-          r.category.includes(key) &&
-          (!exclude || !exclude.some((e) => r.category.includes(e))),
-      );
-      return row?.current ?? 0;
+  const preset = useMemo(() => {
+    if (!isReady) return {};
+    const elapsed = getFyElapsedFromMonth(lockedMonth, fyStartMonth);
+    const annualize = (value: number) => Math.round(value / elapsed * 12);
+    const revenue = statementAmount(pl.data, '売上高');
+    const operatingProfit = statementAmount(pl.data, '営業利益');
+    const execComp = execCompTransition.data == null ? null : sumTransitionToMonth(execCompTransition.data,fyStartMonth,elapsed);
+    const depreciation = depreciationTransition.data == null ? null : sumTransitionToMonth(depreciationTransition.data,fyStartMonth,elapsed);
+    const capital = bs.data ? statementAmount([...bs.data.assets,...bs.data.liabilitiesEquity],'資本金') : null;
+    return {
+      ...(revenue != null ? {revenue:String(annualize(revenue))} : {}),
+      ...(revenue != null && operatingProfit != null && execComp != null ? {expenses:String(annualize(revenue-operatingProfit-execComp))} : {}),
+      ...(execComp != null ? {monthlyComp:Math.round(execComp/elapsed)} : {}),
+      ...(depreciation != null ? {depreciation:String(annualize(depreciation))} : {}),
+      ...(capital != null ? {capital:String(capital)} : {}),
     };
-    const revenue = findPl("売上高", ["原価", "総利益"]);
-    const operatingProfit = findPl("営業利益");
-    // 役員報酬・減価償却費は PL Statement の集約レベルには無いので transition から累計
-    const sumTransition = (
-      data: { month: string; amount: number }[] | undefined,
-    ): number =>
-      (data ?? []).reduce(
-        (acc, r) => acc + (Number.isFinite(r.amount) ? r.amount : 0),
-        0,
-      );
-    const execComp = sumTransition(execCompTransition.data);
-    const depreciation = sumTransition(depreciationTransition.data);
-
-    if (revenue > 0) {
-      const elapsed = getFyElapsedFromMonth(lockedMonth, fyStartMonth);
-      const annualize = (v: number) => Math.round((v / elapsed) * 12);
-      const annualRevenue = annualize(revenue);
-      const annualOp = annualize(operatingProfit);
-      const annualExecComp = annualize(execComp);
-      const annualExpenses = Math.max(0, annualRevenue - annualOp - annualExecComp);
-      setForm((prev) => ({
-        ...prev,
-        revenue: String(annualRevenue),
-        expenses: String(annualExpenses),
-        monthlyComp: execComp > 0 ? Math.round(annualExecComp / 12) : prev.monthlyComp,
-        depreciation: depreciation > 0 ? String(annualize(depreciation)) : prev.depreciation,
-      }));
-    }
-  }, [
-    isHydrated,
-    pl.data,
-    execCompTransition.data,
-    depreciationTransition.data,
-    lockedMonth,
-    fyStartMonth,
-  ]);
-  /* eslint-enable react-hooks/set-state-in-effect */
+  },[isReady,lockedMonth,fyStartMonth,pl.data,bs.data,execCompTransition.data,depreciationTransition.data]);
+  useEffect(() => {
+    if (!isHydrated || applyExecPreset(form,preset) === form) return;
+    setForm(prev => applyExecPreset(normalizeExecForm(prev),preset));
+  },[isHydrated,form,preset,setForm]);
 
   // 旧 localStorage 保存は useFeatureStateLocal が代替
 
@@ -201,11 +142,14 @@ export function ExecCompSimulatorSection() {
   void office;
 
   const setField = <K extends keyof FormState>(k: K, v: FormState[K]) => {
-    setForm((prev) => ({ ...prev, [k]: v }));
+    setForm((prev) => ({ ...normalizeExecForm(prev), [k]: v, prefill:{...normalizeExecForm(prev).prefill,[k]:'manual'} }));
   };
 
   return (
     <div className="space-y-3">
+      <button type="button" disabled={!isHydrated || !isReady} className="rounded border px-3 py-1.5 text-xs hover:bg-muted disabled:opacity-50" onClick={() => {
+        if (confirm('年間売上・経費・役員報酬・減価償却・資本金を会計実績で再反映します。手入力した値も更新しますか？')) setForm(prev => applyExecPreset(normalizeExecForm(prev),preset,true));
+      }}>役員報酬の前提を再反映</button>
       <div className="grid gap-3 lg:grid-cols-[320px_1fr]">
         <div className="space-y-3">
           <SimCard title="基本情報">

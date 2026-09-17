@@ -6,6 +6,7 @@ import { useMfPL, useMfBS, useMfCashflow } from "@/hooks/use-mf-data";
 import { cn } from "@/lib/utils";
 import { ExternalLink } from "lucide-react";
 import { useFeatureStateLocal } from "@/hooks/use-year-end-state";
+import { statementAmount } from "@/lib/statement-amount";
 
 type CheckValue = "good" | "neutral" | "bad" | "unset";
 
@@ -101,8 +102,7 @@ export function LoanProposalSection() {
     const findBs = (key: string): number => {
       if (!bs.data) return 0;
       const all = [...bs.data.assets, ...bs.data.liabilitiesEquity];
-      const row = all.find((r) => r.category.includes(key));
-      return row?.current ?? 0;
+      return statementAmount(all, key) ?? 0;
     };
 
     const revenue = findPl("売上高", ["原価", "総利益"]);
@@ -114,9 +114,8 @@ export function LoanProposalSection() {
     const fixedAssets = findBs("固定資産");
     const totalAssets = findBs("総資産") || cur + fixedAssets;
     const debt = findBs("短期借入金") + findBs("長期借入金");
-    const cashFlowAmt =
-      (cashflow.data as { runway?: { variants?: { netBurn?: { basis?: number } } } } | undefined)
-        ?.runway?.variants?.netBurn?.basis ?? 0;
+    // netBurn is a monthly outflow: reverse the sign and annualize for years.
+    const cashFlowAmt = -(cashflow.data?.runway?.variants?.netBurn?.basis ?? 0) * 12;
 
     return {
       currentRatio: curLiab > 0 ? cur / curLiab : 0,
@@ -191,7 +190,7 @@ export function LoanProposalSection() {
                 value={metrics.debtRepaymentYears}
                 format={(v) => (v < 0 ? "—" : `${v.toFixed(1)}年`)}
                 threshold={(v) => (v < 0 ? "neutral" : v <= 10 ? "good" : v <= 20 ? "neutral" : "bad")}
-                hint="≤10年が健全"
+                hint="借入÷（月平均ネットCF×12）"
               />
             </tbody>
           </table>
