@@ -1,0 +1,55 @@
+.help-surface {
+  overflow-wrap: anywhere;
+}
+.help-surface a:focus-visible,
+.help-surface button:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 4px;
+}
+@media print {
+  .help-figure > button,
+  .help-checks input[type="checkbox"] {
+    display: block !important;
+  }
+  @page {
+    size: A4;
+    margin: 14mm;
+  }
+  .help-no-print,
+  .help-header {
+    display: none !important;
+  }
+  .help-surface,
+  .help-surface main {
+    background: white !important;
+    color: black !important;
+  }
+  .help-surface main {
+    padding: 0 !important;
+    max-width: none !important;
+  }
+  .help-surface h1 {
+    font-size: 22pt;
+  }
+  .help-surface h2 {
+    break-after: avoid;
+  }
+  .help-step,
+  .help-figure,
+  .help-checks,
+  .help-surface tr {
+    break-inside: avoid;
+  }
+  .help-figure {
+    max-width: 165mm;
+    margin: 6mm auto;
+  }
+  .help-surface p,
+  .help-surface td {
+    color: #333 !important;
+  }
+  .help-surface footer {
+    margin-top: 8mm;
+    padding: 4mm 0 0;
+  }
+}

@@ -1256,7 +1256,7 @@ function MenuVisibilitySettings() {
       </CardHeader>
       <CardContent>
         <p className="mb-3 text-xs text-muted-foreground">
-          サイドバーに表示するメニューを選択できます。ダッシュボードと設定は常に表示されます。
+          サイドバーに表示するメニューを選択できます。ダッシュボード・設定・使い方ヘルプは常に表示されます。
         </p>
         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
           {menuItems.map((item) => {

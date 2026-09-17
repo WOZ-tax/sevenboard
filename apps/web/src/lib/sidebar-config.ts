@@ -3,7 +3,7 @@
 import { useSyncExternalStore } from "react";
 
 // 非表示にできないメニュー
-const ALWAYS_VISIBLE = new Set(["/", "/settings"]);
+const ALWAYS_VISIBLE = new Set(["/", "/settings", "/help"]);
 const STORAGE_KEY = "sb_hidden_menus";
 
 export { ALWAYS_VISIBLE };

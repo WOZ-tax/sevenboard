@@ -2,6 +2,7 @@ import { apiRequestHeaders } from './request-headers';
 import { readApiJson } from './api-response';
 import { fetchInSession, sessionSignal } from './session-requests';
 import { serializeAuthChange } from './auth-transition';
+import type { StaffInput, StaffPreview, AssignmentInput, AssignmentPreview, AssignmentResult } from './staff-bulk';
 import type {
   AiSummaryResponse,
   AlertItem,
@@ -176,7 +177,7 @@ async function apiFetch<T>(
       // 旧実装が localStorage に残した 'token' の掃除 (マイグレーション。数リリース後に削除)
       localStorage.removeItem('token');
       setCsrfToken(null);
-      if (!window.location.pathname.includes('/login')) {
+      if (!window.location.pathname.includes('/login') && !/^\/help(?:\/|$)/.test(window.location.pathname)) {
         window.location.href = '/login';
       }
     }
@@ -848,6 +849,14 @@ export const api = {
 
   // === Tenant Staff (会計事務所スタッフ) ===
   tenantStaff: {
+    previewBulk: (tenantId: string, rows: StaffInput[], role: TenantStaffRole) =>
+      apiFetch<StaffPreview>(`/tenants/${tenantId}/staff/bulk/preview`, { method: 'POST', body: JSON.stringify({ rows, role }) }),
+    createBulk: (tenantId: string, rows: StaffInput[], role: TenantStaffRole) =>
+      apiFetch<StaffPreview>(`/tenants/${tenantId}/staff/bulk`, { method: 'POST', body: JSON.stringify({ rows, role }) }),
+    previewAssignments: (tenantId: string, input: AssignmentInput) =>
+      apiFetch<AssignmentPreview>(`/tenants/${tenantId}/staff/assignments/preview`, { method: 'POST', body: JSON.stringify(input) }),
+    assignBulk: (tenantId: string, input: AssignmentInput) =>
+      apiFetch<AssignmentResult>(`/tenants/${tenantId}/staff/assignments/bulk`, { method: 'POST', body: JSON.stringify(input) }),
     list: (tenantId: string) =>
       apiFetch<TenantStaffRow[]>(`/tenants/${tenantId}/staff`),
 

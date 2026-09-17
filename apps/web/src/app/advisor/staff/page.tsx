@@ -16,6 +16,7 @@ import {
   ArrowLeft,
 } from "lucide-react";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
+import { BulkStaffDialog } from "@/components/staff/bulk-staff-dialog";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -83,7 +84,7 @@ function InternalStaffContent() {
   const tenantId = currentOrg?.tenantId ?? "";
 
   // Tenant owner のみ閲覧可。platform_owner だけではここに入れない。
-  const canAccess = currentOrg?.tenantRole === "firm_owner";
+  const canAccess = currentOrg?.tenantRole === "firm_owner" && !currentOrg?.isDemo;
   useEffect(() => {
     if (hydrated && user && !orgLoading && !canAccess) {
       router.push("/advisor");
@@ -98,15 +99,18 @@ function InternalStaffContent() {
   });
 
   const [createOpen, setCreateOpen] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<StaffRow | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<StaffRow | null>(null);
 
   const refresh = () =>
     queryClient.invalidateQueries({ queryKey: ["tenant-staff", tenantId] });
 
+  if (!canAccess) return null;
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <Button
             variant="ghost"
@@ -127,6 +131,8 @@ function InternalStaffContent() {
             </p>
           </div>
         </div>
+        <div className="flex flex-wrap gap-2">
+        <Button variant="outline" onClick={() => setBulkOpen(true)}><Users className="h-4 w-4" />スタッフを一括登録</Button>
         <Button
           onClick={() => setCreateOpen(true)}
           className="gap-1.5 bg-[var(--color-primary)] text-white hover:bg-[var(--color-primary)]/90"
@@ -134,6 +140,7 @@ function InternalStaffContent() {
           <Plus className="h-4 w-4" />
           スタッフを追加
         </Button>
+        </div>
       </div>
 
       {error && (
@@ -217,6 +224,7 @@ function InternalStaffContent() {
         </Table>
       </div>
 
+      {bulkOpen && <BulkStaffDialog key={tenantId} tenantId={tenantId} onClose={() => setBulkOpen(false)} onCreated={refresh} />}
       <CreateStaffDialog
         tenantId={tenantId}
         open={createOpen}

@@ -21,6 +21,7 @@ import {
   CalendarClock,
   Building2,
   Landmark,
+  BookOpen,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
@@ -52,6 +53,7 @@ const menuItems = [
   { label: "トークスクリプト", href: "/talk-script", icon: Mic },
   { label: "アラート", href: "/alerts", icon: Bell },
   { label: "設定", href: "/settings", icon: Settings },
+  { label: "使い方・ヘルプ", href: "/help", icon: BookOpen },
 ];
 
 export { menuItems };

@@ -47,6 +47,7 @@ import {
 } from "@/components/ui/table";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
+import { BulkAssignmentsDialog } from "@/components/staff/bulk-assignments-dialog";
 import { api, type OrgAdvisor, type TenantStaffRow } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth";
 import { useCurrentOrg, deriveTenantCapabilities } from "@/contexts/current-org";
@@ -141,7 +142,7 @@ function AdvisorPortalContent() {
   const router = useRouter();
   const switchOrg = useAuthStore((s) => s.switchOrg);
   const user = useAuthStore((s) => s.user);
-  const { currentOrg, setCurrentOrgId, isLoading: orgLoading } =
+  const { currentOrg, memberships, setCurrentOrgId, isLoading: orgLoading } =
     useCurrentOrg();
   const queryClient = useQueryClient();
   const hydrated = useIsClient();
@@ -166,8 +167,9 @@ function AdvisorPortalContent() {
   const canCreateOrg = canAccess && !currentOrg?.isDemo;
   const canEditOrg = canAccess && !currentOrg?.isDemo;
   const canDeleteOrg = user?.role === "owner";
-  // 事務所スタッフ管理: firm_owner に加え firm_admin / firm_manager も許可。
-  const canManageStaff = tenantCaps.canManageStaff;
+  // Match the API's tenant:staff:manage permission.
+  const canManageStaff = currentOrg?.tenantRole === "firm_owner" && !currentOrg?.isDemo;
+  const [bulkAssignmentsOpen, setBulkAssignmentsOpen] = useState(false);
 
   // 新規顧問先追加 modal
   const [newOrgOpen, setNewOrgOpen] = useState(false);
@@ -383,14 +385,15 @@ function AdvisorPortalContent() {
   return (
     <div className="space-y-4">
       {/* Page title */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-foreground">管理ポータル</h1>
           <p className="text-sm text-muted-foreground">
             担当顧問先の一覧と横断管理
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {canManageStaff && <Button variant="outline" onClick={() => setBulkAssignmentsOpen(true)}>担当者を一括割当</Button>}
           {canManageStaff && (
             <Button
               variant="outline"
@@ -413,6 +416,18 @@ function AdvisorPortalContent() {
         </div>
       </div>
 
+      {bulkAssignmentsOpen && canManageStaff && currentOrg && <BulkAssignmentsDialog
+        key={currentOrg.tenantId}
+        tenantId={currentOrg.tenantId}
+        companies={memberships.filter(m => m.tenantId === currentOrg.tenantId && !m.isDemo).map(m => ({ id: m.orgId, name: m.orgName, detail: m.orgCode ?? undefined }))}
+        onClose={() => setBulkAssignmentsOpen(false)}
+        onAssigned={() => {
+          queryClient.invalidateQueries({ queryKey: ["tenant-staff", currentOrg.tenantId] });
+          queryClient.invalidateQueries({ queryKey: ["org-advisors"] });
+          queryClient.invalidateQueries({ queryKey: ["auth", "memberships"] });
+          fetchOrgs();
+        }}
+      />}
       <NewOrgDialog
         open={newOrgOpen}
         onOpenChange={setNewOrgOpen}

@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 import { AppSidebar } from "@/components/layout/sidebar";
 import { AppHeader } from "@/components/layout/header";
 import { AuthGuard } from "@/components/auth-guard";
@@ -25,6 +27,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
             <div className="border-b border-blue-200 bg-blue-50 px-4 py-2 text-xs text-blue-950" role="note">
               <strong>研修・説明用デモ</strong> · 架空の卸売会社 · 実績は {currentOrg.dataAsOf} まで。
               入力・保存は共通アカウントの利用者全員に反映されます。実在する顧客情報は入力しないでください。
+              <Link href="/help/quickstart" target="_blank" rel="noopener noreferrer" className="ml-3 font-semibold underline">デモの使い方</Link>
             </div>
           )}
           <main className="flex-1 overflow-y-auto bg-[var(--color-background)] p-4">
