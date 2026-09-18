@@ -8,8 +8,8 @@ export function money(value: number | null, unit: StracUnit = '万円') {
 }
 export const percent = (v: number | null) => v === null || !Number.isFinite(v) ? '—' : `${(v * 100).toFixed(1)}%`;
 
-/** Amounts are outside the proportional bands, so even thin bands remain legible. */
-export function StracChart({ data: d, unit }: { data: StracActual; unit: StracUnit }) {
+/** Supplemental area view. Amounts stay outside the proportional bands. */
+function StracAreaChart({ data: d, unit }: { data: StracActual; unit: StracUnit }) {
   const proportional = d.revenue > 0 && [d.variable, d.contribution, d.fixed, d.personnel, d.otherFixed, d.operating].every(v => v >= 0);
   const values = [
     { label: '売上高', value: d.revenue, color: '#cfe2f3' },
@@ -53,5 +53,53 @@ export function StracChart({ data: d, unit }: { data: StracActual; unit: StracUn
       {values.map(v => <div key={v.label} className="rounded-md border p-3" style={{ borderTopColor: v.color, borderTopWidth: 3 }}><div className="text-xs text-muted-foreground">{v.label}</div><div className="mt-1 break-words text-lg font-bold tabular-nums" title={`${v.value.toLocaleString('ja-JP')}円`}>{money(v.value, unit)}<span className="ml-1 text-[10px] font-normal">{unit}</span></div></div>)}
     </div>
     <p className="mt-2 text-xs leading-6 text-muted-foreground">固定費の内訳：人件費 {money(d.personnel, unit)}{unit} ／ その他 {money(d.otherFixed, unit)}{unit}。金額は図の下に表示しています。</p>
+  </div>;
+}
+
+
+export function FlowAmount({ value, unit }: { value: number | null; unit: StracUnit }) {
+  return <span className={`strac-amount tabular-nums ${value !== null && value < 0 ? 'text-red-700' : ''}`} title={value === null ? '未確認' : `${Math.round(value).toLocaleString('ja-JP')}円`}>{money(value, unit)}{value !== null && <span className="ml-1 text-xs font-normal">{unit}</span>}</span>;
+}
+
+export function FlowCard({ label, term, value, unit, operator, tone = 'neutral', children, testId }: {
+  label: string; term?: string; value: number | null; unit: StracUnit; operator?: string;
+  tone?: 'neutral' | 'sales' | 'margin' | 'cost' | 'profit'; children?: React.ReactNode; testId?: string;
+}) {
+  return <div className={`strac-flow-card strac-tone-${tone}`}>
+    {operator && <span className="strac-operator" aria-label={operator === '−' ? '差し引く' : operator === '＋' ? '加える' : 'イコール'}>{operator}</span>}
+    <div><p className="text-sm font-semibold leading-6">{label}</p>{term && <p className="mt-0.5 text-[11px] text-muted-foreground">{term}</p>}</div>
+    <p data-testid={testId} className="mt-3 text-xl font-bold leading-8"><FlowAmount value={value} unit={unit} /></p>
+    {children && <p className="mt-2 text-xs leading-5 text-muted-foreground">{children}</p>}
+  </div>;
+}
+
+/** Reading order stays fixed, even when profit is small or negative. */
+export function StracChart({ data: d, unit }: { data: StracActual; unit: StracUnit }) {
+  return <div className="space-y-5">
+    <div data-print-block>
+      <h3 className="mb-3 text-sm font-semibold">売上から、本業の利益へ</h3>
+      <div className="strac-flow strac-flow-five" aria-label="売上から営業利益への計算">
+        <FlowCard label="売上" term="売上高" value={d.revenue} unit={unit} tone="sales">商品・サービスの売上</FlowCard>
+        <FlowCard label="変動費" value={d.variable} unit={unit} operator="−">仕入・外注など、売上に連動</FlowCard>
+        <FlowCard label="限界利益" value={d.contribution} unit={unit} operator="＝" tone="margin">固定費と利益のもと</FlowCard>
+        <FlowCard label="固定費" value={d.fixed} unit={unit} operator="−" tone="cost">人件費・家賃など</FlowCard>
+        <FlowCard label="本業の利益" term="営業利益" value={d.operating} unit={unit} operator="＝" tone="profit">本業の費用を引いた利益</FlowCard>
+      </div>
+      <p className="mt-3 text-xs leading-6 text-muted-foreground">固定費の内訳：人件費 {money(d.personnel, unit)}{unit} ／ その他 {money(d.otherFixed, unit)}{unit}。限界利益には、荷造運賃など販管費の変動費も反映します。</p>
+    </div>
+    <div data-print-block className="border-t pt-5">
+      <h3 className="mb-2 text-sm font-semibold">税金を引くと、最終的にいくら利益が残る？</h3>
+      <p className="mb-3 text-xs leading-6 text-muted-foreground">本業の利益に、利息などの営業外損益と臨時の特別損益を加減したものが「税金を引く前の利益」です。</p>
+      <div className="strac-flow strac-flow-three" aria-label="税金を引く前から引いた後の利益">
+        <FlowCard label="税金を引く前の利益" term="税引前当期利益" value={d.pretax} unit={unit} tone="profit" testId="strac-pretax">本業以外の損益も含めた利益</FlowCard>
+        <FlowCard label="利益にかかる税金" term="法人税等" value={d.tax} unit={unit} operator="−">会計に計上された税金</FlowCard>
+        <FlowCard label="税金を引いた後の利益" term="当期純利益" value={d.net} unit={unit} operator="＝" tone="margin" testId="strac-net">損益計算書の最終的な利益</FlowCard>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 rounded-md bg-muted/40 p-3 text-xs leading-6" aria-label="税引前利益の内訳">
+        <span>営業利益 {money(d.operating, unit)}{unit}</span><span>＋ 営業外損益 {money(d.nonOperating, unit)}{d.nonOperating === null ? '' : unit}</span><span>＋ 特別損益 {money(d.extraordinary, unit)}{d.extraordinary === null ? '' : unit}</span><span className="font-semibold">＝ 税引前当期利益 {money(d.pretax, unit)}{d.pretax === null ? '' : unit}</span>
+      </div>
+      <p className="mt-2 text-xs leading-6 text-muted-foreground">ここまでは実績の利益です。記帳途中・決算整理未反映の場合があります。端数は四捨五入しています。円単位は「表示単位」で切り替えられます。</p>
+    </div>
+    <details className="rounded-lg border p-3"><summary className="cursor-pointer text-xs font-medium">面積で費用構成を見る（ストラック図の詳細）</summary><div className="mt-3"><StracAreaChart data={d} unit={unit} /></div></details>
   </div>;
 }

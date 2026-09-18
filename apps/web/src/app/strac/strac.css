@@ -23,3 +23,41 @@
   body:has(.strac-page) header > div { flex-shrink: 0; }
   body:has(.strac-page) main { padding: 12px; }
 }
+
+.strac-flow { display: grid; gap: 26px; }
+.strac-flow-five { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.strac-flow-three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.strac-flow-card { position: relative; min-width: 0; border: 1px solid #dedbd5; border-top-width: 3px; border-radius: 8px; padding: 14px; background: #faf9f7; }
+.strac-flow-card > div:first-of-type { min-height: 43px; }
+.strac-tone-sales { background: #eff5fa; border-top-color: #a8c5dd; }
+.strac-tone-margin { background: #eff5ed; border-top-color: #aecba6; }
+.strac-tone-cost { background: #fff9e8; border-top-color: #e4ca80; }
+.strac-tone-profit { background: #fdf2eb; border-top-color: #e5b394; }
+.strac-operator { position: absolute; top: 50%; left: -27px; width: 26px; text-align: center; transform: translateY(-50%); color: #78716c; font-size: 20px; font-weight: 500; }
+.strac-amount { overflow-wrap: anywhere; }
+.strac-repayment-result .strac-amount { font-size: 26px; }
+@media screen and (max-width: 1199px) {
+  .strac-flow-five { grid-template-columns: 1fr; }
+  .strac-flow-five .strac-flow-card { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+  .strac-flow-five .strac-flow-card > p:first-of-type { text-align: right; margin-top: 0; align-self: center; }
+  .strac-flow-five .strac-flow-card > p:last-of-type { grid-column: 1 / -1; }
+  .strac-flow-five .strac-operator { top: -28px; left: calc(50% - 13px); transform: none; line-height: 26px; }
+}
+@media screen and (max-width: 959px) {
+  .strac-flow-three { grid-template-columns: 1fr; }
+  .strac-flow-three .strac-operator { top: -28px; left: calc(50% - 13px); transform: none; line-height: 26px; }
+}
+@media print {
+  .strac-flow { gap: 18px; }
+  .strac-flow-card { padding: 9px; print-color-adjust: exact; }
+  .strac-flow-card .strac-amount { font-size: 16px; }
+  .strac-operator { left: -19px; width: 18px; font-size: 16px; }
+}
+
+@media print {
+  .strac-metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); break-inside: avoid; }
+  .strac-insights, .strac-scenario { grid-template-columns: repeat(3, minmax(0, 1fr)); break-inside: avoid; }
+  .strac-cash-adjustments { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .strac-metrics .text-2xl, .strac-scenario .text-2xl { font-size: 18px; }
+  .strac-insights .leading-7 { line-height: 1.7; }
+}

@@ -15,6 +15,7 @@ import { usePeriodStore } from '@/lib/period-store';
 import { api } from '@/lib/api';
 import { stracFingerprint, stracActual, stracBookDebt, stracPlan, stracRepayments, stracWindow, normalizeStracAssumptions, type StracAssumptions, type StracWindow } from '@/lib/strac';
 import { StracChart, money, percent, STRAC_UNITS, type StracUnit } from './_chart';
+import { RepaymentFlow } from './_repayment';
 import './strac.css';
 
 const featureKey = 'strac.assumptions.v1';
@@ -46,10 +47,7 @@ function SectionTitle({ number, title, description }: { number: string; title: s
   return <div className="mb-4 flex items-start gap-3"><span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-xs font-bold text-primary">{number}</span><div><h2 className="font-bold">{title}</h2><p className="mt-1 text-xs leading-5 text-muted-foreground">{description}</p></div></div>;
 }
 function Metric({ label, value, detail }: { label: string; value: string; detail: string }) {
-  return <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">{label}</p><p className="mt-2 break-words text-2xl font-bold tabular-nums">{value}</p><p className="mt-1 text-[11px] leading-5 text-muted-foreground">{detail}</p></CardContent></Card>;
-}
-function BridgeRow({ label, value, strong = false }: { label: string; value: string; strong?: boolean }) {
-  return <div className={`flex flex-wrap items-center justify-between gap-2 py-2.5 text-sm ${strong ? 'border-y bg-muted/60 px-2 font-bold' : ''}`}><span className="text-xs">{label}</span><span className="tabular-nums">{value}</span></div>;
+  return <Card data-print-block><CardContent className="p-4"><p className="text-xs text-muted-foreground">{label}</p><p className="mt-2 break-words text-2xl font-bold tabular-nums">{value}</p><p className="mt-1 text-[11px] leading-5 text-muted-foreground">{detail}</p></CardContent></Card>;
 }
 function Insight({ title, children }: { title: string; children: React.ReactNode }) {
   return <div className="rounded-lg border bg-card p-4"><h3 className="flex items-start gap-2 text-sm font-semibold"><ArrowRight className="mt-0.5 h-4 w-4 shrink-0 text-primary" />{title}</h3><p className="mt-2 text-xs leading-7 text-muted-foreground">{children}</p></div>;
@@ -94,21 +92,17 @@ function StracContent({ orgId, company, window: w, readOnly }: { orgId: string; 
     <div className="flex flex-wrap items-center justify-between gap-3 text-xs"><div><p className="font-semibold">{company}</p><p className="mt-1 text-muted-foreground">実績：{w.start} 〜 {w.end}（{w.months}か月累計）</p></div><div className="screen-only flex items-center gap-3"><label>表示単位 <select aria-label="表示単位" value={unit} onChange={e => setUnit(e.target.value as StracUnit)} className="ml-1 rounded border bg-card p-2">{Object.keys(STRAC_UNITS).map(u => <option key={u}>{u}</option>)}</select></label><Button variant="outline" size="sm" onClick={retry} disabled={queries.some(q => q.isFetching)}><RefreshCw className="h-3.5 w-3.5" />再取得</Button></div></div>
     {w.capped && <Notice>未経過の月を含めず、{w.end}までの月末実績を表示しています。</Notice>}
     {!sourceReady && <Notice warning>{issueList(actual.issues)}<p className="mt-2">P/Lとの一致を確認するまで、返済余力の試算を保留します。</p></Notice>}
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+    <Card><CardContent className="p-4 sm:p-6">
+      <SectionTitle number="01" title="売上は、どこで利益になるか" description={`実績：${w.start} 〜 ${w.end}（${w.months}か月）。上から順に、売上から最終的な利益までを確認します。`} />
+      {[actual.revenue, actual.variable, actual.fixed, actual.operating].every(Number.isFinite) ? <StracChart data={actual} unit={unit} /> : <Notice warning>図を描画できる数値を取得できませんでした。</Notice>}
+    </CardContent></Card>
+    <div className="strac-metrics grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
       <Metric label="売上100円から残る限界利益" value={actual.margin === null ? '—' : `${(actual.margin * 100).toFixed(1)}円`} detail="売上 − 変動費。固定費と利益の原資です。" />
       <Metric label="損益分岐点売上高" value={amount(actual.breakEven)} detail="営業利益が0になる売上。表示実績期間の金額。" />
       <Metric label="経営安全率" value={percent(actual.safetyMargin)} detail="現在の売上が損益分岐点を上回る割合。" />
       <Metric label="労働分配率" value={percent(actual.laborShare)} detail="固定費に区分した人件費 ÷ 限界利益。" />
     </div>
-    <Card><CardContent className="p-4 sm:p-6">
-      <SectionTitle number="01" title="売上は、どこで利益になるか" description="MFの損益を変動費・固定費に組み替えます。「変動損益」の保存済み区分と連動します。" />
-      {[actual.revenue, actual.variable, actual.fixed, actual.operating].every(Number.isFinite) ? <StracChart data={actual} unit={unit} /> : <Notice warning>図を描画できる数値を取得できませんでした。</Notice>}
-      <div className="mt-4 grid gap-2 rounded-lg bg-muted/60 p-4 sm:grid-cols-5" aria-label="営業利益から当期純利益へのつながり">
-        {([['営業利益', actual.operating], ['営業外損益', actual.nonOperating], ['特別損益', actual.extraordinary], ['法人税等', actual.tax], ['当期純利益', actual.net]] as const).map(([label, v], i) => <div key={label} className="min-w-0"><p className="text-[11px] text-muted-foreground">{i > 0 ? i === 3 ? '− ' : i === 4 ? '= ' : '+ ' : ''}{label}</p><p className="mt-1 break-words text-sm font-bold tabular-nums">{amount(v)}</p></div>)}
-      </div>
-      <p className="mt-2 text-xs text-muted-foreground">税引前利益 {amount(actual.pretax)}。記帳途中・決算整理未反映の数値を含む場合があります。限界利益は粗利とは異なります。荷造運賃など、販管費の変動費も差し引きます。</p>
-    </CardContent></Card>
-    {sourceReady && <div className="grid gap-3 lg:grid-cols-3">
+    {sourceReady && <div className="strac-insights grid gap-3 lg:grid-cols-3">
       <Insight title="売上を増やす前に、残る割合を見る">{actual.margin !== null && actual.margin > 0 ? <>同じ費用構成で売上が100万円増えると、固定費が増えなければ営業利益は約{amount(actual.margin * 1_000_000)}増えます。値引きや追加の人員・物流費をセットで確認しましょう。</> : <>限界利益がプラスになっていません。売上拡大だけでは改善しないため、販売単価・仕入条件・費用区分を先に確認します。</>}</Insight>
       <Insight title="固定費を支える売上の幅をつかむ">{actual.breakEven !== null ? <>現在の売上は損益分岐点を{amount(Math.abs(actual.revenue - actual.breakEven))}{actual.revenue >= actual.breakEven ? '上回っています' : '下回っています'}。{actual.safetyMargin !== null && actual.safetyMargin >= 0 ? `同じ限界利益率なら、売上が約${percent(actual.safetyMargin)}減ると営業利益が0になります。` : '限界利益の増加または固定費の見直しが必要です。'}</> : <>限界利益率が0以下などのため、損益分岐点を算出できません。費用の区分と採算を確認します。</>}</Insight>
       <Insight title="利益と返済原資の差に注目する">借入元金の返済は費用になりません。利益に減価償却費を戻し、在庫・売掛金の増加や設備投資で使う資金を引いたうえで、下の返済予定額と比較します。</Insight>
@@ -120,18 +114,7 @@ function StracContent({ orgId, company, window: w, readOnly }: { orgId: string; 
       {(loans.isError || bs.isError) && <Notice warning>返済予定表または帳簿残高を取得できませんでした。元金返済額は未確認です。「再取得」または確認済みの年間返済額を入力してください。</Notice>}
       {repayment && !repayment.complete && <Notice warning>{issueList(repayment.issues)}<Link href="/loans" className="mt-2 inline-block underline">借入金管理で確認する</Link></Notice>}
       {repayment?.estimated && <p className="mb-3 text-xs text-amber-800">返済予定表に推定した金額が含まれています。銀行の予定表と照合してください。</p>}
-      {validPlan ? <div className="mt-4 grid gap-4 lg:grid-cols-[1.2fr_1fr]">
-        <div className="rounded-lg border p-4" aria-label="返済原資の計算">
-          <BridgeRow label="年換算の税引後利益（試算）" value={amount(plan.base.net)} /><BridgeRow label="＋ 減価償却・償却費" value={amount(plan.depreciation)} /><BridgeRow label="＝ 簡易返済原資" value={amount(plan.base.simpleCash)} strong />
-          <BridgeRow label="− 運転資金の増加" value={amount(plan.workingCapital)} /><BridgeRow label="− 設備投資の支払" value={amount(plan.capex)} /><BridgeRow label="＋ その他の資金調整" value={amount(plan.otherCash)} /><BridgeRow label="＝ 元金返済に回せる資金" value={amount(plan.base.availableCash)} strong /><BridgeRow label="− 今後12か月の元金返済" value={amount(plan.principal)} />
-        </div>
-        <div data-print-block className="flex flex-col justify-center rounded-lg border bg-muted/40 p-5"><p className="text-sm font-semibold">返済後に残る資金（試算）</p><p data-testid="strac-surplus" className={`mt-3 break-words text-3xl font-bold tabular-nums ${plan.base.surplus !== null && plan.base.surplus < 0 ? 'text-red-700' : 'text-primary'}`}>{amount(plan.base.surplus)}</p>
-          <p className="mt-2 text-xs leading-6 text-muted-foreground">{plan.base.coverage === null ? plan.principal === 0 ? '登録・確認済みの元金返済額は0円です。倍率は表示しません。' : '返済額が未確認のため、過不足を判定していません。' : `元金返済カバー倍率 ${plan.base.coverage.toFixed(2)}倍（返済可能資金 ÷ 元金返済額）`}</p>
-          {!reviewed && <p className="mt-3 text-xs leading-6 text-amber-800">運転資金・設備投資などは初期値0円です。下の前提を確認してください。会計データや費用区分が更新された場合も再確認が必要です。</p>}
-          <div className="mt-4 border-t pt-3 text-xs leading-6 text-muted-foreground">手元預金の残高ではなく、この12か月に事業から生まれる資金の試算です。月ごとの支払時期は「資金繰り」で確認します。</div>
-          <div className="screen-only mt-4 flex flex-wrap gap-4 text-xs font-medium text-primary"><Link href="/loans" className="underline">借入金管理へ →</Link><Link href="/cashflow" className="underline">資金繰りへ →</Link></div>
-        </div>
-      </div> : <Notice warning>{saved.isPending ? '保存済みの前提を読み込んでいます…' : saved.isError ? '保存済みの前提を取得できないため試算を保留しています。再取得してください。' : issueList(plan.issues)}</Notice>}
+      {validPlan ? <RepaymentFlow plan={plan} actual={actual} window={w} unit={unit} reviewed={reviewed} /> : <Notice warning>{saved.isPending ? '保存済みの前提を読み込んでいます…' : saved.isError ? '保存済みの前提を取得できないため試算を保留しています。再取得してください。' : issueList(plan.issues)}</Notice>}
       <p className="mt-3 text-xs leading-6 text-muted-foreground">想定税率 {percent(plan.taxRate)} ／ 年換算係数 {plan.factor.toFixed(2)}倍。特別損益は翌年に繰り返さず、営業外損益は実績の年換算を使います。支払利息は利益に含まれるため、元金と一緒に二重控除しません。季節性・今後の金利変更・税金の均等割や納付時期は別途調整してください。</p>
       <details className="mt-4 rounded-lg border p-4"><summary className="cursor-pointer text-sm font-medium">返済額の内訳と帳簿との照合</summary>
         {repayment ? <div className="mt-3 text-xs leading-6"><p>基準日 {w.end}：予定表残高 {yen(repayment.balance)} ／ 帳簿借入残高 {yen(bs.data ? stracBookDebt(bs.data) : null)}</p>{repayment.rows.length > 0 ? <div className="mt-2 space-y-2">{repayment.rows.map(r => <div key={r.id} className="flex flex-wrap justify-between gap-2 rounded bg-muted p-2"><Link href={`/loans/${r.id}`} className="underline">{r.name}</Link><span>元金 {yen(r.principal)} ／ 利息 {yen(r.interest)}（参考）</span></div>)}</div> : <p>登録された借入はありません。</p>}{plan.manualPrincipal && <p className="mt-2 text-amber-800">試算には、手入力の元金返済額 {yen(plan.principal)}を使用しています。</p>}</div> : <p className="mt-3 text-xs text-muted-foreground">返済額の取得・照合が完了していません。</p>}
@@ -157,7 +140,7 @@ function StracContent({ orgId, company, window: w, readOnly }: { orgId: string; 
         {field('fixedReduction', '固定費の削減額（円／年）', '支出を伴う費用の削減。償却費も変える場合は前提欄も調整。')}
         {field('retainedCash', '返済後に残したい資金（円／年）', '下の「必要売上高」に反映します。')}
       </div>
-      {validPlan ? <div className="mt-5 grid gap-3 lg:grid-cols-3">
+      {validPlan ? <div className="strac-scenario mt-5 grid gap-3 lg:grid-cols-3">
         <Metric label="改善後の返済余力" value={amount(plan.scenario.surplus)} detail={`改善前 ${amount(plan.base.surplus)} → 差額 ${amount(delta)}`} />
         <Metric label="返済と目標資金を満たす必要売上高" value={amount(plan.scenario.requiredRevenue)} detail={plan.scenario.requiredRevenue === null ? '元金返済額の確認と、プラスの限界利益率が必要です。' : `改善後の限界利益率 ${percent(plan.scenario.margin)}・固定費 ${amount(plan.scenario.fixed)}で逆算。`} />
         <Metric label="改善シナリオの年間売上" value={amount(plan.scenario.revenue)} detail={plan.scenario.requiredRevenue === null ? '必要売上高は未算出です。' : plan.scenario.revenue >= plan.scenario.requiredRevenue ? `必要売上を ${amount(plan.scenario.revenue - plan.scenario.requiredRevenue)}上回る計画です。` : `目標まで、さらに ${amount(plan.scenario.requiredRevenue - plan.scenario.revenue)}の売上が必要です。`} />
