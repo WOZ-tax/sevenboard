@@ -22,6 +22,7 @@ import {
   Building2,
   Landmark,
   BookOpen,
+  ChartNoAxesCombined,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
@@ -48,6 +49,7 @@ const menuItems = [
   { label: "資金調達レポート", href: "/funding-report", icon: FileBarChart },
   { label: "借入金管理", href: "/loans", icon: Landmark },
   { label: "変動損益", href: "/variable-cost", icon: TrendingDown },
+  { label: "ストラック図", href: "/strac", icon: ChartNoAxesCombined },
   { label: "ロカベン", href: "/locaben", icon: Building2 },
   { label: "決算検討", href: "/year-end-review", icon: CalendarClock },
   { label: "トークスクリプト", href: "/talk-script", icon: Mic },

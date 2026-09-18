@@ -1,0 +1,25 @@
+.strac-page { min-width: 0; }
+.strac-page [data-slot="card"] { min-width: 0; }
+@media print {
+  body:has(.strac-page) aside { display: none !important; }
+  body:has(.strac-page) .h-screen, body:has(.strac-page) aside + div { display: block !important; }
+  .strac-page details:not([open]) { display: none !important; }
+  body:has(.strac-page) .h-screen { height: auto !important; }
+  body:has(.strac-page) .overflow-hidden,
+  body:has(.strac-page) .overflow-y-auto { overflow: visible !important; }
+  .strac-page { color: #23221e; font-size: 11px; }
+  .strac-page .strac-inputs { display: none !important; }
+  .strac-page .strac-svg { min-width: 0 !important; }
+  .strac-page .strac-chart-scroll { overflow: visible !important; }
+  .strac-page svg { print-color-adjust: exact; }
+  .strac-page [data-slot="card"] { break-inside: auto; box-shadow: none; }
+  .strac-page h2, .strac-page h3 { break-after: avoid; }
+}
+
+@media screen and (max-width: 767px) {
+  body:has(.strac-page) aside { display: none; }
+  body:has(.strac-page) aside + div { min-width: 0; }
+  body:has(.strac-page) header { overflow-x: auto; flex-shrink: 0; gap: 16px; padding: 0 12px; }
+  body:has(.strac-page) header > div { flex-shrink: 0; }
+  body:has(.strac-page) main { padding: 12px; }
+}
