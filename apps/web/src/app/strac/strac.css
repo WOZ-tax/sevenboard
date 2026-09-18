@@ -13,6 +13,7 @@
   .strac-page .strac-chart-scroll { overflow: visible !important; }
   .strac-page svg { print-color-adjust: exact; }
   .strac-page [data-slot="card"] { break-inside: auto; box-shadow: none; }
+  .strac-page [data-slot="card"][data-print-block] { break-inside: avoid; }
   .strac-page h2, .strac-page h3 { break-after: avoid; }
 }
 
@@ -25,7 +26,6 @@
 }
 
 .strac-flow { display: grid; gap: 26px; }
-.strac-flow-five { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 .strac-flow-three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .strac-flow-card { position: relative; min-width: 0; border: 1px solid #dedbd5; border-top-width: 3px; border-radius: 8px; padding: 14px; background: #faf9f7; }
 .strac-flow-card > div:first-of-type { min-height: 43px; }
@@ -36,13 +36,6 @@
 .strac-operator { position: absolute; top: 50%; left: -27px; width: 26px; text-align: center; transform: translateY(-50%); color: #78716c; font-size: 20px; font-weight: 500; }
 .strac-amount { overflow-wrap: anywhere; }
 .strac-repayment-result .strac-amount { font-size: 26px; }
-@media screen and (max-width: 1199px) {
-  .strac-flow-five { grid-template-columns: 1fr; }
-  .strac-flow-five .strac-flow-card { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
-  .strac-flow-five .strac-flow-card > p:first-of-type { text-align: right; margin-top: 0; align-self: center; }
-  .strac-flow-five .strac-flow-card > p:last-of-type { grid-column: 1 / -1; }
-  .strac-flow-five .strac-operator { top: -28px; left: calc(50% - 13px); transform: none; line-height: 26px; }
-}
 @media screen and (max-width: 959px) {
   .strac-flow-three { grid-template-columns: 1fr; }
   .strac-flow-three .strac-operator { top: -28px; left: calc(50% - 13px); transform: none; line-height: 26px; }

@@ -14,7 +14,7 @@ import { useMfOffice } from '@/hooks/use-mf-data';
 import { usePeriodStore } from '@/lib/period-store';
 import { api } from '@/lib/api';
 import { stracFingerprint, stracActual, stracBookDebt, stracPlan, stracRepayments, stracWindow, normalizeStracAssumptions, type StracAssumptions, type StracWindow } from '@/lib/strac';
-import { StracChart, money, percent, STRAC_UNITS, type StracUnit } from './_chart';
+import { StracAreaChart, StracProfitFlow, money, percent, STRAC_UNITS, type StracUnit } from './_chart';
 import { RepaymentFlow } from './_repayment';
 import './strac.css';
 
@@ -93,8 +93,12 @@ function StracContent({ orgId, company, window: w, readOnly }: { orgId: string; 
     {w.capped && <Notice>未経過の月を含めず、{w.end}までの月末実績を表示しています。</Notice>}
     {!sourceReady && <Notice warning>{issueList(actual.issues)}<p className="mt-2">P/Lとの一致を確認するまで、返済余力の試算を保留します。</p></Notice>}
     <Card><CardContent className="p-4 sm:p-6">
-      <SectionTitle number="01" title="売上は、どこで利益になるか" description={`実績：${w.start} 〜 ${w.end}（${w.months}か月）。上から順に、売上から最終的な利益までを確認します。`} />
-      {[actual.revenue, actual.variable, actual.fixed, actual.operating].every(Number.isFinite) ? <StracChart data={actual} unit={unit} /> : <Notice warning>図を描画できる数値を取得できませんでした。</Notice>}
+      <h2 className="mb-3 text-sm font-semibold">ストラック図で見る売上・費用・利益</h2>
+      {[actual.revenue, actual.variable, actual.fixed, actual.operating].every(Number.isFinite) ? <StracAreaChart data={actual} unit={unit} /> : <Notice warning>図を描画できる数値を取得できませんでした。</Notice>}
+    </CardContent></Card>
+    <Card data-print-block><CardContent className="p-4 sm:p-6">
+      <SectionTitle number="01" title="売上は、どこで利益になるか" description={`実績：${w.start} 〜 ${w.end}（${w.months}か月）。上の図の営業利益から、税金を引いた後の利益までを確認します。`} />
+      {[actual.revenue, actual.variable, actual.fixed, actual.operating].every(Number.isFinite) ? <StracProfitFlow data={actual} unit={unit} /> : <Notice warning>図を描画できる数値を取得できませんでした。</Notice>}
     </CardContent></Card>
     <div className="strac-metrics grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
       <Metric label="売上100円から残る限界利益" value={actual.margin === null ? '—' : `${(actual.margin * 100).toFixed(1)}円`} detail="売上 − 変動費。固定費と利益の原資です。" />
@@ -132,7 +136,7 @@ function StracContent({ orgId, company, window: w, readOnly }: { orgId: string; 
         <label className="screen-only mt-4 flex items-start gap-2 rounded-md bg-muted/60 p-3 text-xs leading-6"><input type="checkbox" className="mt-1" checked={reviewed} disabled={saved.isPending || saved.isError || save.isPending} onChange={e => set('confirmed', e.target.checked)} />想定税率・償却費・返済予定・運転資金・投資・その他の調整を確認した（変更後は再確認）</label>
       </div>
     </CardContent></Card>
-    <Card><CardContent className="p-4 sm:p-6">
+    <Card data-print-block><CardContent className="p-4 sm:p-6">
       <SectionTitle number="03" title="何を変えると、返済余力が増えるか" description="同じ12か月の前提で改善前後を比較します。限界利益率と固定費を一定とする簡易モデルです。" />
       <div className="strac-inputs grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {field('salesChange', '売上の増減率（%）', '年換算売上に対する増減。値下げによる費用率の変化は右欄も調整。')}
